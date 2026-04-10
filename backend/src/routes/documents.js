@@ -33,90 +33,162 @@ const baseJuridica = {
   outro: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 31']
 };
 
-async function anonimizarPDFComTarjas(pdfBuffer) {
-  const base64PDF = pdfBuffer.toString('base64');
+async function extrairItensComPosicao(pdfBuffer) {
+  const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+  const resultado = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const viewport = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+    for (const item of content.items) {
+      if (!item.str.trim()) continue;
+      resultado.push({
+        str: item.str,
+        x: item.transform[4],
+        y: viewport.height - item.transform[5] - (item.height || 12),
+        width: item.width,
+        height: item.height || 12,
+        pagina: p,
+        alturaPage: viewport.height
+      });
+    }
+  }
+  return resultado;
+}
 
+async function identificarDadosParaTarjar(pdfBuffer) {
+  const base64PDF = pdfBuffer.toString('base64');
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 2000,
     messages: [{
       role: 'user',
       content: [
-        {
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: base64PDF }
-        },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64PDF } },
         {
           type: 'text',
-          text: `Analise este documento PDF e identifique TODOS os dados pessoais de pessoas fisicas conforme a LGPD brasileira.
-Dados pessoais incluem: nomes de pessoas fisicas, CPF, RG, enderecos residenciais, emails pessoais, telefones pessoais, datas de nascimento.
-NAO inclua: nomes de empresas, CNPJs, nomes de orgaos publicos, valores de contratos, datas de assinatura.
+          text: `Analise este documento e liste APENAS os dados que devem ser anonimizados conforme LGPD e LAI brasileiras.
 
-Para cada dado pessoal encontrado, retorne sua localizacao aproximada na pagina em porcentagem (0-100) de onde ele aparece na pagina.
+DEVE anonimizar:
+- CPF de qualquer pessoa (formato XXX.XXX.XXX-XX)
+- RG
+- Enderecos residenciais de pessoas fisicas
+- Nomes de pessoas fisicas privadas (representantes de empresas, fornecedores, contratados privados)
+- Emails e telefones pessoais
+- Datas de nascimento
 
-Retorne SOMENTE este JSON sem mais nada:
-{
-  "dados": [
-    {"texto": "dado pessoal exato", "pagina": 1, "topo_pct": 25, "tipo": "nome"}
-  ],
-  "tipo_documento": "contrato"
-}`
+NAO deve anonimizar:
+- Nomes de agentes publicos no exercicio de suas funcoes (prefeito, vereador, presidente de camara, servidor nomeado em portaria)
+- Nomes de empresas e CNPJs
+- Enderecos de sede de empresas
+- Valores de contratos
+- Datas de assinatura
+
+Retorne SOMENTE este JSON:
+{"dados": ["texto exato 1", "texto exato 2"], "tipo": "contrato"}`
         }
       ]
     }]
   });
 
-  let dados = [];
-  let tipoDocumento = 'contrato';
   try {
     const json = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
-    dados = json.dados || [];
-    tipoDocumento = json.tipo_documento || 'contrato';
+    return { dados: json.dados || [], tipo: json.tipo || 'contrato' };
   } catch(e) {
-    console.error('Erro ao parsear JSON da IA:', e);
+    return { dados: [], tipo: 'contrato' };
   }
+}
+
+async function anonimizarPDFComTarjas(pdfBuffer) {
+  const [itens, { dados, tipo }] = await Promise.all([
+    extrairItensComPosicao(pdfBuffer),
+    identificarDadosParaTarjar(pdfBuffer)
+  ]);
 
   const pdfDoc = await PDFDocument.load(pdfBuffer);
   const pages = pdfDoc.getPages();
 
   for (const dado of dados) {
-    const pageIndex = (dado.pagina || 1) - 1;
-    if (pageIndex >= pages.length) continue;
-    const page = pages[pageIndex];
-    const { width, height } = page.getSize();
-    const topoPct = Math.max(0, Math.min(100, dado.topo_pct || 50));
-    const y = height - (topoPct / 100) * height - 15;
-    const largura = Math.min(dado.texto ? dado.texto.length * 7 : 100, width - 100);
-    page.drawRectangle({
-      x: 50,
-      y: Math.max(0, y),
-      width: largura,
-      height: 16,
-      color: rgb(0, 0, 0)
-    });
+    const dadoLower = dado.toLowerCase().trim();
+    const palavras = dadoLower.split(/\s+/);
+
+    for (let i = 0; i < itens.length; i++) {
+      const item = itens[i];
+      const itemLower = item.str.toLowerCase().trim();
+
+      if (palavras.length === 1) {
+        if (itemLower.includes(dadoLower) || dadoLower.includes(itemLower)) {
+          const page = pages[item.pagina - 1];
+          if (!page) continue;
+          const { height } = page.getSize();
+          page.drawRectangle({
+            x: Math.max(0, item.x - 1),
+            y: Math.max(0, height - item.y - item.height - 2),
+            width: Math.max(item.width + 2, 40),
+            height: item.height + 4,
+            color: rgb(0, 0, 0)
+          });
+        }
+      } else {
+        let textoAcum = '';
+        let xInicio = null;
+        let yPos = null;
+        let paginaMatch = null;
+        let largura = 0;
+        let alturaMax = 0;
+
+        for (let j = i; j < Math.min(i + palavras.length * 2, itens.length); j++) {
+          const t = itens[j];
+          if (t.pagina !== item.pagina) break;
+          if (!t.str.trim()) continue;
+
+          if (xInicio === null) {
+            xInicio = t.x;
+            yPos = t.y;
+            paginaMatch = t.pagina;
+          }
+
+          textoAcum += (textoAcum ? ' ' : '') + t.str.trim();
+          largura = t.x + t.width - xInicio;
+          alturaMax = Math.max(alturaMax, t.height || 12);
+
+          if (textoAcum.toLowerCase().includes(dadoLower)) {
+            const page = pages[paginaMatch - 1];
+            if (!page) break;
+            const { height } = page.getSize();
+            page.drawRectangle({
+              x: Math.max(0, xInicio - 1),
+              y: Math.max(0, height - yPos - alturaMax - 2),
+              width: Math.max(largura + 2, 40),
+              height: alturaMax + 4,
+              color: rgb(0, 0, 0)
+            });
+            break;
+          }
+        }
+      }
+    }
   }
 
   const stats = { nome: 0, cpf: 0, rg: 0, endereco: 0, email: 0, telefone: 0, data_nasc: 0, banco: 0 };
   dados.forEach(d => {
-    const tipo = d.tipo || 'nome';
-    if (stats[tipo] !== undefined) stats[tipo]++;
+    if (/\d{3}\.\d{3}\.\d{3}-\d{2}/.test(d)) stats.cpf++;
+    else if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(d)) stats.data_nasc++;
+    else if (d.includes('@')) stats.email++;
     else stats.nome++;
   });
 
-  return { pdfBuffer: Buffer.from(await pdfDoc.save()), stats, tipoDocumento };
+  return { pdfBuffer: Buffer.from(await pdfDoc.save()), stats, tipoDocumento: tipo };
 }
 
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
   try {
-    const mascara = req.body.mascara || 'asterisk';
-
     if (req.file && req.file.mimetype === 'application/pdf') {
       const { pdfBuffer, stats, tipoDocumento } = await anonimizarPDFComTarjas(req.file.buffer);
-
       await prisma.documento.create({
         data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: Object.values(stats).reduce((a,b)=>a+b,0), dadosJson: stats }
       });
-
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
       return res.send(pdfBuffer);
@@ -132,9 +204,11 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
 
     if (!texto.trim()) return res.status(400).json({ erro: 'Nenhum texto fornecido' });
 
+    const mascara = req.body.mascara || 'asterisk';
     const mascaraDesc = { asterisk: 'XXXXX', tarjeta: '||||', etiqueta: 'a etiqueta correspondente entre colchetes como [CPF], [NOME], [RG]' };
-    const prompt = `Voce e um sistema de anonimizacao de documentos publicos brasileiros conforme a LGPD.
-Substitua TODOS os dados pessoais pela mascara ${mascaraDesc[mascara]}.
+    const prompt = `Voce e um sistema de anonimizacao de documentos publicos brasileiros conforme a LGPD e LAI.
+Substitua TODOS os dados pessoais de pessoas fisicas privadas pela mascara ${mascaraDesc[mascara]}.
+NAO substitua nomes de agentes publicos no exercicio de suas funcoes.
 Retorne SOMENTE o texto com as substituicoes feitas, sem comentarios.
 Depois adicione exatamente: ---STATS---
 Depois um JSON: {"nome":0,"cpf":0,"rg":0,"endereco":0,"email":0,"telefone":0,"data_nasc":0,"banco":0}
@@ -209,14 +283,6 @@ router.post('/download-pdf', authMiddleware, async (req, res) => {
       doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#cccccc').lineWidth(1).stroke();
       doc.moveDown(0.8);
       doc.fontSize(11).font('Helvetica').fillColor('#000000').text(textoAnonimizado, { align: 'justify', lineGap: 4 });
-      doc.moveDown(1.5);
-      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#cccccc').lineWidth(1).stroke();
-      doc.moveDown(0.8);
-      if (leisAplicaveis && leisAplicaveis.length > 0) {
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#333333').text('Fundamentacao Legal:');
-        doc.moveDown(0.3);
-        leisAplicaveis.forEach(lei => doc.fontSize(9).font('Helvetica').fillColor('#555555').text('- ' + lei));
-      }
       doc.end();
     });
     res.setHeader('Content-Type', 'application/pdf');
