@@ -33,19 +33,18 @@ const baseJuridica = {
   outro: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 31']
 };
 
-async function extrairTextoPDF(buffer) {
-  const mod = await import('pdf-parse');
-  const pdfParse = mod.default || mod;
-  const data = await pdfParse(buffer);
-  return data.text;
-}
-
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
   try {
     let texto = '';
     if (req.file) {
       if (req.file.mimetype === 'application/pdf') {
-        texto = await extrairTextoPDF(req.file.buffer);
+        const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
+        const doc = await pdfjs.getDocument({ data: new Uint8Array(req.file.buffer) }).promise;
+        for (let i = 1; i <= doc.numPages; i++) {
+          const page = await doc.getPage(i);
+          const content = await page.getTextContent();
+          texto += content.items.map(item => item.str).join(' ') + '\n';
+        }
       } else if (req.file.mimetype.includes('word') || req.file.originalname.endsWith('.docx')) {
         const data = await mammoth.extractRawText({ buffer: req.file.buffer });
         texto = data.value;
@@ -65,65 +64,4 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
 
     const prompt = `Voce e um sistema de anonimizacao de documentos publicos brasileiros conforme a LGPD.
 Substitua TODOS os dados pessoais pela mascara ${mascaraDesc[mascara]}.
-Retorne SOMENTE o texto com as substituicoes feitas, sem comentarios.
-Depois adicione exatamente: ---STATS---
-Depois um JSON: {"nome":0,"cpf":0,"rg":0,"endereco":0,"email":0,"telefone":0,"data_nasc":0,"banco":0}
-Depois adicione exatamente: ---TIPO---
-Depois o tipo: contrato, ata, processo, convenio, folha, saude, ou outro
-
-DOCUMENTO:
-${texto}`;
-
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      messages: [{ role: 'user', content: prompt }]
-    });
-
-    const resposta = message.content[0].text;
-    const partes = resposta.split('---STATS---');
-    const textoAnonimizado = partes[0].trim();
-    let stats = {};
-    let tipoDocumento = 'outro';
-
-    if (partes[1]) {
-      const partes2 = partes[1].split('---TIPO---');
-      try { stats = JSON.parse(partes2[0].match(/\{[\s\S]*\}/)[0]); } catch(e) {}
-      if (partes2[1]) tipoDocumento = partes2[1].trim().toLowerCase().split('\n')[0].trim();
-    }
-
-    const qtdTotal = Object.values(stats).reduce((a, b) => a + b, 0);
-    await prisma.documento.create({
-      data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: qtdTotal, dadosJson: stats }
-    });
-
-    res.json({
-      textoAnonimizado,
-      stats,
-      tipoDocumento,
-      leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao processar documento' });
-  }
-});
-
-router.post('/download-pdf', authMiddleware, async (req, res) => {
-  try {
-    const { textoAnonimizado, tipoDocumento, leisAplicaveis } = req.body;
-    const camara = await prisma.camara.findUnique({ where: { id: req.camara.id } });
-    const nomeCamara = camara?.nome || 'Camara Municipal';
-    const logoBase64 = camara?.logoBase64 || null;
-    const cabecalho = camara?.cabecalho || null;
-    const pdfBuffer = await gerarPDFAnonimizado(textoAnonimizado, tipoDocumento, leisAplicaveis, nomeCamara, logoBase64, cabecalho);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
-    res.send(pdfBuffer);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao gerar PDF' });
-  }
-});
-
-module.exports = router;
+Retorne SOMENTE
