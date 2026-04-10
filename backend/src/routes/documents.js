@@ -1,8 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const pdfParse = require('pdf-parse');
-const mammoth = require('mammoth');
+const pdfParse = require('pdf-parse/lib/pdf-parse.js');const mammoth = require('mammoth');
 const { PrismaClient } = require('@prisma/client');
 const Anthropic = require('@anthropic-ai/sdk');
 const { gerarPDFAnonimizado } = require('../services/gerarPDF');
@@ -54,7 +53,7 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
     const mascara = req.body.mascara || 'asterisk';
     const mascaraDesc = {
       asterisk: 'XXXXX',
-      tarjeta: '¦¦¦¦',
+      tarjeta: 'Â¦Â¦Â¦Â¦',
       etiqueta: 'a etiqueta correspondente entre colchetes como [CPF], [NOME], [RG]'
     };
 
