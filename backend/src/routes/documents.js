@@ -38,14 +38,9 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
     let texto = '';
     if (req.file) {
       if (req.file.mimetype === 'application/pdf') {
-        const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
-        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(req.file.buffer) });
-        const doc = await loadingTask.promise;
-        for (let i = 1; i <= doc.numPages; i++) {
-          const page = await doc.getPage(i);
-          const content = await page.getTextContent();
-          texto += content.items.map(item => item.str).join(' ') + '\n';
-        }
+        const pdfParse = require('pdf-parse');
+        const data = await pdfParse(req.file.buffer);
+        texto = data.text;
       } else if (req.file.mimetype.includes('word') || req.file.originalname.endsWith('.docx')) {
         const data = await mammoth.extractRawText({ buffer: req.file.buffer });
         texto = data.value;
@@ -80,50 +75,4 @@ ${texto}`;
       messages: [{ role: 'user', content: prompt }]
     });
 
-    const resposta = message.content[0].text;
-    const partes = resposta.split('---STATS---');
-    const textoAnonimizado = partes[0].trim();
-    let stats = {};
-    let tipoDocumento = 'outro';
-
-    if (partes[1]) {
-      const partes2 = partes[1].split('---TIPO---');
-      try { stats = JSON.parse(partes2[0].match(/\{[\s\S]*\}/)[0]); } catch(e) {}
-      if (partes2[1]) tipoDocumento = partes2[1].trim().toLowerCase().split('\n')[0].trim();
-    }
-
-    const qtdTotal = Object.values(stats).reduce((a, b) => a + b, 0);
-    await prisma.documento.create({
-      data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: qtdTotal, dadosJson: stats }
-    });
-
-    res.json({
-      textoAnonimizado,
-      stats,
-      tipoDocumento,
-      leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao processar documento' });
-  }
-});
-
-router.post('/download-pdf', authMiddleware, async (req, res) => {
-  try {
-    const { textoAnonimizado, tipoDocumento, leisAplicaveis } = req.body;
-    const camara = await prisma.camara.findUnique({ where: { id: req.camara.id } });
-    const nomeCamara = camara?.nome || 'Camara Municipal';
-    const logoBase64 = camara?.logoBase64 || null;
-    const cabecalho = camara?.cabecalho || null;
-    const pdfBuffer = await gerarPDFAnonimizado(textoAnonimizado, tipoDocumento, leisAplicaveis, nomeCamara, logoBase64, cabecalho);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
-    res.send(pdfBuffer);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao gerar PDF' });
-  }
-});
-
-module.exports = router;
+    const r
