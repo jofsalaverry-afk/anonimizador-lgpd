@@ -1,7 +1,6 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 const mammoth = require('mammoth');
 const { PrismaClient } = require('@prisma/client');
 const Anthropic = require('@anthropic-ai/sdk');
@@ -34,13 +33,19 @@ const baseJuridica = {
   outro: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 31']
 };
 
+async function extrairTextoPDF(buffer) {
+  const pdfParse = await import('pdf-parse');
+  const fn = pdfParse.default || pdfParse;
+  const data = await fn(buffer);
+  return data.text;
+}
+
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
   try {
     let texto = '';
     if (req.file) {
       if (req.file.mimetype === 'application/pdf') {
-        const data = await pdfParse(req.file.buffer);
-        texto = data.text;
+        texto = await extrairTextoPDF(req.file.buffer);
       } else if (req.file.mimetype.includes('word') || req.file.originalname.endsWith('.docx')) {
         const data = await mammoth.extractRawText({ buffer: req.file.buffer });
         texto = data.value;
@@ -54,7 +59,7 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
     const mascara = req.body.mascara || 'asterisk';
     const mascaraDesc = {
       asterisk: 'XXXXX',
-      tarjeta: '¦¦¦¦',
+      tarjeta: '||||',
       etiqueta: 'a etiqueta correspondente entre colchetes como [CPF], [NOME], [RG]'
     };
 
