@@ -236,46 +236,109 @@ ${texto}`;
   }
 });
 
-router.post('/download-pdf', authMiddleware, async (req, res) => {
+router.post('/download-pdf', authMiddleware, upload.single('arquivo'), async (req, res) => {
   try {
-    const { textoAnonimizado, tipoDocumento, leisAplicaveis } = req.body;
-    const camara = await prisma.camara.findUnique({ where: { id: req.camara.id } });
-    const nomeCamara = camara?.nome || 'Camara Municipal';
-    const logoBase64 = camara?.logoBase64 || null;
-    const cabecalho = camara?.cabecalho || null;
-    const PDFKit = require('pdfkit');
-    const buffers = [];
-    const doc = new PDFKit({ margin: 50 });
-    doc.on('data', chunk => buffers.push(chunk));
-    const pdfBuffer = await new Promise((resolve, reject) => {
-      doc.on('end', () => resolve(Buffer.concat(buffers)));
-      doc.on('error', reject);
-      if (logoBase64) {
-        try {
-          const imgBuffer = Buffer.from(logoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-          doc.image(imgBuffer, 50, 50, { width: 80, height: 80 });
-          doc.fontSize(15).font('Helvetica-Bold').fillColor('#1a1a2e').text(nomeCamara, 145, 60, { width: 350 });
-          if (cabecalho) doc.fontSize(9).font('Helvetica').fillColor('#555555').text(cabecalho, 145, doc.y + 2, { width: 350 });
-        } catch(e) {
-          doc.fontSize(16).font('Helvetica-Bold').fillColor('#1a1a2e').text(nomeCamara, { align: 'center' });
-        }
-      } else {
-        doc.fontSize(16).font('Helvetica-Bold').fillColor('#1a1a2e').text(nomeCamara, { align: 'center' });
-        if (cabecalho) doc.fontSize(9).font('Helvetica').fillColor('#555555').text(cabecalho, { align: 'center' });
+    if (!req.file || req.file.mimetype !== 'application/pdf') {
+      return res.status(400).json({ erro: 'Envie um PDF no campo "arquivo"' });
+    }
+    const pdfBufferOriginal = req.file.buffer;
+
+    const pdfjsLib = require('pdfjs-dist');
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(pdfBufferOriginal) });
+    const pdfjsDoc = await loadingTask.promise;
+
+    const itens = [];
+    const alturasPagina = [];
+    for (let p = 1; p <= pdfjsDoc.numPages; p++) {
+      const page = await pdfjsDoc.getPage(p);
+      const viewport = page.getViewport({ scale: 1 });
+      alturasPagina.push(viewport.height);
+      const content = await page.getTextContent();
+      for (const item of content.items) {
+        if (!item.str || !item.str.trim()) continue;
+        const itemHeight = item.height || 10;
+        itens.push({
+          indice: itens.length,
+          texto: item.str,
+          x: item.transform[4],
+          y: viewport.height - item.transform[5] - itemHeight,
+          width: item.width,
+          height: itemHeight,
+          pageIndex: p - 1
+        });
       }
-      doc.moveDown(0.5);
-      doc.fontSize(14).font('Helvetica-Bold').fillColor('#1a1a2e').text('DOCUMENTO ANONIMIZADO - LGPD', { align: 'center' });
-      doc.moveDown(0.3);
-      doc.fontSize(9).fillColor('#888888').text('Tipo: ' + tipoDocumento.toUpperCase() + '   |   Gerado em: ' + new Date().toLocaleString('pt-BR'), { align: 'center' });
-      doc.moveDown(0.8);
-      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#cccccc').lineWidth(1).stroke();
-      doc.moveDown(0.8);
-      doc.fontSize(11).font('Helvetica').fillColor('#000000').text(textoAnonimizado, { align: 'justify', lineGap: 4 });
-      doc.end();
+    }
+
+    const itensParaIA = itens.map(i => ({ i: i.indice, t: i.texto }));
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: `Voce recebe itens de texto extraidos de um PDF. Identifique dados pessoais que DEVEM ser anonimizados conforme LGPD e LAI, retornando o TRECHO EXATO (substring) de cada item que deve ser coberto por tarja — nao a linha inteira.
+
+DEVE tarjar: CPF, RG, nomes de pessoas fisicas privadas (representantes, fornecedores, contratados, testemunhas), emails pessoais, telefones pessoais, enderecos residenciais, CEP residencial.
+
+NAO tarjar: CNPJ, nomes de empresas, nomes de agentes publicos em exercicio (prefeito, vereador, presidente de camara, servidor publico em portaria), enderecos de sede de empresas, valores, datas, numeros de contrato, rotulos como "CPF:", "RG:", "Email:".
+
+Regras do trecho:
+- "d" deve ser uma substring EXATA de "t" (mesma capitalizacao, pontuacao, espacos).
+- Se o mesmo item tiver varios dados, gere multiplas entradas com o mesmo "i".
+- Nao inclua rotulos como "CPF " ou "Email: " — apenas o valor sensivel.
+
+Itens (JSON): ${JSON.stringify(itensParaIA)}
+
+Retorne SOMENTE este JSON, sem comentarios:
+{"tarjas": [{"i": 0, "d": "trecho exato"}]}`
+      }]
     });
+
+    let tarjas = [];
+    try {
+      const parsed = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
+      tarjas = Array.isArray(parsed.tarjas) ? parsed.tarjas : [];
+    } catch(e) {
+      tarjas = [];
+    }
+
+    const pdfDoc = await PDFDocument.load(pdfBufferOriginal);
+    const pages = pdfDoc.getPages();
+    const padding = 1;
+
+    for (const t of tarjas) {
+      const item = itens[t.i];
+      if (!item || !t.d) continue;
+      const page = pages[item.pageIndex];
+      if (!page) continue;
+      const { height: pageHeight } = page.getSize();
+
+      const texto = item.texto;
+      const alvo = t.d;
+      if (!texto.length) continue;
+      const charWidth = item.width / texto.length;
+
+      let from = 0;
+      while (true) {
+        const pos = texto.indexOf(alvo, from);
+        if (pos === -1) break;
+        const xSub = item.x + pos * charWidth;
+        const wSub = alvo.length * charWidth;
+        const pdfLibY = pageHeight - item.y - item.height;
+        page.drawRectangle({
+          x: xSub - padding,
+          y: pdfLibY - padding,
+          width: wSub + padding * 2,
+          height: item.height + padding * 2,
+          color: rgb(0, 0, 0)
+        });
+        from = pos + alvo.length;
+      }
+    }
+
+    const pdfFinal = Buffer.from(await pdfDoc.save());
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
-    res.send(pdfBuffer);
+    res.send(pdfFinal);
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao gerar PDF' });

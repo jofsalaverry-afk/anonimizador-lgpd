@@ -59,15 +59,18 @@ export default function Anonimizador({ token }) {
   };
 
   const baixarPDF = async () => {
+    if (!arquivo || !arquivo.name.endsWith('.pdf')) {
+      alert('Selecione um PDF original para gerar as tarjas');
+      return;
+    }
     setLoadingPDF(true);
     try {
-      const res = await axios.post(`${API}/documents/download-pdf`, {
-        textoAnonimizado: resultado.textoAnonimizado,
-        tipoDocumento: resultado.tipoDocumento,
-        leisAplicaveis: resultado.leisAplicaveis
-      }, {
-        headers: { Authorization: `Bearer ${token}` },
-        responseType: 'blob'
+      const formData = new FormData();
+      formData.append('arquivo', arquivo);
+      const res = await axios.post(`${API}/documents/download-pdf`, formData, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+        responseType: 'blob',
+        timeout: 120000
       });
       const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
       const a = document.createElement('a');
