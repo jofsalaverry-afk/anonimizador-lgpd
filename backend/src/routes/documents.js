@@ -38,8 +38,9 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
     let texto = '';
     if (req.file) {
       if (req.file.mimetype === 'application/pdf') {
-        const pdfParse = require('pdf-parse');
-        const data = await pdfParse(req.file.buffer);
+        const pdfModule = require('pdf-parse');
+        const parseFn = pdfModule.default || pdfModule;
+        const data = await parseFn(req.file.buffer);
         texto = data.text;
       } else if (req.file.mimetype.includes('word') || req.file.originalname.endsWith('.docx')) {
         const data = await mammoth.extractRawText({ buffer: req.file.buffer });
