@@ -34,7 +34,7 @@ const baseJuridica = {
 };
 
 async function extrairItensComPosicao(pdfBuffer) {
-  const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+ const pdfjsLib = require('pdfjs-dist');
   const doc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
   const resultado = [];
   for (let p = 1; p <= doc.numPages; p++) {
