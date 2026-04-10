@@ -34,9 +34,9 @@ const baseJuridica = {
 };
 
 async function extrairTextoPDF(buffer) {
-  const pdfParse = await import('pdf-parse');
-  const fn = pdfParse.default || pdfParse;
-  const data = await fn(buffer);
+  const mod = await import('pdf-parse');
+  const pdfParse = mod.default || mod;
+  const data = await pdfParse(buffer);
   return data.text;
 }
 
