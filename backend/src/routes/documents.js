@@ -33,102 +33,77 @@ const baseJuridica = {
   outro: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 31']
 };
 
-async function extrairTextoPDFComPosicoes(buffer) {
-  const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
-  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
-  const paginas = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const viewport = page.getViewport({ scale: 1 });
-    const content = await page.getTextContent();
-    const itens = content.items.map(item => ({
-      str: item.str,
-      x: item.transform[4],
-      y: viewport.height - item.transform[5],
-      width: item.width,
-      height: item.height || 10,
-      pagina: i
-    }));
-    paginas.push({ pagina: i, altura: viewport.height, largura: viewport.width, itens });
-  }
-  return paginas;
-}
-
-async function identificarDadosPessoais(texto) {
-  const prompt = `Voce e um sistema de identificacao de dados pessoais conforme a LGPD brasileira.
-Analise o texto e retorne APENAS um JSON com a lista de dados pessoais encontrados.
-Dados pessoais incluem: nomes de pessoas fisicas, CPF, RG, enderecos residenciais, emails pessoais, telefones pessoais, datas de nascimento, dados bancarios, dados de saude, salarios.
-NAO inclua: nomes de empresas, CNPJs, nomes de orgaos publicos, valores de contratos, datas de assinatura de contratos, enderecos de sede de empresas.
-Retorne SOMENTE este JSON sem mais nada:
-{"dados": ["dado1", "dado2", "dado3"]}
-
-TEXTO:
-${texto}`;
+async function anonimizarPDFComTarjas(pdfBuffer) {
+  const base64PDF = pdfBuffer.toString('base64');
 
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 1000,
-    messages: [{ role: 'user', content: prompt }]
+    max_tokens: 2000,
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: base64PDF }
+        },
+        {
+          type: 'text',
+          text: `Analise este documento PDF e identifique TODOS os dados pessoais de pessoas fisicas conforme a LGPD brasileira.
+Dados pessoais incluem: nomes de pessoas fisicas, CPF, RG, enderecos residenciais, emails pessoais, telefones pessoais, datas de nascimento.
+NAO inclua: nomes de empresas, CNPJs, nomes de orgaos publicos, valores de contratos, datas de assinatura.
+
+Para cada dado pessoal encontrado, retorne sua localizacao aproximada na pagina em porcentagem (0-100) de onde ele aparece na pagina.
+
+Retorne SOMENTE este JSON sem mais nada:
+{
+  "dados": [
+    {"texto": "dado pessoal exato", "pagina": 1, "topo_pct": 25, "tipo": "nome"}
+  ],
+  "tipo_documento": "contrato"
+}`
+        }
+      ]
+    }]
   });
 
+  let dados = [];
+  let tipoDocumento = 'contrato';
   try {
     const json = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
-    return json.dados || [];
+    dados = json.dados || [];
+    tipoDocumento = json.tipo_documento || 'contrato';
   } catch(e) {
-    return [];
+    console.error('Erro ao parsear JSON da IA:', e);
   }
-}
 
-async function aplicarTarjasNoPDF(pdfBuffer, dadosPessoais, paginas) {
   const pdfDoc = await PDFDocument.load(pdfBuffer);
   const pages = pdfDoc.getPages();
 
-  for (const paginaData of paginas) {
-    const page = pages[paginaData.pagina - 1];
-    for (const dado of dadosPessoais) {
-      const palavras = dado.trim().split(/\s+/);
-      for (let i = 0; i < paginaData.itens.length; i++) {
-        const item = paginaData.itens[i];
-        const textoItem = item.str.trim();
-        if (!textoItem) continue;
-        if (dado.length > 3 && textoItem.includes(dado.trim())) {
-          page.drawRectangle({
-            x: item.x - 1,
-            y: paginaData.altura - item.y - item.height - 2,
-            width: item.width + 2,
-            height: item.height + 4,
-            color: rgb(0, 0, 0)
-          });
-        } else if (palavras.length > 1) {
-          let textoAcumulado = '';
-          let xInicio = null;
-          let yPos = null;
-          let larguraTotal = 0;
-          let alturaMax = 0;
-          for (let j = i; j < Math.min(i + palavras.length + 2, paginaData.itens.length); j++) {
-            const t = paginaData.itens[j].str.trim();
-            if (!t) continue;
-            if (xInicio === null) { xInicio = paginaData.itens[j].x; yPos = paginaData.itens[j].y; }
-            textoAcumulado += (textoAcumulado ? ' ' : '') + t;
-            larguraTotal = paginaData.itens[j].x + paginaData.itens[j].width - xInicio;
-            alturaMax = Math.max(alturaMax, paginaData.itens[j].height || 10);
-            if (textoAcumulado.includes(dado.trim())) {
-              page.drawRectangle({
-                x: xInicio - 1,
-                y: paginaData.altura - yPos - alturaMax - 2,
-                width: larguraTotal + 2,
-                height: alturaMax + 4,
-                color: rgb(0, 0, 0)
-              });
-              break;
-            }
-          }
-        }
-      }
-    }
+  for (const dado of dados) {
+    const pageIndex = (dado.pagina || 1) - 1;
+    if (pageIndex >= pages.length) continue;
+    const page = pages[pageIndex];
+    const { width, height } = page.getSize();
+    const topoPct = Math.max(0, Math.min(100, dado.topo_pct || 50));
+    const y = height - (topoPct / 100) * height - 15;
+    const largura = Math.min(dado.texto ? dado.texto.length * 7 : 100, width - 100);
+    page.drawRectangle({
+      x: 50,
+      y: Math.max(0, y),
+      width: largura,
+      height: 16,
+      color: rgb(0, 0, 0)
+    });
   }
 
-  return Buffer.from(await pdfDoc.save());
+  const stats = { nome: 0, cpf: 0, rg: 0, endereco: 0, email: 0, telefone: 0, data_nasc: 0, banco: 0 };
+  dados.forEach(d => {
+    const tipo = d.tipo || 'nome';
+    if (stats[tipo] !== undefined) stats[tipo]++;
+    else stats.nome++;
+  });
+
+  return { pdfBuffer: Buffer.from(await pdfDoc.save()), stats, tipoDocumento };
 }
 
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
@@ -136,27 +111,15 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
     const mascara = req.body.mascara || 'asterisk';
 
     if (req.file && req.file.mimetype === 'application/pdf') {
-      const paginas = await extrairTextoPDFComPosicoes(req.file.buffer);
-      const textoCompleto = paginas.flatMap(p => p.itens.map(i => i.str)).join(' ');
-
-      const dadosPessoais = await identificarDadosPessoais(textoCompleto);
-
-      const pdfTarjado = await aplicarTarjasNoPDF(req.file.buffer, dadosPessoais, paginas);
-
-      const stats = { nome: 0, cpf: 0, rg: 0, endereco: 0, email: 0, telefone: 0, data_nasc: 0, banco: 0 };
-      dadosPessoais.forEach(d => {
-        if (/\d{3}\.\d{3}\.\d{3}-\d{2}/.test(d)) stats.cpf++;
-        else if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(d)) stats.data_nasc++;
-        else stats.nome++;
-      });
+      const { pdfBuffer, stats, tipoDocumento } = await anonimizarPDFComTarjas(req.file.buffer);
 
       await prisma.documento.create({
-        data: { camaraId: req.camara.id, tipoDocumento: 'contrato', qtdDadosMascarados: dadosPessoais.length, dadosJson: stats }
+        data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: Object.values(stats).reduce((a,b)=>a+b,0), dadosJson: stats }
       });
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
-      return res.send(pdfTarjado);
+      return res.send(pdfBuffer);
     }
 
     let texto = '';
