@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 
-const API = 'http://localhost:3001';
+const API = 'https://anonimizador-lgpd-production.up.railway.app';
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState('');

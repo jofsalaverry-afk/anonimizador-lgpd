@@ -1,16 +1,15 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
 const { PrismaClient } = require('@prisma/client');
 const Anthropic = require('@anthropic-ai/sdk');
-const { gerarPDFAnonimizado } = require('../services/gerarPDF');
+const { PDFDocument, rgb } = require('pdf-lib');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const authMiddleware = (req, res, next) => {
   try {
@@ -34,17 +33,108 @@ const baseJuridica = {
   outro: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 31']
 };
 
+async function anonimizarPDFComTarjas(pdfBuffer) {
+  const base64PDF = pdfBuffer.toString('base64');
+
+  const message = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 4000,
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: base64PDF }
+        },
+        {
+          type: 'text',
+          text: `Analise este documento PDF e identifique os dados que devem ser anonimizados conforme LGPD e LAI brasileiras.
+
+DEVE anonimizar:
+- CPF de qualquer pessoa (formato XXX.XXX.XXX-XX)
+- RG
+- Enderecos residenciais de pessoas fisicas
+- Nomes de pessoas fisicas privadas (representantes de empresas, fornecedores, contratados privados)
+- Emails e telefones pessoais
+
+NAO deve anonimizar:
+- Nomes de agentes publicos no exercicio de suas funcoes (prefeito, vereador, presidente de camara, servidor nomeado em portaria)
+- Nomes de empresas e CNPJs
+- Enderecos de sede de empresas
+- Valores de contratos e datas
+
+Para cada dado, informe em qual pagina aparece (1, 2, 3...) e a posicao vertical aproximada na pagina em porcentagem do topo (0% = topo, 100% = rodape).
+
+Retorne SOMENTE este JSON:
+{
+  "dados": [
+    {"texto": "texto exato do dado", "pagina": 1, "y_pct": 35, "tipo": "nome"}
+  ],
+  "tipo_documento": "contrato"
+}`
+        }
+      ]
+    }]
+  });
+
+  let dados = [];
+  let tipoDocumento = 'contrato';
+  try {
+    const json = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
+    dados = json.dados || [];
+    tipoDocumento = json.tipo_documento || 'contrato';
+  } catch(e) {
+    console.error('Erro ao parsear JSON:', e);
+  }
+
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const pages = pdfDoc.getPages();
+
+  for (const dado of dados) {
+    const pageIndex = (dado.pagina || 1) - 1;
+    if (pageIndex >= pages.length) continue;
+    const page = pages[pageIndex];
+    const { width, height } = page.getSize();
+    const yPct = Math.max(0, Math.min(100, dado.y_pct || 50));
+    const y = height - (yPct / 100) * height - 8;
+    const charWidth = 6.5;
+    const tamanhoTexto = dado.texto ? dado.texto.length : 20;
+    const largura = Math.min(tamanhoTexto * charWidth, width - 60);
+    page.drawRectangle({
+      x: 50,
+      y: Math.max(2, y),
+      width: largura,
+      height: 14,
+      color: rgb(0, 0, 0)
+    });
+  }
+
+  const stats = { nome: 0, cpf: 0, rg: 0, endereco: 0, email: 0, telefone: 0, data_nasc: 0, banco: 0 };
+  dados.forEach(d => {
+    const tipo = d.tipo || 'nome';
+    if (stats[tipo] !== undefined) stats[tipo]++;
+    else stats.nome++;
+  });
+
+  return { pdfBuffer: Buffer.from(await pdfDoc.save()), stats, tipoDocumento };
+}
+
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
   try {
+    if (req.file && req.file.mimetype === 'application/pdf') {
+      const { pdfBuffer, stats, tipoDocumento } = await anonimizarPDFComTarjas(req.file.buffer);
+      await prisma.documento.create({
+        data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: Object.values(stats).reduce((a,b)=>a+b,0), dadosJson: stats }
+      });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
+      return res.send(pdfBuffer);
+    }
+
     let texto = '';
-    if (req.file) {
-      if (req.file.mimetype === 'application/pdf') {
-        const data = await pdfParse(req.file.buffer);
-        texto = data.text;
-      } else if (req.file.mimetype.includes('word') || req.file.originalname.endsWith('.docx')) {
-        const data = await mammoth.extractRawText({ buffer: req.file.buffer });
-        texto = data.value;
-      }
+    if (req.file && (req.file.mimetype.includes('word') || req.file.originalname.endsWith('.docx'))) {
+      const data = await mammoth.extractRawText({ buffer: req.file.buffer });
+      texto = data.value;
     } else {
       texto = req.body.texto || '';
     }
@@ -52,14 +142,10 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
     if (!texto.trim()) return res.status(400).json({ erro: 'Nenhum texto fornecido' });
 
     const mascara = req.body.mascara || 'asterisk';
-    const mascaraDesc = {
-      asterisk: 'XXXXX',
-      tarjeta: '¦¦¦¦',
-      etiqueta: 'a etiqueta correspondente entre colchetes como [CPF], [NOME], [RG]'
-    };
-
-    const prompt = `Voce e um sistema de anonimizacao de documentos publicos brasileiros conforme a LGPD.
-Substitua TODOS os dados pessoais pela mascara ${mascaraDesc[mascara]}.
+    const mascaraDesc = { asterisk: 'XXXXX', tarjeta: '||||', etiqueta: 'a etiqueta correspondente entre colchetes como [CPF], [NOME], [RG]' };
+    const prompt = `Voce e um sistema de anonimizacao de documentos publicos brasileiros conforme a LGPD e LAI.
+Substitua TODOS os dados pessoais de pessoas fisicas privadas pela mascara ${mascaraDesc[mascara]}.
+NAO substitua nomes de agentes publicos no exercicio de suas funcoes.
 Retorne SOMENTE o texto com as substituicoes feitas, sem comentarios.
 Depois adicione exatamente: ---STATS---
 Depois um JSON: {"nome":0,"cpf":0,"rg":0,"endereco":0,"email":0,"telefone":0,"data_nasc":0,"banco":0}
@@ -71,7 +157,7 @@ ${texto}`;
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: prompt }]
     });
 
@@ -92,12 +178,7 @@ ${texto}`;
       data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: qtdTotal, dadosJson: stats }
     });
 
-    res.json({
-      textoAnonimizado,
-      stats,
-      tipoDocumento,
-      leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro
-    });
+    res.json({ textoAnonimizado, stats, tipoDocumento, leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao processar documento' });
@@ -111,7 +192,36 @@ router.post('/download-pdf', authMiddleware, async (req, res) => {
     const nomeCamara = camara?.nome || 'Camara Municipal';
     const logoBase64 = camara?.logoBase64 || null;
     const cabecalho = camara?.cabecalho || null;
-    const pdfBuffer = await gerarPDFAnonimizado(textoAnonimizado, tipoDocumento, leisAplicaveis, nomeCamara, logoBase64, cabecalho);
+    const PDFKit = require('pdfkit');
+    const buffers = [];
+    const doc = new PDFKit({ margin: 50 });
+    doc.on('data', chunk => buffers.push(chunk));
+    const pdfBuffer = await new Promise((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', reject);
+      if (logoBase64) {
+        try {
+          const imgBuffer = Buffer.from(logoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+          doc.image(imgBuffer, 50, 50, { width: 80, height: 80 });
+          doc.fontSize(15).font('Helvetica-Bold').fillColor('#1a1a2e').text(nomeCamara, 145, 60, { width: 350 });
+          if (cabecalho) doc.fontSize(9).font('Helvetica').fillColor('#555555').text(cabecalho, 145, doc.y + 2, { width: 350 });
+        } catch(e) {
+          doc.fontSize(16).font('Helvetica-Bold').fillColor('#1a1a2e').text(nomeCamara, { align: 'center' });
+        }
+      } else {
+        doc.fontSize(16).font('Helvetica-Bold').fillColor('#1a1a2e').text(nomeCamara, { align: 'center' });
+        if (cabecalho) doc.fontSize(9).font('Helvetica').fillColor('#555555').text(cabecalho, { align: 'center' });
+      }
+      doc.moveDown(0.5);
+      doc.fontSize(14).font('Helvetica-Bold').fillColor('#1a1a2e').text('DOCUMENTO ANONIMIZADO - LGPD', { align: 'center' });
+      doc.moveDown(0.3);
+      doc.fontSize(9).fillColor('#888888').text('Tipo: ' + tipoDocumento.toUpperCase() + '   |   Gerado em: ' + new Date().toLocaleString('pt-BR'), { align: 'center' });
+      doc.moveDown(0.8);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#cccccc').lineWidth(1).stroke();
+      doc.moveDown(0.8);
+      doc.fontSize(11).font('Helvetica').fillColor('#000000').text(textoAnonimizado, { align: 'justify', lineGap: 4 });
+      doc.end();
+    });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
     res.send(pdfBuffer);
