@@ -9,7 +9,7 @@ const { gerarPDFAnonimizado } = require('../services/gerarPDF');
 const router = express.Router();
 const prisma = new PrismaClient();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const authMiddleware = (req, res, next) => {
   try {
@@ -35,23 +35,6 @@ const baseJuridica = {
 
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
   try {
-    let texto = '';
-    if (req.file) {
-      if (req.file.mimetype === 'application/pdf') {
-        const pdfModule = require('pdf-parse');
-        const parseFn = pdfModule.default || pdfModule;
-        const data = await parseFn(req.file.buffer);
-        texto = data.text;
-      } else if (req.file.mimetype.includes('word') || req.file.originalname.endsWith('.docx')) {
-        const data = await mammoth.extractRawText({ buffer: req.file.buffer });
-        texto = data.value;
-      }
-    } else {
-      texto = req.body.texto || '';
-    }
-
-    if (!texto.trim()) return res.status(400).json({ erro: 'Nenhum texto fornecido' });
-
     const mascara = req.body.mascara || 'asterisk';
     const mascaraDesc = {
       asterisk: 'XXXXX',
@@ -60,21 +43,54 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
     };
 
     const prompt = `Voce e um sistema de anonimizacao de documentos publicos brasileiros conforme a LGPD.
-Substitua TODOS os dados pessoais pela mascara ${mascaraDesc[mascara]}.
-Retorne SOMENTE o texto com as substituicoes feitas, sem comentarios.
+Leia TODO o conteudo do documento e substitua TODOS os dados pessoais pela mascara ${mascaraDesc[mascara]}.
+Dados pessoais incluem: nomes de pessoas fisicas, CPF, RG, enderecos residenciais, emails pessoais, telefones, datas de nascimento, dados bancarios, dados de saude, salarios.
+NAO anonimize: nomes de empresas, CNPJs, nomes de orgaos publicos, valores de contratos, datas de assinatura.
+Retorne SOMENTE o texto anonimizado com as substituicoes feitas, sem comentarios adicionais.
 Depois adicione exatamente: ---STATS---
 Depois um JSON: {"nome":0,"cpf":0,"rg":0,"endereco":0,"email":0,"telefone":0,"data_nasc":0,"banco":0}
 Depois adicione exatamente: ---TIPO---
-Depois o tipo: contrato, ata, processo, convenio, folha, saude, ou outro
+Depois o tipo: contrato, ata, processo, convenio, folha, saude, ou outro`;
 
-DOCUMENTO:
-${texto}`;
+    let message;
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      messages: [{ role: 'user', content: prompt }]
-    });
+    if (req.file && req.file.mimetype === 'application/pdf') {
+      const base64PDF = req.file.buffer.toString('base64');
+      message = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: base64PDF
+              }
+            },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      });
+    } else if (req.file && (req.file.mimetype.includes('word') || req.file.originalname.endsWith('.docx'))) {
+      const data = await mammoth.extractRawText({ buffer: req.file.buffer });
+      const texto = data.value;
+      message = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        messages: [{ role: 'user', content: prompt + '\n\nDOCUMENTO:\n' + texto }]
+      });
+    } else {
+      const texto = req.body.texto || '';
+      if (!texto.trim()) return res.status(400).json({ erro: 'Nenhum texto fornecido' });
+      message = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        messages: [{ role: 'user', content: prompt + '\n\nDOCUMENTO:\n' + texto }]
+      });
+    }
 
     const resposta = message.content[0].text;
     const partes = resposta.split('---STATS---');
