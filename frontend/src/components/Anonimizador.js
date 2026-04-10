@@ -1,16 +1,52 @@
 import { useState } from 'react';
 import axios from 'axios';
+import * as pdfjsLib from 'pdfjs-dist';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 const API = 'https://anonimizador-lgpd-production.up.railway.app';
 
 export default function Anonimizador({ token }) {
   const [texto, setTexto] = useState('');
   const [arquivo, setArquivo] = useState(null);
+  const [nomeArquivo, setNomeArquivo] = useState('');
   const [mascara, setMascara] = useState('asterisk');
   const [resultado, setResultado] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [erro, setErro] = useState('');
+
+  const extrairTextoPDF = async (file) => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let textoCompleto = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      textoCompleto += content.items.map(item => item.str).join(' ') + '\n';
+    }
+    return textoCompleto;
+  };
+
+  const handleArquivo = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setNomeArquivo(file.name);
+    if (file.name.endsWith('.pdf')) {
+      setLoading(true);
+      try {
+        const textoExtraido = await extrairTextoPDF(file);
+        setTexto(textoExtraido);
+        setArquivo(null);
+      } catch (err) {
+        setErro('Erro ao ler PDF');
+      }
+      setLoading(false);
+    } else {
+      setArquivo(file);
+      setTexto('');
+    }
+  };
 
   const handleSubmit = async () => {
     if (!texto.trim() && !arquivo) return setErro('Cole um texto ou selecione um arquivo');
@@ -20,7 +56,6 @@ export default function Anonimizador({ token }) {
       const formData = new FormData();
       if (arquivo) formData.append('arquivo', arquivo);
       else formData.append('texto', texto);
-      formData.append('tipos', JSON.stringify(['cpf', 'rg', 'nome', 'endereco', 'email', 'telefone', 'data_nasc', 'banco', 'salario', 'saude']));
       formData.append('mascara', mascara);
       const res = await axios.post(`${API}/documents/anonymize`, formData, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
@@ -68,10 +103,10 @@ export default function Anonimizador({ token }) {
       <div className="card" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Documento</h2>
         <label>Cole o texto ou faça upload de PDF/Word</label>
-        <textarea value={texto} onChange={e => { setTexto(e.target.value); setArquivo(null); }} rows={8} placeholder="Cole aqui o contrato, ata, processo, folha de pagamento..." style={{ fontFamily: 'monospace', fontSize: 13 }} />
+        <textarea value={texto} onChange={e => { setTexto(e.target.value); setArquivo(null); setNomeArquivo(''); }} rows={8} placeholder="Cole aqui o contrato, ata, processo, folha de pagamento..." style={{ fontFamily: 'monospace', fontSize: 13 }} />
         <label>Ou selecione um arquivo (.pdf ou .docx)</label>
-        <input type="file" accept=".pdf,.docx,.doc" onChange={e => { setArquivo(e.target.files[0]); setTexto(''); }} style={{ marginBottom: 0 }} />
-        {arquivo && <p style={{ fontSize: 12, color: '#1d4ed8', marginTop: 4 }}>📎 {arquivo.name}</p>}
+        <input type="file" accept=".pdf,.docx,.doc" onChange={handleArquivo} style={{ marginBottom: 0 }} />
+        {nomeArquivo && <p style={{ fontSize: 12, color: '#1d4ed8', marginTop: 4 }}>📎 {nomeArquivo}</p>}
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
