@@ -33,90 +33,141 @@ const baseJuridica = {
   outro: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 31']
 };
 
-async function anonimizarPDFComTarjas(pdfBuffer) {
-  const base64PDF = pdfBuffer.toString('base64');
+async function extrairItensComPosicao(pdfBuffer) {
+  const pdfjsLib = require('pdfjs-dist');
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) });
+  const doc = await loadingTask.promise;
+  const resultado = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const viewport = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+    for (const item of content.items) {
+      if (!item.str || !item.str.trim()) continue;
+      resultado.push({
+        str: item.str,
+        x: item.transform[4],
+        y: viewport.height - item.transform[5] - (item.height || 10),
+        width: item.width,
+        height: item.height || 10,
+        pagina: p,
+        alturaPage: viewport.height
+      });
+    }
+  }
+  return resultado;
+}
 
+async function identificarDadosParaTarjar(pdfBuffer) {
+  const base64PDF = pdfBuffer.toString('base64');
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
+    max_tokens: 2000,
     messages: [{
       role: 'user',
       content: [
-        {
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: base64PDF }
-        },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64PDF } },
         {
           type: 'text',
-          text: `Analise este documento PDF e identifique os dados que devem ser anonimizados conforme LGPD e LAI brasileiras.
+          text: `Analise este documento e liste os dados que devem ser anonimizados conforme LGPD e LAI.
 
-DEVE anonimizar:
-- CPF de qualquer pessoa (formato XXX.XXX.XXX-XX)
-- RG
-- Enderecos residenciais de pessoas fisicas
-- Nomes de pessoas fisicas privadas (representantes de empresas, fornecedores, contratados privados)
-- Emails e telefones pessoais
+DEVE anonimizar: CPF (formato XXX.XXX.XXX-XX), RG, enderecos residenciais de pessoas fisicas, nomes de pessoas fisicas privadas (representantes de empresas, fornecedores), emails e telefones pessoais.
 
-NAO deve anonimizar:
-- Nomes de agentes publicos no exercicio de suas funcoes (prefeito, vereador, presidente de camara, servidor nomeado em portaria)
-- Nomes de empresas e CNPJs
-- Enderecos de sede de empresas
-- Valores de contratos e datas
-
-Para cada dado, informe em qual pagina aparece (1, 2, 3...) e a posicao vertical aproximada na pagina em porcentagem do topo (0% = topo, 100% = rodape).
+NAO deve anonimizar: nomes de agentes publicos em exercicio (prefeito, vereador, presidente de camara, servidor em portaria), nomes de empresas, CNPJs, enderecos de sede de empresas, valores, datas de assinatura.
 
 Retorne SOMENTE este JSON:
-{
-  "dados": [
-    {"texto": "texto exato do dado", "pagina": 1, "y_pct": 35, "tipo": "nome"}
-  ],
-  "tipo_documento": "contrato"
-}`
+{"dados": ["texto exato 1", "texto exato 2"], "tipo": "contrato"}`
         }
       ]
     }]
   });
 
-  let dados = [];
-  let tipoDocumento = 'contrato';
   try {
     const json = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
-    dados = json.dados || [];
-    tipoDocumento = json.tipo_documento || 'contrato';
+    return { dados: json.dados || [], tipo: json.tipo || 'contrato' };
   } catch(e) {
-    console.error('Erro ao parsear JSON:', e);
+    return { dados: [], tipo: 'contrato' };
   }
+}
+
+async function anonimizarPDFComTarjas(pdfBuffer) {
+  const [itens, { dados, tipo }] = await Promise.all([
+    extrairItensComPosicao(pdfBuffer),
+    identificarDadosParaTarjar(pdfBuffer)
+  ]);
 
   const pdfDoc = await PDFDocument.load(pdfBuffer);
   const pages = pdfDoc.getPages();
 
   for (const dado of dados) {
-    const pageIndex = (dado.pagina || 1) - 1;
-    if (pageIndex >= pages.length) continue;
-    const page = pages[pageIndex];
-    const { width, height } = page.getSize();
-    const yPct = Math.max(0, Math.min(100, dado.y_pct || 50));
-    const y = height - (yPct / 100) * height - 8;
-    const charWidth = 6.5;
-    const tamanhoTexto = dado.texto ? dado.texto.length : 20;
-    const largura = Math.min(tamanhoTexto * charWidth, width - 60);
-    page.drawRectangle({
-      x: 50,
-      y: Math.max(2, y),
-      width: largura,
-      height: 14,
-      color: rgb(0, 0, 0)
-    });
+    const dadoNorm = dado.trim().toLowerCase();
+    if (!dadoNorm) continue;
+
+    for (let i = 0; i < itens.length; i++) {
+      const item = itens[i];
+      const itemNorm = item.str.trim().toLowerCase();
+      if (!itemNorm) continue;
+
+      // Tenta match direto
+      if (itemNorm === dadoNorm || itemNorm.includes(dadoNorm)) {
+        const page = pages[item.pagina - 1];
+        if (!page) continue;
+        const { height } = page.getSize();
+        page.drawRectangle({
+          x: Math.max(0, item.x - 1),
+          y: Math.max(0, height - item.y - item.height - 2),
+          width: Math.max(item.width + 2, 30),
+          height: item.height + 4,
+          color: rgb(0, 0, 0)
+        });
+        continue;
+      }
+
+      // Tenta match acumulando itens consecutivos da mesma pagina
+      let acum = '';
+      let xInicio = null;
+      let yPos = null;
+      let largura = 0;
+      let alturaMax = 0;
+      const paginaBase = item.pagina;
+
+      for (let j = i; j < Math.min(i + 15, itens.length); j++) {
+        if (itens[j].pagina !== paginaBase) break;
+        const t = itens[j].str.trim();
+        if (!t) continue;
+        if (xInicio === null) {
+          xInicio = itens[j].x;
+          yPos = itens[j].y;
+        }
+        acum += (acum ? ' ' : '') + t;
+        largura = itens[j].x + itens[j].width - xInicio;
+        alturaMax = Math.max(alturaMax, itens[j].height || 10);
+
+        if (acum.toLowerCase().includes(dadoNorm) && dadoNorm.length > 4) {
+          const page = pages[paginaBase - 1];
+          if (!page) break;
+          const { height } = page.getSize();
+          page.drawRectangle({
+            x: Math.max(0, xInicio - 1),
+            y: Math.max(0, height - yPos - alturaMax - 2),
+            width: Math.max(largura + 2, 30),
+            height: alturaMax + 4,
+            color: rgb(0, 0, 0)
+          });
+          break;
+        }
+      }
+    }
   }
 
   const stats = { nome: 0, cpf: 0, rg: 0, endereco: 0, email: 0, telefone: 0, data_nasc: 0, banco: 0 };
   dados.forEach(d => {
-    const tipo = d.tipo || 'nome';
-    if (stats[tipo] !== undefined) stats[tipo]++;
+    if (/\d{3}\.\d{3}\.\d{3}-\d{2}/.test(d)) stats.cpf++;
+    else if (d.includes('@')) stats.email++;
     else stats.nome++;
   });
 
-  return { pdfBuffer: Buffer.from(await pdfDoc.save()), stats, tipoDocumento };
+  return { pdfBuffer: Buffer.from(await pdfDoc.save()), stats, tipoDocumento: tipo };
 }
 
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
