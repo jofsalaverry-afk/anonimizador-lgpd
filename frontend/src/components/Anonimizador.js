@@ -1,27 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 
 const API = 'https://anonimizador-lgpd-production.up.railway.app';
-
-async function extrairTextoPDF(file) {
-  await new Promise((resolve) => {
-    if (window.pdfjsLib) return resolve();
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    script.onload = resolve;
-    document.head.appendChild(script);
-  });
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let texto = '';
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    texto += content.items.map(item => item.str).join(' ') + '\n';
-  }
-  return texto;
-}
 
 export default function Anonimizador({ token }) {
   const [texto, setTexto] = useState('');
@@ -33,25 +13,14 @@ export default function Anonimizador({ token }) {
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [erro, setErro] = useState('');
 
-  const handleArquivo = async (e) => {
+  const handleArquivo = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setNomeArquivo(file.name);
-    if (file.name.endsWith('.pdf')) {
-      setLoading(true);
-      setErro('');
-      try {
-        const textoExtraido = await extrairTextoPDF(file);
-        setTexto(textoExtraido);
-        setArquivo(null);
-      } catch (err) {
-        setErro('Erro ao ler PDF');
-      }
-      setLoading(false);
-    } else {
-      setArquivo(file);
-      setTexto('');
-    }
+    setArquivo(file);
+    setTexto('');
+    setResultado(null);
+    setErro('');
   };
 
   const handleSubmit = async () => {
@@ -64,7 +33,8 @@ export default function Anonimizador({ token }) {
       else formData.append('texto', texto);
       formData.append('mascara', mascara);
       const res = await axios.post(`${API}/documents/anonymize`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+        timeout: 120000
       });
       setResultado(res.data);
     } catch (err) {
@@ -109,10 +79,10 @@ export default function Anonimizador({ token }) {
       <div className="card" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Documento</h2>
         <label>Cole o texto ou faça upload de PDF/Word</label>
-        <textarea value={texto} onChange={e => { setTexto(e.target.value); setArquivo(null); setNomeArquivo(''); }} rows={8} placeholder="Cole aqui o contrato, ata, processo, folha de pagamento..." style={{ fontFamily: 'monospace', fontSize: 13 }} />
+        <textarea value={texto} onChange={e => { setTexto(e.target.value); setArquivo(null); setNomeArquivo(''); setResultado(null); }} rows={8} placeholder="Cole aqui o contrato, ata, processo, folha de pagamento..." style={{ fontFamily: 'monospace', fontSize: 13 }} />
         <label>Ou selecione um arquivo (.pdf ou .docx)</label>
         <input type="file" accept=".pdf,.docx,.doc" onChange={handleArquivo} style={{ marginBottom: 0 }} />
-        {nomeArquivo && <p style={{ fontSize: 12, color: '#1d4ed8', marginTop: 4 }}>📎 {nomeArquivo} {loading ? '⏳ lendo...' : '✅ pronto'}</p>}
+        {nomeArquivo && <p style={{ fontSize: 12, color: '#1d4ed8', marginTop: 4 }}>📎 {nomeArquivo}</p>}
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -132,7 +102,7 @@ export default function Anonimizador({ token }) {
 
       {erro && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{erro}</p>}
       <button className="btn-primary" onClick={handleSubmit} disabled={loading} style={{ marginBottom: 24 }}>
-        {loading ? '⏳ Processando...' : 'Anonimizar documento'}
+        {loading ? '⏳ Processando... (pode levar até 1 minuto para PDFs grandes)' : 'Anonimizar documento'}
       </button>
 
       {resultado && (
