@@ -32,11 +32,26 @@ export default function Anonimizador({ token }) {
       if (arquivo) formData.append('arquivo', arquivo);
       else formData.append('texto', texto);
       formData.append('mascara', mascara);
-      const res = await axios.post(`${API}/documents/anonymize`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
-        timeout: 120000
-      });
-      setResultado(res.data);
+
+      if (arquivo && arquivo.name.endsWith('.pdf')) {
+        const res = await axios.post(`${API}/documents/anonymize`, formData, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+          responseType: 'blob',
+          timeout: 120000
+        });
+        const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'documento-anonimizado.pdf';
+        a.click();
+        setResultado({ pdf: true });
+      } else {
+        const res = await axios.post(`${API}/documents/anonymize`, formData, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+          timeout: 120000
+        });
+        setResultado(res.data);
+      }
     } catch (err) {
       setErro(err.response?.data?.erro || 'Erro ao processar');
     }
@@ -102,10 +117,17 @@ export default function Anonimizador({ token }) {
 
       {erro && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{erro}</p>}
       <button className="btn-primary" onClick={handleSubmit} disabled={loading} style={{ marginBottom: 24 }}>
-        {loading ? '⏳ Processando... (pode levar até 1 minuto para PDFs grandes)' : 'Anonimizar documento'}
+        {loading ? '⏳ Processando... (pode levar até 1 minuto)' : 'Anonimizar documento'}
       </button>
 
-      {resultado && (
+      {resultado && resultado.pdf && (
+        <div className="card" style={{ background: '#dcfce7', border: '1px solid #16a34a' }}>
+          <p style={{ color: '#16a34a', fontWeight: 600, fontSize: 14 }}>✅ PDF anonimizado com tarjas gerado e baixado com sucesso!</p>
+          <p style={{ color: '#166534', fontSize: 12, marginTop: 4 }}>O arquivo foi salvo na sua pasta de downloads.</p>
+        </div>
+      )}
+
+      {resultado && !resultado.pdf && (
         <div className="card">
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Resultado</h2>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
