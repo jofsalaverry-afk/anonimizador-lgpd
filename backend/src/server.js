@@ -89,30 +89,6 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Anonimizador LGPD API rodando!' });
 });
 
-// ENDPOINT TEMPORARIO - REMOVER APOS USO
-// Reseta a senha do admin@anonimizador.com diretamente no banco.
-// Protegido por token estatico - chame uma vez e remova este endpoint.
-app.post('/dev/reset-admin', async (req, res) => {
-  try {
-    const auth = req.headers.authorization || '';
-    if (auth !== 'Bearer RESET-TOKEN-TEMP-2026') {
-      return res.status(401).json({ erro: 'unauthorized' });
-    }
-    const bcrypt = require('bcrypt');
-    const senhaHash = await bcrypt.hash('Anonimizador@2026!', 10);
-    const admin = await prisma.admin.findUnique({ where: { email: 'admin@anonimizador.com' } });
-    if (!admin) {
-      const todos = await prisma.admin.findMany({ select: { email: true } });
-      return res.status(404).json({ erro: 'admin nao encontrado', existentes: todos.map(a => a.email) });
-    }
-    await prisma.admin.update({ where: { email: 'admin@anonimizador.com' }, data: { senhaHash } });
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[reset-admin]', err);
-    res.status(500).json({ erro: err.message });
-  }
-});
-
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
