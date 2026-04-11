@@ -1,3 +1,12 @@
+// Seed inicial do banco. Nao usa senhas hardcoded — exige variaveis de
+// ambiente para evitar que credenciais default vazem via repo publico.
+//
+// Uso:
+//   SEED_ADMIN_EMAIL=admin@dominio.com SEED_ADMIN_SENHA=SenhaForte node src/seed.js
+//
+// Opcionalmente cria tambem uma camara de teste:
+//   ... SEED_CAMARA_EMAIL=teste@foo SEED_CAMARA_SENHA=xxx node src/seed.js
+
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
@@ -5,30 +14,52 @@ const bcrypt = require('bcrypt');
 const prisma = new PrismaClient();
 
 async function main() {
-  const senhaAdmin = await bcrypt.hash('admin123', 10);
-  const admin = await prisma.admin.upsert({
-    where: { email: 'admin@anonimizador.com' },
-    update: {},
-    create: { email: 'admin@anonimizador.com', senhaHash: senhaAdmin }
-  });
-  console.log('Admin criado:', admin.email);
+  const adminEmail = process.env.SEED_ADMIN_EMAIL;
+  const adminSenha = process.env.SEED_ADMIN_SENHA;
 
-  const senhaCamara = await bcrypt.hash('camara123', 10);
-  const camara = await prisma.camara.upsert({
-    where: { email: 'teste@camarateste.gov.br' },
-    update: {},
-    create: {
-      nome: 'Câmara Municipal Teste',
-      cnpj: '00.000.000/0001-00',
-      email: 'teste@camarateste.gov.br',
-      senhaHash: senhaCamara,
-      plano: 'basico',
-      ativo: true
-    }
+  if (!adminEmail || !adminSenha) {
+    console.error('ERRO: defina SEED_ADMIN_EMAIL e SEED_ADMIN_SENHA.');
+    console.error('Uso: SEED_ADMIN_EMAIL=... SEED_ADMIN_SENHA=... node src/seed.js');
+    process.exit(1);
+  }
+  if (adminSenha.length < 8) {
+    console.error('ERRO: SEED_ADMIN_SENHA deve ter no minimo 8 caracteres.');
+    process.exit(1);
+  }
+
+  const senhaHash = await bcrypt.hash(adminSenha, 10);
+  const admin = await prisma.admin.upsert({
+    where: { email: adminEmail },
+    update: { senhaHash },
+    create: { email: adminEmail, senhaHash }
   });
-  console.log('Câmara criada:', camara.nome);
+  console.log('Admin criado/atualizado:', admin.email);
+
+  // Camara de teste e opcional e so acontece se ambas as envs estiverem setadas
+  const camaraEmail = process.env.SEED_CAMARA_EMAIL;
+  const camaraSenha = process.env.SEED_CAMARA_SENHA;
+  if (camaraEmail && camaraSenha) {
+    if (camaraSenha.length < 8) {
+      console.error('ERRO: SEED_CAMARA_SENHA deve ter no minimo 8 caracteres.');
+      process.exit(1);
+    }
+    const camaraHash = await bcrypt.hash(camaraSenha, 10);
+    const camara = await prisma.camara.upsert({
+      where: { email: camaraEmail },
+      update: {},
+      create: {
+        nome: process.env.SEED_CAMARA_NOME || 'Camara Municipal de Teste',
+        cnpj: process.env.SEED_CAMARA_CNPJ || '00.000.000/0001-00',
+        email: camaraEmail,
+        senhaHash: camaraHash,
+        plano: 'basico',
+        ativo: true
+      }
+    });
+    console.log('Camara criada:', camara.nome);
+  }
 }
 
 main()
-  .catch(console.error)
+  .catch(e => { console.error(e); process.exit(1); })
   .finally(() => prisma.$disconnect());
