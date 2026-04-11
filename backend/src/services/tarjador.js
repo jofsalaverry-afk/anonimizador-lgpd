@@ -32,7 +32,7 @@ function agruparLinhas(itens) {
     (porPagina[it.pageIndex] = porPagina[it.pageIndex] || []).push(it);
   }
   const linhas = [];
-  const tolY = 3;
+  const tolY = 4;
   for (const p of Object.keys(porPagina).map(Number).sort((a, b) => a - b)) {
     const arr = porPagina[p].slice().sort((a, b) => b.baseline - a.baseline);
     const grupos = [];
@@ -115,7 +115,27 @@ function linhaEhResidencia(texto) {
 
 function parecerEndereco(txt) {
   const t = txt.toLowerCase();
-  return /(rua|avenida|av\.|alameda|travessa|praca|rodovia|estrada|bairro|cep\s?\d)/.test(t);
+  return /(rua|avenida|av\.|alameda|travessa|praca|rodovia|estrada|bairro|cep\s?\d|\bn[ºo°]\s?\d)/.test(t);
+}
+
+// Heuristica: parece NOME PROPRIO de pessoa em ALL CAPS (comum em contratos
+// brasileiros: "MARIA DE FATIMA SANTOS"). Nao aplica a nomes de cidades em
+// Title Case como "Nova Esperança do Sudoeste". Usado para rejeitar tarjas
+// que a IA retornou indevidamente.
+function parecerNome(txt) {
+  const t = txt.trim().replace(/[,.;:]+$/, '');
+  if (!t) return false;
+  if (/\d/.test(t)) return false;
+  if (/@/.test(t)) return false;
+  if (!/^[A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ\s.'-]+$/.test(t)) return false; // somente MAIUSCULAS
+  const palavras = t.split(/\s+/).filter(Boolean);
+  if (palavras.length < 2) return false;
+  if (/(RUA|AVENIDA|ALAMEDA|TRAVESSA|BAIRRO|SEDE|CEP|CNPJ|CONTRATANTE|CONTRATADA|CLAUSULA|OBJETO|VALOR)/.test(t)) return false;
+  return true;
+}
+
+function parecerMetaTexto(txt) {
+  return /(residente|domiciliad|neste ato|inscrit[oa]|portador|brasileir|casad|solteir)/i.test(txt);
 }
 
 async function aplicarTarjas(pdfBuffer, itens, tarjasSub) {
@@ -158,13 +178,48 @@ async function aplicarTarjas(pdfBuffer, itens, tarjasSub) {
   return Buffer.from(await pdfDoc.save());
 }
 
+// Propaga contexto SEDE/RESID atraves de linhas adjacentes. Um endereco de
+// sede frequentemente quebra em multiplas linhas: a palavra "com sede" aparece
+// so na primeira linha, mas as seguintes ("Rua X, 123, Bairro, CEP 12345-678")
+// precisam herdar o mesmo contexto para nao serem tarjadas.
+function propagarContexto(linhas) {
+  const n = linhas.length;
+  const ctx = new Array(n).fill(null); // 'sede' | 'resid' | null
+  for (let i = 0; i < n; i++) {
+    if (linhaEhSedeEmpresa(linhas[i].texto)) ctx[i] = 'sede';
+    else if (linhaEhResidencia(linhas[i].texto)) ctx[i] = 'resid';
+  }
+  // Propaga pra frente ate encontrar um marcador de reset (nova "CONTRATANTE",
+  // "CONTRATADA", ponto final seguido de paragrafo longo, nome em caps, etc).
+  for (let i = 0; i < n; i++) {
+    if (!ctx[i]) continue;
+    for (let j = i + 1; j < Math.min(n, i + 6); j++) {
+      if (ctx[j]) break;
+      if (linhas[j].pageIndex !== linhas[i].pageIndex) break;
+      const txt = linhas[j].texto;
+      // Reset ao encontrar palavras-chave que indicam nova secao
+      if (/\b(CONTRATANTE|CONTRATADA|CLAUSULA|CLAUSULA|OBJETO|VALOR|PRAZO|PARTES|testemunha|CPF|CNPJ|cl[aá]usula)\b/i.test(txt)) break;
+      ctx[j] = ctx[i];
+    }
+  }
+  return ctx;
+}
+
 // Constroi lista de tarjas finais a partir da resposta da IA + linhas + regex CPF
 function construirTarjas(itens, linhas, respostaIA) {
   const tarjasOut = [];
   const linhaDeItem = {};
   linhas.forEach((l, li) => l.itensIdx.forEach(idx => { linhaDeItem[idx] = li; }));
+  const ctxLinha = propagarContexto(linhas);
 
   const addTarja = (i, start, end, origem) => {
+    // Deduplica: se ja ha tarja sobreposta pro mesmo item, expande ao inves de duplicar
+    const existente = tarjasOut.find(tt => tt.i === i && !(end <= tt.start || start >= tt.end));
+    if (existente) {
+      existente.start = Math.min(existente.start, start);
+      existente.end = Math.max(existente.end, end);
+      return;
+    }
     tarjasOut.push({ i, start, end, origem });
   };
 
@@ -176,9 +231,15 @@ function construirTarjas(itens, linhas, respostaIA) {
     if (!item) continue;
     const linhaIdx = linhaDeItem[t.i];
     const linha = linhas[linhaIdx];
+    const ctx = ctxLinha[linhaIdx];
 
-    // Filtro de endereco: se alvo parece endereco e linha eh sede, descarta
-    if (parecerEndereco(t.d) && linha && linhaEhSedeEmpresa(linha.texto)) continue;
+    // Filtros: rejeita nomes, texto meta, endereco em contexto de sede
+    if (parecerNome(t.d)) continue;
+    if (parecerMetaTexto(t.d)) continue;
+    if (parecerEndereco(t.d)) {
+      if (ctx === 'sede') continue;
+      if (linha && linhaEhSedeEmpresa(linha.texto)) continue;
+    }
 
     // Match direto no item
     const pos = item.texto.indexOf(t.d);
@@ -193,19 +254,31 @@ function construirTarjas(itens, linhas, respostaIA) {
     }
   }
 
-  // 2) Fallback regex CPF em cada linha (pega cross-item) - SEMPRE aplica.
-  // Tolera espacos ao redor do hifen e normalizacao de whitespace feita no
-  // linha.texto (pdfjs muitas vezes separa "XXX.XXX.XXX - YY" em itens).
-  const cpfReTolerante = /\d{3}\.\d{3}\.\d{3}\s*-\s*\d{2}/g;
+  // 2) FALLBACK OBRIGATORIO: regex CPF/RG/email/telefone em CADA ITEM.
+  // Independente da IA, qualquer match e tarjado. Aplica tambem a
+  // linha inteira (joined) para pegar casos quebrados entre itens.
+  const CPF_ITEM = /\d{3}\.\d{3}\.\d{3}-\d{2}/g;
+  const CPF_TOLERANTE = /\d{3}\.?\d{3}\.?\d{3}\s*[-–—]\s*\d{2}/g;
+  const EMAIL_RE = /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g;
+  const TEL_RE = /\(?\d{2}\)?\s?9?\d{4}[-\s]\d{4}/g;
+
+  // Per-item scan — garantia absoluta quando CPF esta inteiro em um item
+  for (const item of itens) {
+    for (const re of [new RegExp(CPF_ITEM.source, 'g'), new RegExp(EMAIL_RE.source, 'g'), new RegExp(TEL_RE.source, 'g')]) {
+      let m;
+      while ((m = re.exec(item.texto)) !== null) {
+        addTarja(item.indice, m.index, m.index + m[0].length, 'regex-item');
+      }
+    }
+  }
+
+  // Per-linha scan (tolerante) — pega CPF quebrado entre itens adjacentes
   for (const linha of linhas) {
+    const re = new RegExp(CPF_TOLERANTE.source, 'g');
     let m;
-    const re = new RegExp(cpfReTolerante.source, 'g');
     while ((m = re.exec(linha.texto)) !== null) {
       const subs = tarjasPorSubstringEmLinha(linha, itens, m[0]);
-      for (const s of subs) {
-        const duplicado = tarjasOut.some(tt => tt.i === s.i && tt.start === s.start && tt.end === s.end);
-        if (!duplicado) addTarja(s.i, s.start, s.end, 'regex-cpf');
-      }
+      for (const s of subs) addTarja(s.i, s.start, s.end, 'regex-linha');
     }
   }
 
