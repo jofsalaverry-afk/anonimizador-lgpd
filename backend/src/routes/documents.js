@@ -4,7 +4,6 @@ const multer = require('multer');
 const mammoth = require('mammoth');
 const { PrismaClient } = require('@prisma/client');
 const Anthropic = require('@anthropic-ai/sdk');
-const { PDFDocument, rgb } = require('pdf-lib');
 const {
   extrairItens,
   agruparLinhas,
@@ -41,147 +40,64 @@ const baseJuridica = {
   outro: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 31']
 };
 
-async function extrairItensComPosicao(pdfBuffer) {
-  const pdfjsLib = require('pdfjs-dist');
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) });
-  const doc = await loadingTask.promise;
-  const resultado = [];
-  for (let p = 1; p <= doc.numPages; p++) {
-    const page = await doc.getPage(p);
-    const viewport = page.getViewport({ scale: 1 });
-    const content = await page.getTextContent();
-    for (const item of content.items) {
-      if (!item.str || !item.str.trim()) continue;
-      resultado.push({
-        str: item.str,
-        x: item.transform[4],
-        y: viewport.height - item.transform[5] - (item.height || 10),
-        width: item.width,
-        height: item.height || 10,
-        pagina: p,
-        alturaPage: viewport.height
-      });
-    }
-  }
-  return resultado;
-}
+// Pipeline unificado de anonimizacao de PDF — usa tarjador.js com
+// regex obrigatorio como fallback para CPFs e filtro sede/residencial.
+async function anonimizarPDF(pdfBuffer) {
+  const itens = await extrairItens(pdfBuffer);
+  const linhas = agruparLinhas(itens);
 
-async function identificarDadosParaTarjar(pdfBuffer) {
-  const base64PDF = pdfBuffer.toString('base64');
+  // DEBUG: mostrar como o pdfjs-dist extraiu o texto em producao
+  const CPF_RE = /\d{3}\.?\d{3}\.?\d{3}\s*[-–—]?\s*\d{2}/g;
+  const itensComCPF = itens.filter(it => CPF_RE.test(it.texto));
+  console.log('[anonimizarPDF] itens extraidos:', itens.length, '| linhas:', linhas.length);
+  console.log('[anonimizarPDF] itens com possivel CPF (regex tolerante):', itensComCPF.length);
+  itensComCPF.forEach(it => console.log(`  item[${it.indice}] "${it.texto}"`));
+  // Tambem scan em linhas reconstruidas (pega CPFs split entre itens)
+  const linhasComCPF = linhas.filter(l => CPF_RE.test(l.texto));
+  console.log('[anonimizarPDF] linhas com possivel CPF:', linhasComCPF.length);
+  linhasComCPF.forEach(l => console.log(`  linha "${l.texto.slice(0, 200)}"`));
+
+  const itensParaIA = buildPromptItens(itens, linhas);
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 2000,
+    max_tokens: 8000,
     messages: [{
       role: 'user',
-      content: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64PDF } },
-        {
-          type: 'text',
-          text: `Analise este documento e liste os dados que devem ser anonimizados conforme LGPD e LAI.
-
-DEVE anonimizar: CPF (formato XXX.XXX.XXX-XX), RG, enderecos residenciais de pessoas fisicas, nomes de pessoas fisicas privadas (representantes de empresas, fornecedores), emails e telefones pessoais.
-
-NAO deve anonimizar: nomes de agentes publicos em exercicio (prefeito, vereador, presidente de camara, servidor em portaria), nomes de empresas, CNPJs, enderecos de sede de empresas, valores, datas de assinatura.
-
-Retorne SOMENTE este JSON:
-{"dados": ["texto exato 1", "texto exato 2"], "tipo": "contrato"}`
-        }
-      ]
+      content: `${PROMPT_INSTRUCOES}\n\nItens (JSON):\n${JSON.stringify(itensParaIA)}`
     }]
   });
 
+  let respostaIA = { tarjas: [] };
   try {
-    const json = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
-    return { dados: json.dados || [], tipo: json.tipo || 'contrato' };
-  } catch(e) {
-    return { dados: [], tipo: 'contrato' };
+    respostaIA = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
+  } catch (e) {
+    console.log('[anonimizarPDF] falha ao parsear resposta da IA:', e.message);
   }
-}
+  console.log('[anonimizarPDF] tarjas da IA:', (respostaIA.tarjas || []).length);
 
-async function anonimizarPDFComTarjas(pdfBuffer) {
-  const [itens, { dados, tipo }] = await Promise.all([
-    extrairItensComPosicao(pdfBuffer),
-    identificarDadosParaTarjar(pdfBuffer)
-  ]);
-
-  const pdfDoc = await PDFDocument.load(pdfBuffer);
-  const pages = pdfDoc.getPages();
-
-  for (const dado of dados) {
-    const dadoNorm = dado.trim().toLowerCase();
-    if (!dadoNorm) continue;
-
-    for (let i = 0; i < itens.length; i++) {
-      const item = itens[i];
-      const itemNorm = item.str.trim().toLowerCase();
-      if (!itemNorm) continue;
-
-      // Tenta match direto
-      if (itemNorm === dadoNorm || itemNorm.includes(dadoNorm)) {
-        const page = pages[item.pagina - 1];
-        if (!page) continue;
-        const { height } = page.getSize();
-        page.drawRectangle({
-          x: Math.max(0, item.x - 1),
-          y: Math.max(0, height - item.y - item.height - 2),
-          width: Math.max(item.width + 2, 30),
-          height: item.height + 4,
-          color: rgb(0, 0, 0)
-        });
-        continue;
-      }
-
-      // Tenta match acumulando itens consecutivos da mesma pagina
-      let acum = '';
-      let xInicio = null;
-      let yPos = null;
-      let largura = 0;
-      let alturaMax = 0;
-      const paginaBase = item.pagina;
-
-      for (let j = i; j < Math.min(i + 15, itens.length); j++) {
-        if (itens[j].pagina !== paginaBase) break;
-        const t = itens[j].str.trim();
-        if (!t) continue;
-        if (xInicio === null) {
-          xInicio = itens[j].x;
-          yPos = itens[j].y;
-        }
-        acum += (acum ? ' ' : '') + t;
-        largura = itens[j].x + itens[j].width - xInicio;
-        alturaMax = Math.max(alturaMax, itens[j].height || 10);
-
-        if (acum.toLowerCase().includes(dadoNorm) && dadoNorm.length > 4) {
-          const page = pages[paginaBase - 1];
-          if (!page) break;
-          const { height } = page.getSize();
-          page.drawRectangle({
-            x: Math.max(0, xInicio - 1),
-            y: Math.max(0, height - yPos - alturaMax - 2),
-            width: Math.max(largura + 2, 30),
-            height: alturaMax + 4,
-            color: rgb(0, 0, 0)
-          });
-          break;
-        }
-      }
-    }
-  }
+  const tarjas = construirTarjas(itens, linhas, respostaIA);
+  const porOrigem = {};
+  tarjas.forEach(t => { porOrigem[t.origem] = (porOrigem[t.origem] || 0) + 1; });
+  console.log('[anonimizarPDF] tarjas finais:', tarjas.length, 'origem:', porOrigem);
 
   const stats = { nome: 0, cpf: 0, rg: 0, endereco: 0, email: 0, telefone: 0, data_nasc: 0, banco: 0 };
-  dados.forEach(d => {
-    if (/\d{3}\.\d{3}\.\d{3}-\d{2}/.test(d)) stats.cpf++;
-    else if (d.includes('@')) stats.email++;
-    else stats.nome++;
-  });
+  for (const t of tarjas) {
+    const it = itens[t.i];
+    if (!it) continue;
+    const trecho = it.texto.slice(t.start, t.end);
+    if (/\d{3}\.?\d{3}\.?\d{3}\s*[-–—]\s*\d{2}/.test(trecho)) stats.cpf++;
+    else if (/@/.test(trecho)) stats.email++;
+    else if (/\d/.test(trecho)) stats.endereco++;
+  }
 
-  return { pdfBuffer: Buffer.from(await pdfDoc.save()), stats, tipoDocumento: tipo };
+  const pdfFinal = await aplicarTarjas(pdfBuffer, itens, tarjas);
+  return { pdfBuffer: pdfFinal, stats, tipoDocumento: 'contrato' };
 }
 
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
   try {
     if (req.file && req.file.mimetype === 'application/pdf') {
-      const { pdfBuffer, stats, tipoDocumento } = await anonimizarPDFComTarjas(req.file.buffer);
+      const { pdfBuffer, stats, tipoDocumento } = await anonimizarPDF(req.file.buffer);
       await prisma.documento.create({
         data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: Object.values(stats).reduce((a,b)=>a+b,0), dadosJson: stats }
       });
@@ -249,31 +165,10 @@ router.post('/download-pdf', authMiddleware, upload.single('arquivo'), async (re
     if (!req.file || req.file.mimetype !== 'application/pdf') {
       return res.status(400).json({ erro: 'Envie um PDF no campo "arquivo"' });
     }
-    const pdfBufferOriginal = req.file.buffer;
-
-    const itens = await extrairItens(pdfBufferOriginal);
-    const linhas = agruparLinhas(itens);
-    const itensParaIA = buildPromptItens(itens, linhas);
-
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      messages: [{
-        role: 'user',
-        content: `${PROMPT_INSTRUCOES}\n\nItens (JSON):\n${JSON.stringify(itensParaIA)}`
-      }]
-    });
-
-    let respostaIA = { tarjas: [] };
-    try {
-      respostaIA = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
-    } catch(e) {}
-
-    const tarjasFinais = construirTarjas(itens, linhas, respostaIA);
-    const pdfFinal = await aplicarTarjas(pdfBufferOriginal, itens, tarjasFinais);
+    const { pdfBuffer } = await anonimizarPDF(req.file.buffer);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
-    res.send(pdfFinal);
+    res.send(pdfBuffer);
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao gerar PDF' });
