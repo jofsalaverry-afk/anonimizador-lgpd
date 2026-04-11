@@ -248,11 +248,8 @@ router.post('/download-pdf', authMiddleware, upload.single('arquivo'), async (re
     const pdfjsDoc = await loadingTask.promise;
 
     const itens = [];
-    const alturasPagina = [];
     for (let p = 1; p <= pdfjsDoc.numPages; p++) {
       const page = await pdfjsDoc.getPage(p);
-      const viewport = page.getViewport({ scale: 1 });
-      alturasPagina.push(viewport.height);
       const content = await page.getTextContent();
       for (const item of content.items) {
         if (!item.str || !item.str.trim()) continue;
@@ -261,7 +258,7 @@ router.post('/download-pdf', authMiddleware, upload.single('arquivo'), async (re
           indice: itens.length,
           texto: item.str,
           x: item.transform[4],
-          y: viewport.height - item.transform[5] - itemHeight,
+          baseline: item.transform[5],
           width: item.width,
           height: itemHeight,
           pageIndex: p - 1
@@ -275,16 +272,32 @@ router.post('/download-pdf', authMiddleware, upload.single('arquivo'), async (re
       max_tokens: 4000,
       messages: [{
         role: 'user',
-        content: `Voce recebe itens de texto extraidos de um PDF. Identifique dados pessoais que DEVEM ser anonimizados conforme LGPD e LAI, retornando o TRECHO EXATO (substring) de cada item que deve ser coberto por tarja — nao a linha inteira.
+        content: `Voce recebe itens de texto extraidos de um PDF de documento publico brasileiro. Identifique dados pessoais de PESSOA FISICA PRIVADA que DEVEM ser anonimizados conforme LGPD e LAI, retornando o TRECHO EXATO (substring) de cada item que deve ser coberto por tarja.
 
-DEVE tarjar: CPF, RG, nomes de pessoas fisicas privadas (representantes, fornecedores, contratados, testemunhas), emails pessoais, telefones pessoais, enderecos residenciais, CEP residencial.
+DEVE TARJAR (dados de pessoa fisica privada):
+- CPF no formato XXX.XXX.XXX-XX (11 digitos com pontos e hifen)
+- RG (qualquer formato)
+- Nomes completos de pessoas fisicas privadas: representantes legais, socios, contratados, fornecedores pessoa fisica, testemunhas, beneficiarios
+- Emails pessoais (gmail, hotmail, yahoo, outlook, etc.)
+- Telefones/celulares pessoais
+- Enderecos RESIDENCIAIS: identificados por "residente em/na", "domiciliado em/na", "morador de", "residencia"
+- CEP residencial
 
-NAO tarjar: CNPJ, nomes de empresas, nomes de agentes publicos em exercicio (prefeito, vereador, presidente de camara, servidor publico em portaria), enderecos de sede de empresas, valores, datas, numeros de contrato, rotulos como "CPF:", "RG:", "Email:".
+NAO TARJAR (mesmo se parecerem dados pessoais):
+- CNPJ (formato XX.XXX.XXX/XXXX-XX)
+- Nomes de empresas (contem LTDA, S.A., S/A, EIRELI, ME, EPP, MEI, ou "Empresa", "Comercial", "Servicos")
+- Nomes de agentes publicos em exercicio (prefeito, vereador, presidente de camara, secretario, servidor publico citado em portaria ou no documento oficial)
+- Enderecos de SEDE de empresa: identificados por "com sede em/na", "sediada em/na", "estabelecida em/na", "localizada em/na", "endereco comercial"
+- Valores monetarios, datas, numeros de contrato/processo/portaria
+- Rotulos/labels como "CPF:", "RG:", "Email:", "Telefone:", "Endereco:"
 
-Regras do trecho:
-- "d" deve ser uma substring EXATA de "t" (mesma capitalizacao, pontuacao, espacos).
-- Se o mesmo item tiver varios dados, gere multiplas entradas com o mesmo "i".
-- Nao inclua rotulos como "CPF " ou "Email: " — apenas o valor sensivel.
+REGRAS CRITICAS:
+1. Se um endereco aparece junto de um CNPJ ou razao social de empresa, ele e sede comercial — NAO TARJAR.
+2. Se um endereco aparece junto de um CPF ou nome de pessoa fisica com "residente", "domiciliado" — TARJAR.
+3. Para CPFs: SEMPRE tarjar qualquer sequencia no padrao XXX.XXX.XXX-XX, mesmo no meio de texto corrido.
+4. "d" deve ser substring EXATA de "t" (mesma capitalizacao, pontuacao, espacos).
+5. Um mesmo item pode gerar varias tarjas com o mesmo "i".
+6. Nao inclua rotulos (ex: "CPF:") na tarja — so o valor.
 
 Itens (JSON): ${JSON.stringify(itensParaIA)}
 
@@ -301,6 +314,16 @@ Retorne SOMENTE este JSON, sem comentarios:
       tarjas = [];
     }
 
+    const cpfRegex = /\d{3}\.\d{3}\.\d{3}-\d{2}/g;
+    const jaTemTarja = (i, d) => tarjas.some(t => t.i === i && t.d === d);
+    for (const item of itens) {
+      const re = new RegExp(cpfRegex.source, 'g');
+      let m;
+      while ((m = re.exec(item.texto)) !== null) {
+        if (!jaTemTarja(item.indice, m[0])) tarjas.push({ i: item.indice, d: m[0] });
+      }
+    }
+
     const pdfDoc = await PDFDocument.load(pdfBufferOriginal);
     const pages = pdfDoc.getPages();
     const padding = 1;
@@ -310,12 +333,12 @@ Retorne SOMENTE este JSON, sem comentarios:
       if (!item || !t.d) continue;
       const page = pages[item.pageIndex];
       if (!page) continue;
-      const { height: pageHeight } = page.getSize();
 
       const texto = item.texto;
       const alvo = t.d;
       if (!texto.length) continue;
       const charWidth = item.width / texto.length;
+      const descenderPad = Math.max(2, item.height * 0.25);
 
       let from = 0;
       while (true) {
@@ -323,12 +346,11 @@ Retorne SOMENTE este JSON, sem comentarios:
         if (pos === -1) break;
         const xSub = item.x + pos * charWidth;
         const wSub = alvo.length * charWidth;
-        const pdfLibY = pageHeight - item.y - item.height;
         page.drawRectangle({
           x: xSub - padding,
-          y: pdfLibY - padding,
+          y: item.baseline - descenderPad,
           width: wSub + padding * 2,
-          height: item.height + padding * 2,
+          height: item.height + descenderPad + padding,
           color: rgb(0, 0, 0)
         });
         from = pos + alvo.length;
