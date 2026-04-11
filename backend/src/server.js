@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 
@@ -10,23 +9,32 @@ const app = express();
 // para o rate limiter identificar o IP correto do cliente.
 app.set('trust proxy', 1);
 
-// Handler manual de preflight CORS - garante 204 mesmo se algum middleware
-// posterior interferir. Express 5 nao aceita '*' como path string, usa regex.
-app.options(/.*/, (req, res) => {
+// Middleware manual de CORS - intercepta TODA request (incluindo preflight
+// OPTIONS) antes de qualquer outro middleware. Em Express 5 o path-to-regexp
+// v8 removeu suporte a regex paths em route handlers, entao usamos middleware
+// generico em vez de app.options('*', ...).
+const ORIGENS_PERMITIDAS_CORS = [
+  'https://anonimizadorldpd.com',
+  'https://www.anonimizadorldpd.com',
+  'https://anonimizadorlgpd.com',
+  'https://www.anonimizadorlgpd.com',
+  'https://melodious-emotion-production-c6a6.up.railway.app',
+  'http://localhost:3000',
+  'http://localhost:5173'
+];
+app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const permitidas = [
-    'https://anonimizadorldpd.com',
-    'https://www.anonimizadorldpd.com',
-    'https://melodious-emotion-production-c6a6.up.railway.app',
-    'http://localhost:3000'
-  ];
-  if (permitidas.includes(origin)) {
+  if (origin && ORIGENS_PERMITIDAS_CORS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    res.setHeader('Vary', 'Origin');
+  } else if (origin) {
+    console.warn('[CORS] Origem bloqueada:', origin);
   }
-  res.sendStatus(204);
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
 });
 
 // Limite agressivo para tentativas de login (brute-force): 10 em 15 minutos
@@ -57,30 +65,8 @@ const documentLimiter = rateLimit({
   message: { erro: 'Muitas requisicoes de processamento. Aguarde um momento.' }
 });
 
-// Lista de origens permitidas. Inclui tanto a grafia "ldpd" quanto "lgpd"
-// para evitar erro caso o dominio tenha sido registrado com qualquer das duas.
-const ORIGENS_PERMITIDAS = [
-  'https://anonimizadorldpd.com',
-  'https://www.anonimizadorldpd.com',
-  'https://anonimizadorlgpd.com',
-  'https://www.anonimizadorlgpd.com',
-  'https://melodious-emotion-production-c6a6.up.railway.app',
-  'http://localhost:3000',
-  'http://localhost:5173'
-];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Permite chamadas sem header Origin (curl, healthcheck, server-to-server)
-    if (!origin) return callback(null, true);
-    if (ORIGENS_PERMITIDAS.includes(origin)) return callback(null, true);
-    console.warn('[CORS] Origem bloqueada:', origin);
-    return callback(new Error('Origem nao permitida: ' + origin));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// O CORS e tratado pelo middleware manual no inicio do arquivo
+// (ORIGENS_PERMITIDAS_CORS), entao nao usamos o pacote cors() aqui.
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
