@@ -7,7 +7,6 @@ export default function Anonimizador({ token }) {
   const [texto, setTexto] = useState('');
   const [arquivo, setArquivo] = useState(null);
   const [nomeArquivo, setNomeArquivo] = useState('');
-  const [mascara, setMascara] = useState('asterisk');
   const [resultado, setResultado] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingPDF, setLoadingPDF] = useState(false);
@@ -23,6 +22,15 @@ export default function Anonimizador({ token }) {
     setErro('');
   };
 
+  const removerArquivo = () => {
+    setArquivo(null);
+    setNomeArquivo('');
+    setResultado(null);
+    setErro('');
+    const input = document.getElementById('arquivo-input');
+    if (input) input.value = '';
+  };
+
   const handleSubmit = async () => {
     if (!texto.trim() && !arquivo) return setErro('Cole um texto ou selecione um arquivo');
     setLoading(true);
@@ -31,7 +39,6 @@ export default function Anonimizador({ token }) {
       const formData = new FormData();
       if (arquivo) formData.append('arquivo', arquivo);
       else formData.append('texto', texto);
-      formData.append('mascara', mascara);
 
       if (arquivo && arquivo.name.endsWith('.pdf')) {
         const res = await axios.post(`${API}/documents/anonymize`, formData, {
@@ -99,23 +106,13 @@ export default function Anonimizador({ token }) {
         <label>Cole o texto ou faça upload de PDF/Word</label>
         <textarea value={texto} onChange={e => { setTexto(e.target.value); setArquivo(null); setNomeArquivo(''); setResultado(null); }} rows={8} placeholder="Cole aqui o contrato, ata, processo, folha de pagamento..." style={{ fontFamily: 'monospace', fontSize: 13 }} />
         <label>Ou selecione um arquivo (.pdf ou .docx)</label>
-        <input type="file" accept=".pdf,.docx,.doc" onChange={handleArquivo} style={{ marginBottom: 0 }} />
-        {nomeArquivo && <p style={{ fontSize: 12, color: '#1d4ed8', marginTop: 4 }}>📎 {nomeArquivo}</p>}
-      </div>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <label style={{ marginBottom: 8 }}>Formato da máscara</label>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { key: 'asterisk', label: '●●●●● asteriscos' },
-            { key: 'tarjeta', label: '████ tarjeta' },
-            { key: 'etiqueta', label: '[CPF] etiqueta' }
-          ].map(m => (
-            <button key={m.key} onClick={() => setMascara(m.key)} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid', cursor: 'pointer', fontSize: 13, background: mascara === m.key ? '#dbeafe' : 'white', borderColor: mascara === m.key ? '#1d4ed8' : '#e2e8f0', color: mascara === m.key ? '#1d4ed8' : '#64748b', fontWeight: mascara === m.key ? 500 : 400 }}>
-              {m.label}
-            </button>
-          ))}
-        </div>
+        <input id="arquivo-input" type="file" accept=".pdf,.docx,.doc" onChange={handleArquivo} style={{ marginBottom: 0 }} />
+        {nomeArquivo && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+            <span style={{ fontSize: 12, color: '#1d4ed8' }}>📎 {nomeArquivo}</span>
+            <button type="button" onClick={removerArquivo} title="Remover arquivo" style={{ width: 20, height: 20, borderRadius: '50%', border: '1px solid #dc2626', background: 'white', color: '#dc2626', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+          </div>
+        )}
       </div>
 
       {erro && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{erro}</p>}
