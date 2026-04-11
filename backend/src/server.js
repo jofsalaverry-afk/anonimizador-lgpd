@@ -1,13 +1,30 @@
 require('dotenv').config();
 const express = require('express');
+const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
+const { auditoriaMiddleware } = require('./middlewares/auditoria');
 
 const prisma = new PrismaClient();
 const app = express();
 // Railway expoe o app atras de proxy; precisamos confiar no X-Forwarded-For
 // para o rate limiter identificar o IP correto do cliente.
 app.set('trust proxy', 1);
+
+// Helmet — headers de seguranca padrao da industria.
+// HSTS so faz sentido sob HTTPS (Railway sempre serve sob HTTPS na porta exposta),
+// CSP relaxado pois esta API e consumida apenas via XHR de outros dominios
+// (frontend separado), nao serve HTML.
+app.use(helmet({
+  contentSecurityPolicy: false, // API JSON, sem HTML — CSP nao se aplica
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy: false, // nao serve HTML
+  hsts: {
+    maxAge: 31536000, // 1 ano
+    includeSubDomains: true,
+    preload: false
+  }
+}));
 
 // Middleware manual de CORS - intercepta TODA request (incluindo preflight
 // OPTIONS) antes de qualquer outro middleware. Em Express 5 o path-to-regexp
@@ -69,6 +86,11 @@ const documentLimiter = rateLimit({
 // (ORIGENS_PERMITIDAS_CORS), entao nao usamos o pacote cors() aqui.
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// Auditoria: registrado APOS os parsers (precisa do req.body) e ANTES das
+// rotas. Como escuta res.on('finish'), ele captura req.camara/req.admin
+// que sao populados dentro dos handlers das rotas.
+app.use(auditoriaMiddleware(prisma));
 
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');

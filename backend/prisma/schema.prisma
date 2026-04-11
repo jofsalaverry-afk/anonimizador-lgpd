@@ -39,3 +39,24 @@ model Documento {
   dadosJson          Json?
   criadoEm           DateTime @default(now())
 }
+
+// Trilha de auditoria. Captura toda request mutavel (POST/PUT/PATCH/DELETE)
+// autenticada. Imutavel: sem update/delete via API.
+model LogAuditoria {
+  id         String   @id @default(cuid())
+  criadoEm   DateTime @default(now())
+  userId     String?  // id do Camara ou Admin (null se request sem auth)
+  userType   String?  // "camara" | "admin"
+  camaraId   String?  // tenant; igual a userId quando userType=camara
+  metodo     String   // POST | PUT | PATCH | DELETE
+  rota       String   // path da rota (sem query string)
+  statusCode Int?     // codigo HTTP final da resposta
+  durMs      Int?     // tempo de execucao em milissegundos
+  ip         String?  // X-Forwarded-For (Railway proxy)
+  userAgent  String?
+  body       Json?    // payload sanitizado (sem senha/token/hashes)
+
+  @@index([camaraId, criadoEm])
+  @@index([userId, criadoEm])
+  @@index([rota, criadoEm])
+}
