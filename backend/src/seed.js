@@ -18,9 +18,10 @@ async function main() {
   const adminSenha = process.env.SEED_ADMIN_SENHA;
 
   if (!adminEmail || !adminSenha) {
-    console.error('ERRO: defina SEED_ADMIN_EMAIL e SEED_ADMIN_SENHA.');
-    console.error('Uso: SEED_ADMIN_EMAIL=... SEED_ADMIN_SENHA=... node src/seed.js');
-    process.exit(1);
+    console.warn('[seed] SEED_ADMIN_EMAIL/SEED_ADMIN_SENHA nao definidas — pulando seed.');
+    console.warn('[seed] Para criar/atualizar o admin, rode manualmente:');
+    console.warn('[seed]   SEED_ADMIN_EMAIL=... SEED_ADMIN_SENHA=... node src/seed.js');
+    return;
   }
   if (adminSenha.length < 8) {
     console.error('ERRO: SEED_ADMIN_SENHA deve ter no minimo 8 caracteres.');
