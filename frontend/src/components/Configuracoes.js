@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-const API = 'https://anonimizador-lgpd-production.up.railway.app';
+import { API } from '../config';
 export default function Configuracoes({ token }) {
   const [perfil, setPerfil] = useState({ nome: '', cnpj: '', email: '', municipio: '', cabecalho: '', logoBase64: '' });
   const [loading, setLoading] = useState(true);
