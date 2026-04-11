@@ -102,7 +102,11 @@ export default function Admin() {
             </button>
           </form>
           <p style={{ fontSize: 12, color: '#64748b', marginTop: 12, textAlign: 'center' }}>
-            <a href="#" onClick={(e) => { e.preventDefault(); window.location.hash = ''; window.location.reload(); }}>← Voltar para login normal</a>
+            <button
+              type="button"
+              onClick={() => { window.location.hash = ''; window.location.reload(); }}
+              style={{ background: 'none', border: 'none', color: '#1d4ed8', cursor: 'pointer', textDecoration: 'underline', padding: 0, font: 'inherit' }}
+            >← Voltar para login normal</button>
           </p>
         </div>
       </div>
