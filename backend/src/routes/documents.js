@@ -94,6 +94,30 @@ async function anonimizarPDF(pdfBuffer) {
   return { pdfBuffer: pdfFinal, stats, tipoDocumento: 'contrato' };
 }
 
+// Lista documentos processados pela camara autenticada (filtro multi-tenant
+// pelo req.camara.id). Suporta paginacao via ?limit (default 50, max 200)
+// e ?offset (default 0). Retorna metadados, nao o PDF em si.
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const [items, total] = await Promise.all([
+      prisma.documento.findMany({
+        where: { camaraId: req.camara.id },
+        orderBy: { criadoEm: 'desc' },
+        select: { id: true, tipoDocumento: true, qtdDadosMascarados: true, dadosJson: true, criadoEm: true },
+        take: limit,
+        skip: offset
+      }),
+      prisma.documento.count({ where: { camaraId: req.camara.id } })
+    ]);
+    res.json({ total, limit, offset, items });
+  } catch (err) {
+    console.error('[GET /documents]', err);
+    res.status(500).json({ erro: 'Erro ao listar documentos' });
+  }
+});
+
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
   try {
     if (req.file && req.file.mimetype === 'application/pdf') {

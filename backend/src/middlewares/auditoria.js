@@ -74,4 +74,31 @@ function auditoriaMiddleware(prisma) {
   };
 }
 
-module.exports = { auditoriaMiddleware };
+// Helper para auditar tentativas de login (sucesso e falha) explicitamente.
+// O middleware automatico nao captura login porque ele depende de
+// req.camara/req.admin estarem populados, o que so acontece APOS o
+// login. Esse helper deve ser chamado dentro dos handlers de login.
+//
+// IMPORTANTE: nunca passa req.body inteiro aqui — ele contem a senha.
+// Construimos manualmente um body sem dados sensiveis.
+function auditarLogin(prisma, { req, sucesso, userType, userId, motivo }) {
+  const ip = (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim();
+  const ua = (req.headers['user-agent'] || '').slice(0, 300);
+  const rota = (req.originalUrl || req.url || '').split('?')[0];
+  prisma.logAuditoria.create({
+    data: {
+      userId: userId || null,
+      userType,
+      camaraId: userType === 'camara' && sucesso ? userId : null,
+      metodo: 'POST',
+      rota,
+      statusCode: sucesso ? 200 : 401,
+      durMs: null,
+      ip: ip || null,
+      userAgent: ua || null,
+      body: { tentativa: 'login', email: req.body?.email || null, sucesso, motivo: motivo || null }
+    }
+  }).catch(err => console.error('[auditoria-login] falha gravando log:', err.message));
+}
+
+module.exports = { auditoriaMiddleware, auditarLogin };

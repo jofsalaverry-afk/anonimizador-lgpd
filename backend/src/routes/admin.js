@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
+const { auditarLogin } = require('../middlewares/auditoria');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -23,10 +24,17 @@ router.post('/login', async (req, res) => {
   try {
     const { email, senha } = req.body;
     const admin = await prisma.admin.findUnique({ where: { email } });
-    if (!admin) return res.status(401).json({ erro: 'Credenciais inválidas' });
+    if (!admin) {
+      auditarLogin(prisma, { req, sucesso: false, userType: 'admin', motivo: 'email_nao_encontrado' });
+      return res.status(401).json({ erro: 'Credenciais inválidas' });
+    }
     const senhaValida = await bcrypt.compare(senha, admin.senhaHash);
-    if (!senhaValida) return res.status(401).json({ erro: 'Credenciais inválidas' });
+    if (!senhaValida) {
+      auditarLogin(prisma, { req, sucesso: false, userType: 'admin', userId: admin.id, motivo: 'senha_invalida' });
+      return res.status(401).json({ erro: 'Credenciais inválidas' });
+    }
     const token = jwt.sign({ id: admin.id, email: admin.email, isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    auditarLogin(prisma, { req, sucesso: true, userType: 'admin', userId: admin.id });
     res.json({ token });
   } catch (err) {
     res.status(500).json({ erro: 'Erro interno' });
