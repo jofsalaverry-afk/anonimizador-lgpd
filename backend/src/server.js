@@ -40,6 +40,8 @@ const documentLimiter = rateLimit({
 
 app.use(cors({
   origin: [
+    'https://anonimizadorldpd.com',
+    'https://www.anonimizadorldpd.com',
     'https://melodious-emotion-production-c6a6.up.railway.app',
     'http://localhost:3000',
     'http://localhost:5173'
