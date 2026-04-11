@@ -1,10 +1,42 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 const app = express();
+// Railway expoe o app atras de proxy; precisamos confiar no X-Forwarded-For
+// para o rate limiter identificar o IP correto do cliente.
+app.set('trust proxy', 1);
+
+// Limite agressivo para tentativas de login (brute-force): 10 em 15 minutos
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
+  skipSuccessfulRequests: true
+});
+
+// Limite moderado para rotas admin autenticadas: 60 req/min
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
+});
+
+// Limite para rotas de processamento de documentos: 20 req/min por IP
+const documentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas requisicoes de processamento. Aguarde um momento.' }
+});
 
 app.use(cors({
   origin: [
@@ -22,6 +54,12 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const documentRoutes = require('./routes/documents');
+
+// Limites aplicados antes do router, matchando paths especificos
+app.use('/auth/login', loginLimiter);
+app.use('/admin/login', loginLimiter);
+app.use('/admin', adminLimiter);
+app.use('/documents', documentLimiter);
 
 app.use('/auth', authRoutes);
 app.use('/admin', adminRoutes);
