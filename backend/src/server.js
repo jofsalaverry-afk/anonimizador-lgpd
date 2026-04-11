@@ -38,14 +38,26 @@ const documentLimiter = rateLimit({
   message: { erro: 'Muitas requisicoes de processamento. Aguarde um momento.' }
 });
 
+// Lista de origens permitidas. Inclui tanto a grafia "ldpd" quanto "lgpd"
+// para evitar erro caso o dominio tenha sido registrado com qualquer das duas.
+const ORIGENS_PERMITIDAS = [
+  'https://anonimizadorldpd.com',
+  'https://www.anonimizadorldpd.com',
+  'https://anonimizadorlgpd.com',
+  'https://www.anonimizadorlgpd.com',
+  'https://melodious-emotion-production-c6a6.up.railway.app',
+  'http://localhost:3000',
+  'http://localhost:5173'
+];
+
 app.use(cors({
-  origin: [
-    'https://anonimizadorldpd.com',
-    'https://www.anonimizadorldpd.com',
-    'https://melodious-emotion-production-c6a6.up.railway.app',
-    'http://localhost:3000',
-    'http://localhost:5173'
-  ],
+  origin: (origin, callback) => {
+    // Permite chamadas sem header Origin (curl, healthcheck, server-to-server)
+    if (!origin) return callback(null, true);
+    if (ORIGENS_PERMITIDAS.includes(origin)) return callback(null, true);
+    console.warn('[CORS] Origem bloqueada:', origin);
+    return callback(new Error('Origem nao permitida: ' + origin));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
