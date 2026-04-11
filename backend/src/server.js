@@ -10,6 +10,25 @@ const app = express();
 // para o rate limiter identificar o IP correto do cliente.
 app.set('trust proxy', 1);
 
+// Handler manual de preflight CORS - garante 204 mesmo se algum middleware
+// posterior interferir. Express 5 nao aceita '*' como path string, usa regex.
+app.options(/.*/, (req, res) => {
+  const origin = req.headers.origin;
+  const permitidas = [
+    'https://anonimizadorldpd.com',
+    'https://www.anonimizadorldpd.com',
+    'https://melodious-emotion-production-c6a6.up.railway.app',
+    'http://localhost:3000'
+  ];
+  if (permitidas.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  }
+  res.sendStatus(204);
+});
+
 // Limite agressivo para tentativas de login (brute-force): 10 em 15 minutos
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
