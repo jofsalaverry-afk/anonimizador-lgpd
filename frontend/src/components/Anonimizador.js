@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-
-const API = 'https://anonimizador-lgpd-production.up.railway.app';
+import { API } from '../config';
 
 export default function Anonimizador({ token }) {
   const [texto, setTexto] = useState('');

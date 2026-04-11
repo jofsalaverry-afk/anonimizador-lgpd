@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-
-const API = 'https://anonimizador-lgpd-production.up.railway.app';
+import { API } from '../config';
 
 export default function Admin() {
   const [token, setToken] = useState(localStorage.getItem('admin_token') || '');
