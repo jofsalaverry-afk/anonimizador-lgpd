@@ -12,7 +12,7 @@ router.post('/login', async (req, res) => {
     const { email, senha } = req.body;
     const usuario = await prisma.usuario.findUnique({
       where: { email },
-      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true } } }
+      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true } } }
     });
     if (!usuario) {
       auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', motivo: 'email_nao_encontrado' });
@@ -50,7 +50,8 @@ router.post('/login', async (req, res) => {
         perfil: usuario.perfil,
         organizacaoId: usuario.organizacaoId,
         orgNome: usuario.organizacao.nome,
-        plano: usuario.organizacao.plano
+        plano: usuario.organizacao.plano,
+        modulosAtivos: usuario.organizacao.modulosAtivos
       }
     });
   } catch (err) {
