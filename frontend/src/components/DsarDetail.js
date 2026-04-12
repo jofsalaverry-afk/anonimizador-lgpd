@@ -47,7 +47,10 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
     setLoading(false);
   };
 
-  useEffect(() => { carregar(); /* eslint-disable-next-line */ }, [solicitacaoId]);
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [solicitacaoId]);
 
   const responder = async () => {
     if (!resposta.trim()) return;
