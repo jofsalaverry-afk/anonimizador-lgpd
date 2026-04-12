@@ -57,12 +57,15 @@ body {
   font-weight: 700;
   letter-spacing: -0.3px;
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: visible;
 }
 
 .sidebar-brand-sub {
   font-size: 11px;
   color: rgba(255,255,255,0.5);
   font-weight: 400;
+  white-space: nowrap;
 }
 
 .sidebar-nav {
@@ -100,6 +103,7 @@ body {
   color: rgba(255,255,255,0.65);
   transition: all 0.15s;
   margin-bottom: 2px;
+  white-space: nowrap;
 }
 
 .nav-item:hover {

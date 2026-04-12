@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import { API } from '../config';
 import Anonimizador from './Anonimizador';
 import Ropa from './Ropa';
 import Dsar from './Dsar';
@@ -25,9 +27,30 @@ const PAGE_TITLES = {
 
 export default function Dashboard({ usuario, token, onLogout, onTokenInvalido }) {
   const [pagina, setPagina] = useState('anonimizador');
-  const modulos = usuario?.modulosAtivos || ['anonimizador'];
+  // Estado local para usuario — permite atualizar modulosAtivos sem deslogar
+  const [usuarioAtual, setUsuarioAtual] = useState(usuario);
+
+  // Busca dados frescos do backend ao montar: garante que modulosAtivos
+  // reflita alteracoes feitas pelo admin depois do login.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setUsuarioAtual(prev => ({ ...prev, ...res.data }));
+        // Atualiza localStorage com dados frescos
+        localStorage.setItem('usuario', JSON.stringify({ ...usuario, ...res.data }));
+      } catch (err) {
+        if (err.response?.status === 401 && onTokenInvalido) onTokenInvalido();
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const modulos = usuarioAtual?.modulosAtivos || ['anonimizador'];
   const showSidebar = modulos.length > 1;
-  const initials = (usuario?.orgNome || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const initials = (usuarioAtual?.orgNome || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
   return (
     <div className={`app-layout ${showSidebar ? '' : 'app-layout-single'}`}>
@@ -76,9 +99,9 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           </nav>
 
           <div className="sidebar-footer">
-            <div className="sidebar-user-org">{usuario?.orgNome}</div>
+            <div className="sidebar-user-org">{usuarioAtual?.orgNome}</div>
             <div className="sidebar-user-meta">
-              {usuario?.nome !== usuario?.orgNome ? `${usuario?.nome} · ` : ''}{PERFIL_LABEL[usuario?.perfil] || usuario?.perfil}
+              {usuarioAtual?.nome !== usuarioAtual?.orgNome ? `${usuarioAtual?.nome} · ` : ''}{PERFIL_LABEL[usuarioAtual?.perfil] || usuarioAtual?.perfil}
             </div>
             <button onClick={onLogout} className="sidebar-logout">Sair da conta</button>
           </div>
@@ -95,8 +118,8 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
             {!showSidebar && (
               <>
                 <div>
-                  <div className="header-user-name">{usuario?.orgNome}</div>
-                  <div className="header-user-role">{PERFIL_LABEL[usuario?.perfil] || usuario?.perfil}</div>
+                  <div className="header-user-name">{usuarioAtual?.orgNome}</div>
+                  <div className="header-user-role">{PERFIL_LABEL[usuarioAtual?.perfil] || usuarioAtual?.perfil}</div>
                 </div>
                 <button onClick={onLogout} className="btn-logout">Sair</button>
               </>
@@ -104,8 +127,8 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
             {showSidebar && (
               <>
                 <div>
-                  <div className="header-user-name">{usuario?.orgNome}</div>
-                  <div className="header-user-role">{PERFIL_LABEL[usuario?.perfil] || usuario?.perfil}</div>
+                  <div className="header-user-name">{usuarioAtual?.orgNome}</div>
+                  <div className="header-user-role">{PERFIL_LABEL[usuarioAtual?.perfil] || usuarioAtual?.perfil}</div>
                 </div>
                 <div className="header-avatar">{initials}</div>
               </>

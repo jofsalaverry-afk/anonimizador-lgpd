@@ -38,7 +38,8 @@ router.post('/login', async (req, res) => {
       nome: usuario.nome,
       perfil: usuario.perfil,
       organizacaoId: usuario.organizacaoId,
-      orgNome: usuario.organizacao.nome
+      orgNome: usuario.organizacao.nome,
+      modulosAtivos: usuario.organizacao.modulosAtivos
     }, process.env.JWT_SECRET, { expiresIn: '8h' });
     auditarLogin(prisma, { req, sucesso: true, userType: 'usuario', userId: usuario.id });
     res.json({
@@ -67,10 +68,11 @@ router.get('/me', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const usuario = await prisma.usuario.findUnique({
       where: { id: decoded.id },
-      select: { id: true, nome: true, email: true, perfil: true, ativo: true, organizacaoId: true, organizacao: { select: { nome: true, plano: true } } }
+      select: { id: true, nome: true, email: true, perfil: true, ativo: true, organizacaoId: true, organizacao: { select: { nome: true, plano: true, modulosAtivos: true } } }
     });
     if (!usuario) return res.status(404).json({ erro: 'Usuario nao encontrado' });
-    res.json({ ...usuario, orgNome: usuario.organizacao.nome, plano: usuario.organizacao.plano });
+    const { organizacao, ...rest } = usuario;
+    res.json({ ...rest, orgNome: organizacao.nome, plano: organizacao.plano, modulosAtivos: organizacao.modulosAtivos });
   } catch (err) {
     res.status(401).json({ erro: 'Token invalido' });
   }
