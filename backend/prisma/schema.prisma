@@ -7,6 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum BaseLegal {
+  CONSENTIMENTO
+  OBRIGACAO_LEGAL
+  EXECUCAO_CONTRATO
+  INTERESSE_LEGITIMO
+  PROTECAO_VIDA
+  TUTELA_SAUDE
+  INTERESSE_PUBLICO
+  EXERCICIO_DIREITOS
+}
+
 enum Perfil {
   ENCARREGADO_LGPD
   GESTOR
@@ -28,6 +39,7 @@ model Organizacao {
   modulosAtivos String[]   @default(["anonimizador"])
   usuarios     Usuario[]
   documentos   Documento[]
+  tratamentos  Tratamento[]
 }
 
 model Usuario {
@@ -80,4 +92,53 @@ model LogAuditoria {
   @@index([camaraId, criadoEm])
   @@index([userId, criadoEm])
   @@index([rota, criadoEm])
+}
+
+// ============ ROPA (Registro de Operacoes de Tratamento) ============
+
+model Tratamento {
+  id                  String      @id @default(cuid())
+  organizacaoId       String
+  organizacao         Organizacao @relation(fields: [organizacaoId], references: [id])
+  nome                String
+  finalidade          String
+  baseLegal           BaseLegal
+  categoriasDados     String[]
+  categoriasTitulares String[]
+  retencaoDias        Int?
+  formaDescarte       String?
+  responsavelId       String?
+  medidasSeguranca    String?
+  ativo               Boolean     @default(true)
+  criadoEm            DateTime    @default(now())
+  atualizadoEm        DateTime    @updatedAt
+
+  compartilhamentos   CompartilhamentoTratamento[]
+  historico           TratamentoHistorico[]
+
+  @@index([organizacaoId, ativo])
+}
+
+model CompartilhamentoTratamento {
+  id                          String     @id @default(cuid())
+  tratamentoId                String
+  tratamento                  Tratamento @relation(fields: [tratamentoId], references: [id], onDelete: Cascade)
+  terceiroNome                String
+  terceiroCNPJ                String?
+  finalidadeCompartilhamento  String
+  paisDestino                 String     @default("Brasil")
+  baseLegalTransferencia      String?
+
+  @@index([tratamentoId])
+}
+
+model TratamentoHistorico {
+  id            String     @id @default(cuid())
+  tratamentoId  String
+  tratamento    Tratamento @relation(fields: [tratamentoId], references: [id], onDelete: Cascade)
+  snapshot      Json
+  alteradoPor   String
+  criadoEm      DateTime   @default(now())
+
+  @@index([tratamentoId, criadoEm])
 }
