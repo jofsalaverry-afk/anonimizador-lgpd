@@ -8,3 +8,5 @@ frontend/.env
 
 # PDFs de teste podem conter dados pessoais reais - nao commitar
 backend/*.pdf
+
+.claude/
