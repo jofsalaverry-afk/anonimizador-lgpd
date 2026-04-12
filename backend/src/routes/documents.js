@@ -12,6 +12,7 @@ const {
   buildPromptItens,
   PROMPT_INSTRUCOES,
 } = require('../services/tarjador');
+const { extrairTextoOCR } = require('../services/ocr');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -40,22 +41,41 @@ const baseJuridica = {
   outro: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 31']
 };
 
+// Limiar minimo de caracteres extraidos para considerar o PDF como "com texto".
+// Abaixo disso, trata como PDF escaneado e aciona OCR.
+const LIMIAR_TEXTO_MIN = 50;
+
 // Pipeline unificado de anonimizacao de PDF — usa tarjador.js com
 // regex obrigatorio como fallback para CPFs e filtro sede/residencial.
+// Retorna { pdfBuffer, stats, tipoDocumento, ocrUsado }
 async function anonimizarPDF(pdfBuffer) {
   const itens = await extrairItens(pdfBuffer);
   const linhas = agruparLinhas(itens);
+  const textoExtraido = linhas.map(l => l.texto).join(' ').trim();
 
-  // DEBUG: mostrar como o pdfjs-dist extraiu o texto em producao
+  console.log('[anonimizarPDF] itens extraidos:', itens.length, '| linhas:', linhas.length, '| chars:', textoExtraido.length);
+
+  // Se texto extraido e muito curto, provavelmente e PDF escaneado — usar OCR
+  if (textoExtraido.length < LIMIAR_TEXTO_MIN) {
+    console.log('[anonimizarPDF] texto insuficiente (<', LIMIAR_TEXTO_MIN, 'chars), tentando OCR...');
+    try {
+      const { texto: textoOCR } = await extrairTextoOCR(pdfBuffer);
+      if (!textoOCR || textoOCR.trim().length < 10) {
+        return { ocrUsado: true, textoVazio: true };
+      }
+      console.log('[anonimizarPDF] OCR extraiu', textoOCR.length, 'caracteres');
+      // Retorna texto OCR para ser anonimizado pela pipeline de texto
+      return { ocrUsado: true, textoOCR: textoOCR.trim() };
+    } catch (err) {
+      console.error('[anonimizarPDF] erro no OCR:', err.message);
+      return { ocrUsado: true, textoVazio: true };
+    }
+  }
+
+  // PDF com texto normal — pipeline de tarjas
   const CPF_RE = /\d{3}\.?\d{3}\.?\d{3}\s*[-–—]?\s*\d{2}/g;
   const itensComCPF = itens.filter(it => CPF_RE.test(it.texto));
-  console.log('[anonimizarPDF] itens extraidos:', itens.length, '| linhas:', linhas.length);
   console.log('[anonimizarPDF] itens com possivel CPF (regex tolerante):', itensComCPF.length);
-  itensComCPF.forEach(it => console.log(`  item[${it.indice}] "${it.texto}"`));
-  // Tambem scan em linhas reconstruidas (pega CPFs split entre itens)
-  const linhasComCPF = linhas.filter(l => CPF_RE.test(l.texto));
-  console.log('[anonimizarPDF] linhas com possivel CPF:', linhasComCPF.length);
-  linhasComCPF.forEach(l => console.log(`  linha "${l.texto.slice(0, 200)}"`));
 
   const itensParaIA = buildPromptItens(itens, linhas);
   const message = await anthropic.messages.create({
@@ -91,7 +111,7 @@ async function anonimizarPDF(pdfBuffer) {
   }
 
   const pdfFinal = await aplicarTarjas(pdfBuffer, itens, tarjas);
-  return { pdfBuffer: pdfFinal, stats, tipoDocumento: 'contrato' };
+  return { pdfBuffer: pdfFinal, stats, tipoDocumento: 'contrato', ocrUsado: false };
 }
 
 // Lista documentos processados pela camara autenticada (filtro multi-tenant
@@ -121,13 +141,70 @@ router.get('/', authMiddleware, async (req, res) => {
 router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
   try {
     if (req.file && req.file.mimetype === 'application/pdf') {
-      const { pdfBuffer, stats, tipoDocumento } = await anonimizarPDF(req.file.buffer);
+      const resultado = await anonimizarPDF(req.file.buffer);
+
+      // PDF escaneado — OCR nao conseguiu extrair texto
+      if (resultado.textoVazio) {
+        return res.status(422).json({
+          erro: 'Nao foi possivel ler o documento. Verifique se o arquivo esta legivel e tente novamente.',
+          ocrUsado: true
+        });
+      }
+
+      // PDF escaneado — OCR extraiu texto, anonimizar via pipeline de texto
+      if (resultado.textoOCR) {
+        // Reutiliza a pipeline de texto (igual a DOCX/texto puro) com o conteudo OCR
+        const mascara = req.body.mascara || 'asterisk';
+        const mascaraDesc = { asterisk: 'XXXXX', tarjeta: '||||', etiqueta: 'a etiqueta correspondente entre colchetes como [CPF], [NOME], [RG]' };
+        const prompt = `Voce e um sistema de anonimizacao de documentos publicos brasileiros conforme a LGPD e LAI.
+Substitua TODOS os dados pessoais de pessoas fisicas privadas pela mascara ${mascaraDesc[mascara]}.
+NAO substitua nomes de agentes publicos no exercicio de suas funcoes.
+Retorne SOMENTE o texto com as substituicoes feitas, sem comentarios.
+Depois adicione exatamente: ---STATS---
+Depois um JSON: {"nome":0,"cpf":0,"rg":0,"endereco":0,"email":0,"telefone":0,"data_nasc":0,"banco":0}
+Depois adicione exatamente: ---TIPO---
+Depois o tipo: contrato, ata, processo, convenio, folha, saude, ou outro
+
+DOCUMENTO:
+${resultado.textoOCR}`;
+
+        const message = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 8000,
+          messages: [{ role: 'user', content: prompt }]
+        });
+
+        const resposta = message.content[0].text;
+        const partes = resposta.split('---STATS---');
+        const textoAnonimizado = partes[0].trim();
+        let stats = {};
+        let tipoDocumento = 'outro';
+
+        if (partes[1]) {
+          const partes2 = partes[1].split('---TIPO---');
+          try { stats = JSON.parse(partes2[0].match(/\{[\s\S]*\}/)[0]); } catch(e) {}
+          if (partes2[1]) tipoDocumento = partes2[1].trim().toLowerCase().split('\n')[0].trim();
+        }
+
+        const qtdTotal = Object.values(stats).reduce((a, b) => a + b, 0);
+        await prisma.documento.create({
+          data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: qtdTotal, dadosJson: stats }
+        });
+
+        return res.json({
+          textoAnonimizado, stats, tipoDocumento,
+          leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro,
+          ocrUsado: true
+        });
+      }
+
+      // PDF normal com texto — retorna PDF com tarjas
       await prisma.documento.create({
-        data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: Object.values(stats).reduce((a,b)=>a+b,0), dadosJson: stats }
+        data: { camaraId: req.camara.id, tipoDocumento: resultado.tipoDocumento, qtdDadosMascarados: Object.values(resultado.stats).reduce((a,b)=>a+b,0), dadosJson: resultado.stats }
       });
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
-      return res.send(pdfBuffer);
+      return res.send(resultado.pdfBuffer);
     }
 
     let texto = '';

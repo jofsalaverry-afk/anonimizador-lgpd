@@ -30,6 +30,19 @@ export default function Anonimizador({ token }) {
     if (input) input.value = '';
   };
 
+  // Utilitario para extrair mensagem de erro de respostas blob (quando responseType e blob,
+  // erros JSON do servidor chegam como Blob e precisam ser parseados)
+  const extrairErroBlob = async (err) => {
+    if (err.response?.data instanceof Blob) {
+      try {
+        const text = await err.response.data.text();
+        const json = JSON.parse(text);
+        return json.erro || 'Erro ao processar';
+      } catch { return 'Erro ao processar'; }
+    }
+    return err.response?.data?.erro || 'Erro ao processar';
+  };
+
   const handleSubmit = async () => {
     if (!texto.trim() && !arquivo) return setErro('Cole um texto ou selecione um arquivo');
     setLoading(true);
@@ -40,17 +53,27 @@ export default function Anonimizador({ token }) {
       else formData.append('texto', texto);
 
       if (arquivo && arquivo.name.endsWith('.pdf')) {
+        // PDF pode retornar blob (PDF normal) ou JSON (PDF escaneado via OCR)
         const res = await axios.post(`${API}/documents/anonymize`, formData, {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
           responseType: 'blob',
-          timeout: 120000
+          timeout: 180000
         });
-        const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'documento-anonimizado.pdf';
-        a.click();
-        setResultado({ pdf: true });
+
+        // Verificar se a resposta e JSON (OCR) ou blob PDF
+        const contentType = res.headers['content-type'] || '';
+        if (contentType.includes('application/json')) {
+          const text = await res.data.text();
+          const data = JSON.parse(text);
+          setResultado(data);
+        } else {
+          const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'documento-anonimizado.pdf';
+          a.click();
+          setResultado({ pdf: true });
+        }
       } else {
         const res = await axios.post(`${API}/documents/anonymize`, formData, {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
@@ -59,7 +82,8 @@ export default function Anonimizador({ token }) {
         setResultado(res.data);
       }
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao processar');
+      const msg = await extrairErroBlob(err);
+      setErro(msg);
     }
     setLoading(false);
   };
@@ -121,7 +145,7 @@ export default function Anonimizador({ token }) {
 
       {resultado && resultado.pdf && (
         <div className="card" style={{ background: '#dcfce7', border: '1px solid #16a34a' }}>
-          <p style={{ color: '#16a34a', fontWeight: 600, fontSize: 14 }}>✅ PDF anonimizado com tarjas gerado e baixado com sucesso!</p>
+          <p style={{ color: '#16a34a', fontWeight: 600, fontSize: 14 }}>PDF anonimizado com tarjas gerado e baixado com sucesso!</p>
           <p style={{ color: '#166534', fontSize: 12, marginTop: 4 }}>O arquivo foi salvo na sua pasta de downloads.</p>
         </div>
       )}
@@ -136,7 +160,17 @@ export default function Anonimizador({ token }) {
             <span style={{ background: '#f1f5f9', color: '#475569', padding: '4px 10px', borderRadius: 20, fontSize: 12 }}>
               {Object.values(resultado.stats).reduce((a, b) => a + b, 0)} dados mascarados
             </span>
+            {resultado.ocrUsado && (
+              <span style={{ background: '#fef3c7', color: '#92400e', padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500 }}>
+                Lido via digitalizacao
+              </span>
+            )}
           </div>
+          {resultado.stats && Object.values(resultado.stats).reduce((a, b) => a + b, 0) === 0 && (
+            <div style={{ background: '#f0f9ff', border: '1px solid #0ea5e9', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+              <p style={{ color: '#0369a1', fontSize: 13, fontWeight: 500, margin: 0 }}>Documento processado. Nenhum dado pessoal identificado.</p>
+            </div>
+          )}
           <textarea value={resultado.textoAnonimizado} readOnly rows={10} style={{ fontFamily: 'monospace', fontSize: 13, background: '#f8fafc' }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button onClick={baixarPDF} disabled={loadingPDF} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: '#1d4ed8', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
