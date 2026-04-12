@@ -67,8 +67,10 @@ router.patch('/camaras/:id/toggle', adminAuth, async (req, res) => {
 router.post('/camaras', adminAuth, async (req, res) => {
   try {
     const { nome, cnpj, email, senha, plano } = req.body;
+    // Normaliza Unicode (NFC) para evitar caracteres corrompidos em nomes com acentos
+    const nomeNormalizado = nome ? nome.normalize('NFC') : nome;
     const senhaHash = await bcrypt.hash(senha, 10);
-    const camara = await prisma.camara.create({ data: { nome, cnpj, email, senhaHash, plano: plano || 'basico' } });
+    const camara = await prisma.camara.create({ data: { nome: nomeNormalizado, cnpj, email, senhaHash, plano: plano || 'basico' } });
     res.status(201).json({ id: camara.id, nome: camara.nome, email: camara.email });
   } catch (err) {
     res.status(500).json({ erro: 'Erro interno' });
