@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Anonimizador from './Anonimizador';
 import Ropa from './Ropa';
+import Dsar from './Dsar';
 
 const PERFIL_LABEL = {
   ENCARREGADO_LGPD: 'DPO',
@@ -12,7 +13,8 @@ const PERFIL_LABEL = {
 
 const PAGE_TITLES = {
   anonimizador: 'Anonimizador de Documentos',
-  ropa: 'Mapeamento ROPA'
+  ropa: 'Mapeamento ROPA',
+  dsar: 'Direitos do Titular'
 };
 
 export default function Dashboard({ usuario, token, onLogout, onTokenInvalido }) {
@@ -43,6 +45,11 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
             {modulos.includes('ropa') && (
               <button onClick={() => setPagina('ropa')} className={`nav-item ${pagina === 'ropa' ? 'nav-item-active' : ''}`}>
                 <span className="nav-icon">📋</span> Mapeamento ROPA
+              </button>
+            )}
+            {modulos.includes('dsar') && (
+              <button onClick={() => setPagina('dsar')} className={`nav-item ${pagina === 'dsar' ? 'nav-item-active' : ''}`}>
+                <span className="nav-icon">🔒</span> DSAR
               </button>
             )}
           </nav>
@@ -87,6 +94,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
         <div className="content-body">
           {pagina === 'anonimizador' && <Anonimizador token={token} onTokenInvalido={onTokenInvalido} />}
           {pagina === 'ropa' && <Ropa token={token} />}
+          {pagina === 'dsar' && <Dsar token={token} />}
         </div>
       </div>
     </div>

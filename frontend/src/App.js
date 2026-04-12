@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Admin from './components/Admin';
+import SolicitarDireitos from './components/SolicitarDireitos';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -32,6 +33,10 @@ function App() {
   };
 
   if (rota === '#admin') return <Admin />;
+  if (rota.startsWith('#solicitar-direitos')) {
+    const orgId = rota.split('/')[1] || '';
+    return <SolicitarDireitos organizacaoId={orgId} />;
+  }
   if (!token) return <Login onLogin={handleLogin} />;
   return <Dashboard usuario={usuario} token={token} onLogout={handleLogout} onTokenInvalido={handleLogout} />;
 }
