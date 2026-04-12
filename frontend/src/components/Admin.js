@@ -114,28 +114,28 @@ export default function Admin() {
 
   if (!token) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}>
-        <div className="card" style={{ width: '100%', maxWidth: 400 }}>
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>🛡️</div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>Admin — Anonimizador LGPD</h1>
-            <p style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Acesso restrito</p>
+      <div className="page-center">
+        <div className="card login-card">
+          <div className="login-header">
+            <div className="login-icon">🛡️</div>
+            <h1 className="login-title">Admin — Anonimizador LGPD</h1>
+            <p className="login-subtitle">Acesso restrito</p>
           </div>
           <form onSubmit={handleLogin}>
             <label>E-mail</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
             <label>Senha</label>
             <input type="password" value={senha} onChange={e => setSenha(e.target.value)} required />
-            {erro && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{erro}</p>}
+            {erro && <p className="text-error mb-12">{erro}</p>}
             <button className="btn-primary" type="submit" disabled={loading}>
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
-          <p style={{ fontSize: 12, color: '#64748b', marginTop: 12, textAlign: 'center' }}>
+          <p className="text-muted text-sm mt-16 text-center">
             <button
               type="button"
               onClick={() => { window.location.hash = ''; window.location.reload(); }}
-              style={{ background: 'none', border: 'none', color: '#1d4ed8', cursor: 'pointer', textDecoration: 'underline', padding: 0, font: 'inherit' }}
+              className="link-back"
             >← Voltar para login normal</button>
           </p>
         </div>
@@ -144,39 +144,39 @@ export default function Admin() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f1f5f9' }}>
-      <header style={{ background: 'white', borderBottom: '1px solid #e2e8f0', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 60 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 20 }}>🛡️</span>
-          <span style={{ fontWeight: 700, fontSize: 16, color: '#1e293b' }}>Admin — Anonimizador LGPD</span>
+    <div className="page-shell">
+      <header className="header">
+        <div className="header-brand">
+          <span className="header-brand-icon">🛡️</span>
+          <span className="header-brand-text">Admin — Anonimizador LGPD</span>
         </div>
-        <button onClick={handleLogout} style={{ fontSize: 13, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}>Sair</button>
+        <button onClick={handleLogout} className="btn-logout">Sair</button>
       </header>
 
-      <div style={{ maxWidth: 900, margin: '32px auto', padding: '0 16px' }}>
+      <div className="main">
         {stats && (
-          <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
-            <div className="card" style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#1d4ed8' }}>{stats.totalCamaras}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>Organizacoes</div>
+          <div className="stats-row">
+            <div className="stat-card">
+              <div className="stat-value stat-blue">{stats.totalCamaras}</div>
+              <div className="stat-label">Organizacoes</div>
             </div>
-            <div className="card" style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#16a34a' }}>{stats.camarasAtivas}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>Ativas</div>
+            <div className="stat-card">
+              <div className="stat-value stat-green">{stats.camarasAtivas}</div>
+              <div className="stat-label">Ativas</div>
             </div>
-            <div className="card" style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#7c3aed' }}>{stats.totalUsuarios}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>Usuarios</div>
+            <div className="stat-card">
+              <div className="stat-value stat-purple">{stats.totalUsuarios}</div>
+              <div className="stat-label">Usuarios</div>
             </div>
-            <div className="card" style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#475569' }}>{stats.totalDocumentos}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>Documentos</div>
+            <div className="stat-card">
+              <div className="stat-value stat-slate">{stats.totalDocumentos}</div>
+              <div className="stat-label">Documentos</div>
             </div>
           </div>
         )}
 
-        <div className="card" style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Criar nova organizacao</h2>
+        <div className="card mb-24">
+          <h2 className="card-header">Criar nova organizacao</h2>
           <form onSubmit={criarOrg}>
             <label>Nome</label>
             <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Camara Municipal de ..." required />
@@ -187,53 +187,50 @@ export default function Admin() {
             <label>Senha inicial</label>
             <input type="text" value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} placeholder="senha inicial" required />
             <label>Plano</label>
-            <select value={form.plano} onChange={e => setForm({ ...form, plano: e.target.value })} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12 }}>
+            <select value={form.plano} onChange={e => setForm({ ...form, plano: e.target.value })}>
               <option value="basico">Basico</option>
               <option value="intermediario">Intermediario</option>
               <option value="premium">Premium</option>
             </select>
-            {msg && <p style={{ color: '#16a34a', fontSize: 13, marginBottom: 12 }}>{msg}</p>}
-            {erro && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{erro}</p>}
+            {msg && <p className="text-success mb-12">{msg}</p>}
+            {erro && <p className="text-error mb-12">{erro}</p>}
             <button className="btn-primary" type="submit">Criar organizacao</button>
           </form>
         </div>
 
         <div className="card">
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Organizacoes ({orgs.length})</h2>
-          {orgs.length === 0 && <p style={{ fontSize: 13, color: '#64748b' }}>Nenhuma organizacao cadastrada.</p>}
+          <h2 className="card-header">Organizacoes ({orgs.length})</h2>
+          {orgs.length === 0 && <p className="text-muted text-sm">Nenhuma organizacao cadastrada.</p>}
           {orgs.map(o => (
-            <div key={o.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '12px 0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div key={o.id} className="org-row">
+              <div className="flex-between">
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{o.nome}</div>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>{o.cnpj} · {o.plano} · {o._count?.usuarios || 0} usuarios · {o._count?.documentos || 0} docs</div>
+                  <div className="comp-name text-sm">{o.nome}</div>
+                  <div className="text-muted text-sm">{o.cnpj} · {o.plano} · {o._count?.usuarios || 0} usuarios · {o._count?.documentos || 0} docs</div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: o.ativo ? '#dcfce7' : '#fee2e2', color: o.ativo ? '#16a34a' : '#dc2626' }}>
+                <div className="flex-center gap-8">
+                  <span className={o.ativo ? 'badge badge-success' : 'badge badge-danger'}>
                     {o.ativo ? 'ativa' : 'inativa'}
                   </span>
-                  <button onClick={() => setExpandida(expandida === o.id ? null : o.id)} style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', color: '#475569' }}>
+                  <button onClick={() => setExpandida(expandida === o.id ? null : o.id)} className="btn-secondary btn-sm">
                     {expandida === o.id ? 'Fechar' : 'Detalhes'}
                   </button>
-                  <button onClick={() => toggleOrg(o.id)} style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', color: '#475569' }}>
+                  <button onClick={() => toggleOrg(o.id)} className="btn-secondary btn-sm">
                     {o.ativo ? 'Desativar' : 'Ativar'}
                   </button>
                 </div>
               </div>
 
               {expandida === o.id && (
-                <div style={{ marginTop: 12, padding: 12, background: '#f8fafc', borderRadius: 8 }}>
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Modulos</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <div className="org-expand">
+                  <div className="mb-12">
+                    <div className="detail-label mb-8">Modulos</div>
+                    <div className="chip-row">
                       {MODULOS_DISPONIVEIS.map(m => {
                         const ativo = (o.modulosAtivos || []).includes(m.id);
                         return (
                           <button key={m.id} onClick={() => toggleModulo(o.id, m.id, ativo, o.modulosAtivos || [])}
-                            style={{ fontSize: 11, padding: '4px 10px', borderRadius: 12, border: '1px solid', cursor: 'pointer',
-                              background: ativo ? '#dcfce7' : '#f1f5f9',
-                              borderColor: ativo ? '#16a34a' : '#e2e8f0',
-                              color: ativo ? '#16a34a' : '#94a3b8' }}>
+                            className={ativo ? 'chip chip-active' : 'chip'}>
                             {ativo ? '● ' : '○ '}{m.nome}
                           </button>
                         );
@@ -242,14 +239,14 @@ export default function Admin() {
                   </div>
 
                   <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Usuarios</div>
+                    <div className="detail-label mb-8">Usuarios</div>
                     {(o.usuarios || []).map(u => (
-                      <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
-                        <div>
-                          <span style={{ fontSize: 12, color: '#1e293b' }}>{u.email}</span>
-                          <span style={{ fontSize: 11, marginLeft: 8, padding: '1px 6px', borderRadius: 8, background: '#ede9fe', color: '#7c3aed' }}>{PERFIL_LABEL[u.perfil] || u.perfil}</span>
+                      <div key={u.id} className="user-row">
+                        <div className="flex-center gap-8">
+                          <span className="text-sm">{u.email}</span>
+                          <span className="badge badge-purple">{PERFIL_LABEL[u.perfil] || u.perfil}</span>
                         </div>
-                        <span style={{ fontSize: 11, color: u.ativo ? '#16a34a' : '#dc2626' }}>{u.ativo ? 'ativo' : 'inativo'}</span>
+                        <span className={u.ativo ? 'text-success text-sm' : 'text-error text-sm'}>{u.ativo ? 'ativo' : 'inativo'}</span>
                       </div>
                     ))}
                   </div>

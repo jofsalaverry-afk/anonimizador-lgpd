@@ -22,19 +22,19 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}>
-      <div className="card" style={{ width: '100%', maxWidth: 400 }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🏛️</div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>Anonimizador LGPD</h1>
-          <p style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Sistema para camaras municipais</p>
+    <div className="page-center">
+      <div className="card login-card">
+        <div className="login-header">
+          <div className="login-icon">🏛️</div>
+          <h1 className="login-title">Anonimizador LGPD</h1>
+          <p className="login-subtitle">Sistema para camaras municipais</p>
         </div>
         <form onSubmit={handleSubmit}>
           <label>E-mail</label>
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@camara.gov.br" required />
           <label>Senha</label>
           <input type="password" value={senha} onChange={e => setSenha(e.target.value)} placeholder="••••••••" required />
-          {erro && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{erro}</p>}
+          {erro && <p className="text-error">{erro}</p>}
           <button className="btn-primary" type="submit" disabled={loading}>
             {loading ? 'Entrando...' : 'Entrar'}
           </button>

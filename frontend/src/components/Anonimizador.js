@@ -137,67 +137,67 @@ export default function Anonimizador({ token, onTokenInvalido }) {
 
   return (
     <div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Documento</h2>
+      <div className="card mb-16">
+        <h2 className="card-header">Documento</h2>
         <label>Cole o texto ou faça upload de PDF/Word</label>
-        <textarea value={texto} onChange={e => { setTexto(e.target.value); setArquivo(null); setNomeArquivo(''); setResultado(null); }} rows={8} placeholder="Cole aqui o contrato, ata, processo, folha de pagamento..." style={{ fontFamily: 'monospace', fontSize: 13 }} />
+        <textarea value={texto} onChange={e => { setTexto(e.target.value); setArquivo(null); setNomeArquivo(''); setResultado(null); }} rows={8} placeholder="Cole aqui o contrato, ata, processo, folha de pagamento..." style={{ fontFamily: 'monospace' }} />
         <label>Ou selecione um arquivo (.pdf ou .docx)</label>
-        <input id="arquivo-input" type="file" accept=".pdf,.docx,.doc" onChange={handleArquivo} style={{ marginBottom: 0 }} />
+        <input id="arquivo-input" type="file" accept=".pdf,.docx,.doc" onChange={handleArquivo} />
         {nomeArquivo && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-            <span style={{ fontSize: 12, color: '#1d4ed8' }}>📎 {nomeArquivo}</span>
-            <button type="button" onClick={removerArquivo} title="Remover arquivo" style={{ width: 20, height: 20, borderRadius: '50%', border: '1px solid #dc2626', background: 'white', color: '#dc2626', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+          <div className="file-pill">
+            <span>📎 {nomeArquivo}</span>
+            <button type="button" className="file-remove" onClick={removerArquivo} title="Remover arquivo">×</button>
           </div>
         )}
       </div>
 
-      {erro && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{erro}</p>}
-      <button className="btn-primary" onClick={handleSubmit} disabled={loading} style={{ marginBottom: 24 }}>
+      {erro && <p className="text-error mb-16">{erro}</p>}
+      <button className="btn-primary mb-24" onClick={handleSubmit} disabled={loading}>
         {loading ? '⏳ Processando... (pode levar até 1 minuto)' : 'Anonimizar documento'}
       </button>
 
       {resultado && resultado.pdf && (
-        <div className="card" style={{ background: '#dcfce7', border: '1px solid #16a34a' }}>
-          <p style={{ color: '#16a34a', fontWeight: 600, fontSize: 14 }}>PDF anonimizado com tarjas gerado e baixado com sucesso!</p>
-          <p style={{ color: '#166534', fontSize: 12, marginTop: 4 }}>O arquivo foi salvo na sua pasta de downloads.</p>
+        <div className="alert-success">
+          <p><strong>PDF anonimizado com tarjas gerado e baixado com sucesso!</strong></p>
+          <p>O arquivo foi salvo na sua pasta de downloads.</p>
         </div>
       )}
 
       {resultado && !resultado.pdf && (
         <div className="card">
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Resultado</h2>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            <span style={{ background: '#dcfce7', color: '#16a34a', padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500 }}>
+          <h2 className="card-header">Resultado</h2>
+          <div className="badge-row mb-16">
+            <span className="badge-success">
               Tipo: {resultado.tipoDocumento}
             </span>
-            <span style={{ background: '#f1f5f9', color: '#475569', padding: '4px 10px', borderRadius: 20, fontSize: 12 }}>
+            <span className="badge-muted">
               {Object.values(resultado.stats).reduce((a, b) => a + b, 0)} dados mascarados
             </span>
             {resultado.ocrUsado && (
-              <span style={{ background: '#fef3c7', color: '#92400e', padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500 }}>
+              <span className="badge-warning">
                 Lido via digitalizacao
               </span>
             )}
           </div>
           {resultado.stats && Object.values(resultado.stats).reduce((a, b) => a + b, 0) === 0 ? (
-            <div style={{ background: '#f0f9ff', border: '1px solid #0ea5e9', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
-              <p style={{ color: '#0369a1', fontSize: 13, fontWeight: 500, margin: 0 }}>Documento processado. Nenhum dado pessoal identificado.</p>
+            <div className="alert-info mb-16">
+              <p>Documento processado. Nenhum dado pessoal identificado.</p>
             </div>
           ) : (
-            <textarea value={resultado.textoAnonimizado} readOnly rows={10} style={{ fontFamily: 'monospace', fontSize: 13, background: '#f8fafc' }} />
+            <textarea value={resultado.textoAnonimizado} readOnly rows={10} style={{ fontFamily: 'monospace' }} />
           )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button onClick={baixarPDF} disabled={loadingPDF} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: '#1d4ed8', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+          <div className="btn-row">
+            <button className="btn-primary" onClick={baixarPDF} disabled={loadingPDF}>
               {loadingPDF ? '⏳ Gerando...' : '⬇ Baixar PDF'}
             </button>
-            <button onClick={baixarTXT} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid #64748b', background: 'white', color: '#64748b', cursor: 'pointer', fontSize: 13 }}>
+            <button className="btn-secondary" onClick={baixarTXT}>
               ⬇ Baixar TXT
             </button>
           </div>
-          <div style={{ marginTop: 12 }}>
-            <p style={{ fontSize: 12, color: '#64748b', fontWeight: 500, marginBottom: 4 }}>Fundamentação legal:</p>
+          <div className="mb-16">
+            <p className="badge-muted mb-16"><strong>Fundamentação legal:</strong></p>
             {resultado.leisAplicaveis?.map((l, i) => (
-              <span key={i} style={{ display: 'inline-block', background: '#fef9c3', color: '#854d0e', padding: '2px 8px', borderRadius: 4, fontSize: 11, marginRight: 4, marginBottom: 4 }}>{l}</span>
+              <span key={i} className="badge-legal">{l}</span>
             ))}
           </div>
         </div>

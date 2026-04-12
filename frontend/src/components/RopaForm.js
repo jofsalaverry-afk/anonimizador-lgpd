@@ -16,14 +16,6 @@ const BASE_LEGAL_OPTIONS = [
 const CATEGORIAS_DADOS = ['Nome', 'CPF', 'RG', 'E-mail', 'Telefone', 'Endereco', 'Dados Bancarios', 'Dados de Saude', 'Outros'];
 const CATEGORIAS_TITULARES = ['Servidores', 'Vereadores', 'Fornecedores', 'Cidadaos', 'Menores', 'Outros'];
 
-const chipStyle = (ativo) => ({
-  fontSize: 12, padding: '4px 12px', borderRadius: 16, border: '1px solid',
-  cursor: 'pointer', transition: 'all 0.15s',
-  background: ativo ? '#dbeafe' : '#f8fafc',
-  borderColor: ativo ? '#3b82f6' : '#e2e8f0',
-  color: ativo ? '#1d4ed8' : '#94a3b8'
-});
-
 const COMPARTILHAMENTO_VAZIO = { terceiroNome: '', terceiroCNPJ: '', finalidadeCompartilhamento: '', paisDestino: 'Brasil', baseLegalTransferencia: '' };
 
 export default function RopaForm({ token, tratamentoId, onVoltar }) {
@@ -117,17 +109,12 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
     setLoading(false);
   };
 
-  if (loadingInit) return <p style={{ color: '#64748b', fontSize: 13 }}>Carregando...</p>;
+  if (loadingInit) return <p className="text-muted">Carregando...</p>;
 
   const stepIndicator = (
-    <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+    <div className="steps mb-20">
       {[1, 2, 3, 4].map(n => (
-        <button key={n} onClick={() => setPasso(n)} style={{
-          flex: 1, padding: '8px 0', borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-          border: passo === n ? '2px solid #3b82f6' : '1px solid #e2e8f0',
-          background: passo === n ? '#eff6ff' : 'white',
-          color: passo === n ? '#1d4ed8' : '#94a3b8'
-        }}>
+        <button key={n} onClick={() => setPasso(n)} className={`step ${passo === n ? 'step-active' : ''}`}>
           {n}. {['Dados basicos', 'Categorias', 'Compartilhamentos', 'Retencao'][n - 1]}
         </button>
       ))}
@@ -136,43 +123,49 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        <button onClick={onVoltar} style={{ fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', color: '#1d4ed8' }}>← Voltar</button>
-        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>{tratamentoId ? 'Editar tratamento' : 'Novo tratamento'}</h2>
+      <div className="page-header mb-16">
+        <button onClick={onVoltar} className="link-back">← Voltar</button>
+        <h2 className="page-title">{tratamentoId ? 'Editar tratamento' : 'Novo tratamento'}</h2>
       </div>
 
       <div className="card">
         {stepIndicator}
 
-        {erro && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{erro}</p>}
-        {sucesso && <p style={{ color: '#16a34a', fontSize: 13, marginBottom: 12 }}>{sucesso}</p>}
+        {erro && <p className="alert-error mb-12">{erro}</p>}
+        {sucesso && <p className="alert-success mb-12">{sucesso}</p>}
 
         {passo === 1 && (
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 500 }}>Nome do tratamento</label>
-            <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Ex: Folha de pagamento de servidores" style={{ marginBottom: 12 }} />
-            <label style={{ fontSize: 13, fontWeight: 500 }}>Finalidade</label>
-            <textarea value={form.finalidade} onChange={e => setForm({ ...form, finalidade: e.target.value })} rows={3} placeholder="Descreva a finalidade do tratamento de dados" style={{ marginBottom: 12, fontFamily: 'inherit' }} />
-            <label style={{ fontSize: 13, fontWeight: 500 }}>Base legal (LGPD Art. 7)</label>
-            <select value={form.baseLegal} onChange={e => setForm({ ...form, baseLegal: e.target.value })} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12, fontSize: 13 }}>
-              <option value="">Selecione...</option>
-              {BASE_LEGAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Nome do tratamento</label>
+              <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Ex: Folha de pagamento de servidores" className="mb-12" />
+            </div>
+            <div className="form-group">
+              <label>Finalidade</label>
+              <textarea value={form.finalidade} onChange={e => setForm({ ...form, finalidade: e.target.value })} rows={3} placeholder="Descreva a finalidade do tratamento de dados" className="mb-12" />
+            </div>
+            <div className="form-group">
+              <label>Base legal (LGPD Art. 7)</label>
+              <select value={form.baseLegal} onChange={e => setForm({ ...form, baseLegal: e.target.value })} className="mb-12">
+                <option value="">Selecione...</option>
+                {BASE_LEGAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
           </div>
         )}
 
         {passo === 2 && (
           <div>
-            <label style={{ fontSize: 13, fontWeight: 500, marginBottom: 8, display: 'block' }}>Categorias de dados pessoais</label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+            <label className="mb-8">Categorias de dados pessoais</label>
+            <div className="chip-row mb-20">
               {CATEGORIAS_DADOS.map(c => (
-                <button key={c} type="button" onClick={() => setForm({ ...form, categoriasDados: toggleChip(form.categoriasDados, c) })} style={chipStyle(form.categoriasDados.includes(c))}>{c}</button>
+                <button key={c} type="button" onClick={() => setForm({ ...form, categoriasDados: toggleChip(form.categoriasDados, c) })} className={`chip ${form.categoriasDados.includes(c) ? 'chip-active' : ''}`}>{c}</button>
               ))}
             </div>
-            <label style={{ fontSize: 13, fontWeight: 500, marginBottom: 8, display: 'block' }}>Categorias de titulares</label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <label className="mb-8">Categorias de titulares</label>
+            <div className="chip-row">
               {CATEGORIAS_TITULARES.map(c => (
-                <button key={c} type="button" onClick={() => setForm({ ...form, categoriasTitulares: toggleChip(form.categoriasTitulares, c) })} style={chipStyle(form.categoriasTitulares.includes(c))}>{c}</button>
+                <button key={c} type="button" onClick={() => setForm({ ...form, categoriasTitulares: toggleChip(form.categoriasTitulares, c) })} className={`chip ${form.categoriasTitulares.includes(c) ? 'chip-active' : ''}`}>{c}</button>
               ))}
             </div>
           </div>
@@ -180,35 +173,35 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
 
         {passo === 3 && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <label style={{ fontSize: 13, fontWeight: 500 }}>Compartilhamentos com terceiros</label>
-              <button type="button" onClick={addCompartilhamento} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', color: '#1d4ed8' }}>+ Adicionar terceiro</button>
+            <div className="flex-between mb-12">
+              <label>Compartilhamentos com terceiros</label>
+              <button type="button" onClick={addCompartilhamento} className="btn-ghost btn-sm">+ Adicionar terceiro</button>
             </div>
             {form.compartilhamentos.length === 0 && (
-              <p style={{ color: '#94a3b8', fontSize: 13 }}>Nenhum compartilhamento registrado.</p>
+              <p className="text-muted">Nenhum compartilhamento registrado.</p>
             )}
             {form.compartilhamentos.map((c, i) => (
-              <div key={i} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, marginBottom: 10, background: '#f8fafc' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Terceiro {i + 1}</span>
-                  <button type="button" onClick={() => removeCompartilhamento(i)} style={{ fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}>Remover</button>
+              <div key={i} className="terceiro-card">
+                <div className="terceiro-header">
+                  <span className="terceiro-num">Terceiro {i + 1}</span>
+                  <button type="button" onClick={() => removeCompartilhamento(i)} className="terceiro-remove">Remover</button>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: '#64748b' }}>Nome</label>
-                    <input value={c.terceiroNome} onChange={e => setCompartilhamento(i, 'terceiroNome', e.target.value)} placeholder="Nome da empresa/orgao" style={{ fontSize: 12 }} />
+                <div className="grid-2 gap-8">
+                  <div className="form-group">
+                    <label>Nome</label>
+                    <input value={c.terceiroNome} onChange={e => setCompartilhamento(i, 'terceiroNome', e.target.value)} placeholder="Nome da empresa/orgao" />
                   </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: '#64748b' }}>CNPJ</label>
-                    <input value={c.terceiroCNPJ} onChange={e => setCompartilhamento(i, 'terceiroCNPJ', e.target.value)} placeholder="00.000.000/0001-00" style={{ fontSize: 12 }} />
+                  <div className="form-group">
+                    <label>CNPJ</label>
+                    <input value={c.terceiroCNPJ} onChange={e => setCompartilhamento(i, 'terceiroCNPJ', e.target.value)} placeholder="00.000.000/0001-00" />
                   </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: '#64748b' }}>Finalidade</label>
-                    <input value={c.finalidadeCompartilhamento} onChange={e => setCompartilhamento(i, 'finalidadeCompartilhamento', e.target.value)} placeholder="Finalidade do compartilhamento" style={{ fontSize: 12 }} />
+                  <div className="form-group">
+                    <label>Finalidade</label>
+                    <input value={c.finalidadeCompartilhamento} onChange={e => setCompartilhamento(i, 'finalidadeCompartilhamento', e.target.value)} placeholder="Finalidade do compartilhamento" />
                   </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: '#64748b' }}>Pais destino</label>
-                    <input value={c.paisDestino} onChange={e => setCompartilhamento(i, 'paisDestino', e.target.value)} style={{ fontSize: 12 }} />
+                  <div className="form-group">
+                    <label>Pais destino</label>
+                    <input value={c.paisDestino} onChange={e => setCompartilhamento(i, 'paisDestino', e.target.value)} />
                   </div>
                 </div>
               </div>
@@ -217,25 +210,30 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
         )}
 
         {passo === 4 && (
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 500 }}>Retencao (dias)</label>
-            <input type="number" value={form.retencaoDias} onChange={e => setForm({ ...form, retencaoDias: e.target.value })} placeholder="Ex: 1825 (5 anos)" style={{ marginBottom: 12 }} />
-            <label style={{ fontSize: 13, fontWeight: 500 }}>Forma de descarte</label>
-            <input value={form.formaDescarte} onChange={e => setForm({ ...form, formaDescarte: e.target.value })} placeholder="Ex: Eliminacao segura, anonimizacao" style={{ marginBottom: 12 }} />
-            <label style={{ fontSize: 13, fontWeight: 500 }}>Medidas de seguranca</label>
-            <textarea value={form.medidasSeguranca} onChange={e => setForm({ ...form, medidasSeguranca: e.target.value })} rows={3} placeholder="Ex: Criptografia em transito e em repouso, controle de acesso, backup" style={{ fontFamily: 'inherit' }} />
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Retencao (dias)</label>
+              <input type="number" value={form.retencaoDias} onChange={e => setForm({ ...form, retencaoDias: e.target.value })} placeholder="Ex: 1825 (5 anos)" className="mb-12" />
+            </div>
+            <div className="form-group">
+              <label>Forma de descarte</label>
+              <input value={form.formaDescarte} onChange={e => setForm({ ...form, formaDescarte: e.target.value })} placeholder="Ex: Eliminacao segura, anonimizacao" className="mb-12" />
+            </div>
+            <div className="form-group">
+              <label>Medidas de seguranca</label>
+              <textarea value={form.medidasSeguranca} onChange={e => setForm({ ...form, medidasSeguranca: e.target.value })} rows={3} placeholder="Ex: Criptografia em transito e em repouso, controle de acesso, backup" />
+            </div>
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
-          <button onClick={() => setPasso(Math.max(1, passo - 1))} disabled={passo === 1}
-            style={{ fontSize: 13, padding: '8px 20px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', cursor: passo === 1 ? 'default' : 'pointer', color: passo === 1 ? '#cbd5e1' : '#475569' }}>
+        <div className="btn-row-spread mt-20">
+          <button onClick={() => setPasso(Math.max(1, passo - 1))} disabled={passo === 1} className="btn-secondary">
             Anterior
           </button>
           {passo < 4 ? (
-            <button onClick={() => setPasso(passo + 1)} className="btn-primary" style={{ fontSize: 13, padding: '8px 20px' }}>Proximo</button>
+            <button onClick={() => setPasso(passo + 1)} className="btn-primary">Proximo</button>
           ) : (
-            <button onClick={salvar} disabled={loading} className="btn-primary" style={{ fontSize: 13, padding: '8px 20px' }}>
+            <button onClick={salvar} disabled={loading} className="btn-primary">
               {loading ? 'Salvando...' : (tratamentoId ? 'Salvar alteracoes' : 'Criar tratamento')}
             </button>
           )}
