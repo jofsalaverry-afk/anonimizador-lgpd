@@ -67,6 +67,33 @@ enum StatusIncidente {
   ENCERRADO
 }
 
+enum Criticidade {
+  ALTA
+  MEDIA
+  BAIXA
+}
+
+enum EvidenciaRequerida {
+  DOCUMENTO
+  CAPTURA
+  AUTO_DECLARACAO
+  LINK_SISTEMA
+}
+
+enum StatusResposta {
+  CONFORME
+  PARCIAL
+  NAO_CONFORME
+  NAO_APLICAVEL
+}
+
+enum TipoAlerta {
+  DSAR_PRAZO
+  CHECKLIST_REVISAO
+  INCIDENTE_ABERTO
+  ROPA_DESATUALIZADO
+}
+
 enum Perfil {
   ENCARREGADO_LGPD
   GESTOR
@@ -93,6 +120,8 @@ model Organizacao {
   modelosDSAR    ModeloRespostaDSAR[]
   docsRepo       DocumentoRepositorio[]
   incidentes     Incidente[]
+  respostasChecklist RespostaChecklist[]
+  alertas        AlertaConformidade[]
 }
 
 model Usuario {
@@ -290,4 +319,53 @@ model Incidente {
   atualizadoEm    DateTime        @updatedAt
 
   @@index([organizacaoId, status])
+}
+
+// ============ Checklist de Conformidade ============
+
+model ItemChecklist {
+  id                  String             @id @default(cuid())
+  codigo              String             @unique
+  categoria           String
+  titulo              String
+  descricao           String
+  fundamentoLegal     String
+  obrigatorio         Boolean            @default(true)
+  criticidade         Criticidade
+  evidenciaRequerida  EvidenciaRequerida
+  respostas           RespostaChecklist[]
+}
+
+model RespostaChecklist {
+  id              String         @id @default(cuid())
+  organizacaoId   String
+  organizacao     Organizacao    @relation(fields: [organizacaoId], references: [id])
+  itemId          String
+  item            ItemChecklist  @relation(fields: [itemId], references: [id])
+  status          StatusResposta
+  observacao      String?
+  evidenciaUrl    String?
+  evidenciaHash   String?
+  validadoPor     String?
+  proximaRevisao  DateTime?
+  criadoEm        DateTime       @default(now())
+  atualizadoEm    DateTime       @updatedAt
+
+  @@unique([organizacaoId, itemId])
+  @@index([organizacaoId])
+}
+
+model AlertaConformidade {
+  id             String      @id @default(cuid())
+  organizacaoId  String
+  organizacao    Organizacao @relation(fields: [organizacaoId], references: [id])
+  tipo           TipoAlerta
+  mensagem       String
+  criticidade    Criticidade
+  lido           Boolean     @default(false)
+  referenciaId   String?
+  criadoEm       DateTime    @default(now())
+
+  @@index([organizacaoId, lido])
+  @@index([organizacaoId, criadoEm])
 }

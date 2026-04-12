@@ -3,6 +3,8 @@ import Anonimizador from './Anonimizador';
 import Ropa from './Ropa';
 import Dsar from './Dsar';
 import Repositorio from './Repositorio';
+import ChecklistPage from './ChecklistPage';
+import AlertasCenter from './AlertasCenter';
 
 const PERFIL_LABEL = {
   ENCARREGADO_LGPD: 'DPO',
@@ -17,7 +19,8 @@ const PAGE_TITLES = {
   ropa: 'Mapeamento ROPA',
   dsar: 'Direitos do Titular',
   documentos: 'Repositorio de Documentos',
-  incidentes: 'Gestao de Incidentes'
+  incidentes: 'Gestao de Incidentes',
+  conformidade: 'Checklist de Conformidade'
 };
 
 export default function Dashboard({ usuario, token, onLogout, onTokenInvalido }) {
@@ -65,6 +68,11 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
                 </button>
               </>
             )}
+            {modulos.includes('checklist') && (
+              <button onClick={() => setPagina('conformidade')} className={`nav-item ${pagina === 'conformidade' ? 'nav-item-active' : ''}`}>
+                <span className="nav-icon">✓</span> Conformidade
+              </button>
+            )}
           </nav>
 
           <div className="sidebar-footer">
@@ -83,6 +91,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
             {showSidebar ? PAGE_TITLES[pagina] || pagina : 'Anonimizador LGPD'}
           </h1>
           <div className="content-header-right">
+            <AlertasCenter token={token} />
             {!showSidebar && (
               <>
                 <div>
@@ -110,6 +119,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           {pagina === 'dsar' && <Dsar token={token} />}
           {pagina === 'documentos' && <Repositorio token={token} subpagina="documentos" />}
           {pagina === 'incidentes' && <Repositorio token={token} subpagina="incidentes" />}
+          {pagina === 'conformidade' && <ChecklistPage token={token} />}
         </div>
       </div>
     </div>
