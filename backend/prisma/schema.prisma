@@ -37,6 +37,36 @@ enum StatusDSAR {
   CANCELADA
 }
 
+enum TipoDocRepo {
+  POLITICA
+  TERMO
+  ADITIVO
+  CONTRATO
+  MODELO
+  OUTRO
+}
+
+enum StatusDocRepo {
+  RASCUNHO
+  APROVADO
+  PUBLICADO
+}
+
+enum TipoIncidente {
+  VAZAMENTO
+  ACESSO_INDEVIDO
+  PERDA
+  ALTERACAO
+  OUTRO
+}
+
+enum StatusIncidente {
+  ABERTO
+  EM_INVESTIGACAO
+  RESOLVIDO
+  ENCERRADO
+}
+
 enum Perfil {
   ENCARREGADO_LGPD
   GESTOR
@@ -61,6 +91,8 @@ model Organizacao {
   tratamentos    Tratamento[]
   solicitacoes   SolicitacaoTitular[]
   modelosDSAR    ModeloRespostaDSAR[]
+  docsRepo       DocumentoRepositorio[]
+  incidentes     Incidente[]
 }
 
 model Usuario {
@@ -217,4 +249,45 @@ model ModeloRespostaDSAR {
   criadoEm       DateTime    @default(now())
 
   @@index([organizacaoId, tipoDireito])
+}
+
+// ============ Repositorio de Documentos e Incidentes ============
+
+model DocumentoRepositorio {
+  id             String        @id @default(cuid())
+  organizacaoId  String
+  organizacao    Organizacao   @relation(fields: [organizacaoId], references: [id])
+  tipo           TipoDocRepo
+  titulo         String
+  conteudoMd     String        @default("")
+  versao         Int           @default(1)
+  status         StatusDocRepo @default(RASCUNHO)
+  autorId        String?
+  tags           String[]
+  criadoEm       DateTime      @default(now())
+  atualizadoEm   DateTime      @updatedAt
+
+  @@index([organizacaoId, tipo])
+  @@index([organizacaoId, status])
+}
+
+model Incidente {
+  id              String          @id @default(cuid())
+  organizacaoId   String
+  organizacao     Organizacao     @relation(fields: [organizacaoId], references: [id])
+  titulo          String
+  dataOcorrencia  DateTime
+  dataDescoberta  DateTime        @default(now())
+  tipoIncidente   TipoIncidente
+  dadosAfetados   String[]
+  qtdTitulares    Int             @default(0)
+  notificadoANPD  Boolean         @default(false)
+  status          StatusIncidente @default(ABERTO)
+  descricao       String
+  planoAcao       String?
+  autorId         String?
+  criadoEm        DateTime        @default(now())
+  atualizadoEm    DateTime        @updatedAt
+
+  @@index([organizacaoId, status])
 }

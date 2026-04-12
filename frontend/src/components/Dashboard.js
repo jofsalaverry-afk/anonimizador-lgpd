@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Anonimizador from './Anonimizador';
 import Ropa from './Ropa';
 import Dsar from './Dsar';
+import Repositorio from './Repositorio';
 
 const PERFIL_LABEL = {
   ENCARREGADO_LGPD: 'DPO',
@@ -14,7 +15,9 @@ const PERFIL_LABEL = {
 const PAGE_TITLES = {
   anonimizador: 'Anonimizador de Documentos',
   ropa: 'Mapeamento ROPA',
-  dsar: 'Direitos do Titular'
+  dsar: 'Direitos do Titular',
+  documentos: 'Repositorio de Documentos',
+  incidentes: 'Gestao de Incidentes'
 };
 
 export default function Dashboard({ usuario, token, onLogout, onTokenInvalido }) {
@@ -51,6 +54,16 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
               <button onClick={() => setPagina('dsar')} className={`nav-item ${pagina === 'dsar' ? 'nav-item-active' : ''}`}>
                 <span className="nav-icon">🔒</span> DSAR
               </button>
+            )}
+            {modulos.includes('repositorio') && (
+              <>
+                <button onClick={() => setPagina('documentos')} className={`nav-item ${pagina === 'documentos' ? 'nav-item-active' : ''}`}>
+                  <span className="nav-icon">📁</span> Repositorio
+                </button>
+                <button onClick={() => setPagina('incidentes')} className={`nav-item ${pagina === 'incidentes' ? 'nav-item-active' : ''}`}>
+                  <span className="nav-icon">⚠️</span> Incidentes
+                </button>
+              </>
             )}
           </nav>
 
@@ -95,6 +108,8 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           {pagina === 'anonimizador' && <Anonimizador token={token} onTokenInvalido={onTokenInvalido} />}
           {pagina === 'ropa' && <Ropa token={token} />}
           {pagina === 'dsar' && <Dsar token={token} />}
+          {pagina === 'documentos' && <Repositorio token={token} subpagina="documentos" />}
+          {pagina === 'incidentes' && <Repositorio token={token} subpagina="incidentes" />}
         </div>
       </div>
     </div>
