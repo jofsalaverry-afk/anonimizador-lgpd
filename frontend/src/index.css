@@ -131,6 +131,11 @@ body {
 .sidebar-footer {
   padding: 16px 20px;
   border-top: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+  margin-top: auto;
+  background: #1e1b4b;
+  position: sticky;
+  bottom: 0;
 }
 
 .sidebar-user-org {

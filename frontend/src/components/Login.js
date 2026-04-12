@@ -14,7 +14,9 @@ export default function Login({ onLogin }) {
     setErro('');
     try {
       const res = await axios.post(`${API}/auth/login`, { email, senha });
-      onLogin(res.data.token, res.data.usuario);
+      // Passa apenas o token — modulosAtivos sera buscado via /auth/me
+      // pelo App.js, evitando dados stale de localStorage.
+      onLogin(res.data.token);
     } catch (err) {
       setErro(err.response?.data?.erro || 'Erro ao fazer login');
     }

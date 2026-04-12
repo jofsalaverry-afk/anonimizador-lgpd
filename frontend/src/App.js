@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import axios from 'axios';
+import { API } from './config';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Admin from './components/Admin';
@@ -6,7 +8,10 @@ import SolicitarDireitos from './components/SolicitarDireitos';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
-  const [usuario, setUsuario] = useState(JSON.parse(localStorage.getItem('usuario') || 'null'));
+  // usuario e mantido em memoria — modulosAtivos NUNCA vem de localStorage,
+  // sempre e buscado fresco via /auth/me ao iniciar a aplicacao.
+  const [usuario, setUsuario] = useState(null);
+  const [loadingMe, setLoadingMe] = useState(!!localStorage.getItem('token'));
   const [rota, setRota] = useState(window.location.hash);
 
   useEffect(() => {
@@ -15,13 +20,45 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const handleLogin = (token, usuario) => {
-    localStorage.setItem('token', token);
-    localStorage.setItem('usuario', JSON.stringify(usuario));
-    // Limpa chave legada
+  // Ao inicializar (ou apos login), busca dados frescos do usuario
+  // incluindo modulosAtivos atualizados do banco.
+  useEffect(() => {
+    if (!token) {
+      setUsuario(null);
+      setLoadingMe(false);
+      return;
+    }
+    let cancelado = false;
+    (async () => {
+      setLoadingMe(true);
+      try {
+        const res = await axios.get(`${API}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!cancelado) setUsuario(res.data);
+      } catch (err) {
+        if (!cancelado) {
+          // Token invalido/expirado — desloga
+          localStorage.removeItem('token');
+          localStorage.removeItem('usuario');
+          localStorage.removeItem('camara');
+          setToken(null);
+          setUsuario(null);
+        }
+      } finally {
+        if (!cancelado) setLoadingMe(false);
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [token]);
+
+  const handleLogin = (novoToken) => {
+    // Salva apenas o token. O usuario (incluindo modulosAtivos) sera
+    // buscado automaticamente via /auth/me pelo useEffect acima.
+    localStorage.setItem('token', novoToken);
+    localStorage.removeItem('usuario');  // limpa chave legada
     localStorage.removeItem('camara');
-    setToken(token);
-    setUsuario(usuario);
+    setToken(novoToken);
   };
 
   const handleLogout = () => {
@@ -38,6 +75,17 @@ function App() {
     return <SolicitarDireitos organizacaoId={orgId} />;
   }
   if (!token) return <Login onLogin={handleLogin} />;
+
+  // Enquanto busca /auth/me, mostra loading — evita renderizar Dashboard
+  // com modulosAtivos stale de localStorage antigo.
+  if (loadingMe || !usuario) {
+    return (
+      <div className="page-center">
+        <div className="text-muted">Carregando...</div>
+      </div>
+    );
+  }
+
   return <Dashboard usuario={usuario} token={token} onLogout={handleLogout} onTokenInvalido={handleLogout} />;
 }
 
