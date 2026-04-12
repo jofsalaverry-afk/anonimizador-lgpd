@@ -118,19 +118,28 @@ function parecerEndereco(txt) {
   return /(rua|avenida|av\.|alameda|travessa|praca|rodovia|estrada|bairro|cep\s?\d|\bn[ºo°]\s?\d)/.test(t);
 }
 
-// Heuristica: parece NOME PROPRIO de pessoa em ALL CAPS (comum em contratos
-// brasileiros: "MARIA DE FATIMA SANTOS"). Nao aplica a nomes de cidades em
-// Title Case como "Nova Esperança do Sudoeste". Usado para rejeitar tarjas
-// que a IA retornou indevidamente.
+// Regex para detectar cargos publicos e funcoes em documentos de camaras
+// municipais. Usado para decidir se um nome e de agente publico (LAI: dado
+// publico, NAO tarjar) ou de pessoa privada (LGPD: dado pessoal, tarjar).
+const RE_CARGO_PUBLICO = /\b(president[ea]|vice[- ]?president[ea]|vereador(?:a)?|prefeit[oa]|secret[aá]ri[oa]|diretor(?:a)?|servidor(?:a)?|fiscal|gestor(?:a)?|procurador(?:a)?|assessor(?:a)?|coordenador(?:a)?|superintendente|ouvidor(?:a)?|controlador(?:a)?|tesoureir[oa]|contador(?:a)?|chefe\s+de\s+gabinete|pregoeiro|licitante|contratante|contratad[oa]|representante\s+legal|s[oó]ci[oa][\s-]*(administrador|gerente|diretor)?|respons[aá]vel\s+(t[eé]cnic|legal)|encarregad[oa]|administrador(?:a)?|gerente|consultor(?:a)?|perit[oa]|auditor(?:a)?|analista|t[eé]cnic[oa]|oficial|escriv[aã](?:o|ã)|delegad[oa]|juiz|ju[ií]za|promotor(?:a)?|defensor(?:a)?|ministro|governador(?:a)?|deputad[oa]|senador(?:a)?|comiss[aá]ri[oa]|inspetor(?:a)?|regulador(?:a)?|mediador(?:a)?|[aá]rbitr[oa]|relator(?:a)?|subsecret[aá]ri[oa]|testemunha)\b/i;
+
+// Verifica se um texto-linha contem indicador de cargo publico ou funcao
+// que protegeria o nome sob a LAI (dado publico, transparencia ativa).
+function linhaTemCargoPublico(textoLinha) {
+  return RE_CARGO_PUBLICO.test(textoLinha);
+}
+
+// Heuristica: parece NOME PROPRIO de pessoa (ALL CAPS com 2+ palavras,
+// comum em contratos brasileiros: "MARIA DE FATIMA SANTOS").
 function parecerNome(txt) {
   const t = txt.trim().replace(/[,.;:]+$/, '');
   if (!t) return false;
   if (/\d/.test(t)) return false;
   if (/@/.test(t)) return false;
-  if (!/^[A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ\s.'-]+$/.test(t)) return false; // somente MAIUSCULAS
+  if (!/^[A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ\s.'-]+$/.test(t)) return false;
   const palavras = t.split(/\s+/).filter(Boolean);
   if (palavras.length < 2) return false;
-  if (/(RUA|AVENIDA|ALAMEDA|TRAVESSA|BAIRRO|SEDE|CEP|CNPJ|CONTRATANTE|CONTRATADA|CLAUSULA|OBJETO|VALOR)/.test(t)) return false;
+  if (/(RUA|AVENIDA|ALAMEDA|TRAVESSA|BAIRRO|SEDE|CEP|CNPJ|CLAUSULA|OBJETO|VALOR)/.test(t)) return false;
   return true;
 }
 
@@ -233,8 +242,18 @@ function construirTarjas(itens, linhas, respostaIA) {
     const linha = linhas[linhaIdx];
     const ctx = ctxLinha[linhaIdx];
 
-    // Filtros: rejeita nomes, texto meta, endereco em contexto de sede
-    if (parecerNome(t.d)) continue;
+    // LAI/LGPD: nome de agente publico com cargo identificado na mesma
+    // linha e DADO PUBLICO — nao tarjar. Nome sem cargo e dado pessoal.
+    if (parecerNome(t.d)) {
+      const textoCtx = linha ? linha.texto : item.texto;
+      if (linhaTemCargoPublico(textoCtx)) continue; // agente publico, preservar
+      // Verifica tambem linhas adjacentes (cargo pode estar na linha anterior/seguinte)
+      const vizinhas = [linhaIdx - 1, linhaIdx + 1]
+        .filter(li => li >= 0 && li < linhas.length && linhas[li].pageIndex === (linha || item).pageIndex)
+        .map(li => linhas[li].texto);
+      if (vizinhas.some(txt => linhaTemCargoPublico(txt))) continue;
+      // Sem cargo: pessoa privada — manter tarja (nao pular)
+    }
     if (parecerMetaTexto(t.d)) continue;
     if (parecerEndereco(t.d)) {
       if (ctx === 'sede') continue;
@@ -262,11 +281,17 @@ function construirTarjas(itens, linhas, respostaIA) {
   const EMAIL_RE = /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g;
   const TEL_RE = /\(?\d{2}\)?\s?9?\d{4}[-\s]\d{4}/g;
 
+  // Emails institucionais (@camara.gov.br, @prefeitura.gov.br, etc.) sao
+  // dados publicos pela LAI — nao tarjar. Somente emails pessoais.
+  const RE_EMAIL_INSTITUCIONAL = /@[a-z0-9.-]*\.(gov|leg|jus|mp|def|org)\.[a-z]{2,}$/i;
+
   // Per-item scan — garantia absoluta quando CPF esta inteiro em um item
   for (const item of itens) {
     for (const re of [new RegExp(CPF_ITEM.source, 'g'), new RegExp(EMAIL_RE.source, 'g'), new RegExp(TEL_RE.source, 'g')]) {
       let m;
       while ((m = re.exec(item.texto)) !== null) {
+        // Pula emails institucionais
+        if (re.source === EMAIL_RE.source && RE_EMAIL_INSTITUCIONAL.test(m[0])) continue;
         addTarja(item.indice, m.index, m.index + m[0].length, 'regex-item');
       }
     }
@@ -295,38 +320,51 @@ function buildPromptItens(itens, linhas) {
   }));
 }
 
-const PROMPT_INSTRUCOES = `Voce recebe itens de texto extraidos de um PDF de documento publico brasileiro. Cada item tem "i" (indice), "t" (texto do item) e "linha" (texto reconstruido da linha/frase em que esse item aparece, para contexto). Identifique dados que DEVEM ser anonimizados conforme LGPD e LAI, retornando o TRECHO EXATO (substring) que deve ser coberto por tarja.
+const PROMPT_INSTRUCOES = `Voce recebe itens de texto extraidos de um PDF de documento publico de camara municipal brasileira. Cada item tem "i" (indice), "t" (texto do item) e "linha" (texto reconstruido da linha/frase para contexto).
 
-TARJAR SOMENTE:
-- CPF no formato XXX.XXX.XXX-XX — SEMPRE, de qualquer pessoa, mesmo no meio de frase
-- RG (formato XX.XXX.XXX-X, XX.XXX.XXX ou similar, com ou sem orgao emissor tipo SSP/SP)
-- Endereco residencial de pessoa fisica: logradouro (rua, avenida, alameda, etc.), numero, complemento, bairro e CEP — APENAS quando for domicilio de pessoa fisica
-- Email pessoal (qualquer email de pessoa fisica)
+MARCO JURIDICO (LAI + LGPD):
+A LAI (Lei 12.527/2011) determina transparencia ativa: atos de agentes publicos sao dados publicos. A LGPD (Lei 13.709/2018) protege dados pessoais de pessoas fisicas. Na interseccao: nome + cargo publico em documento oficial = dado publico (LAI prevalece). CPF, RG, endereco residencial = dado pessoal (LGPD protege, mesmo de servidor).
+
+=== TARJAR (dado pessoal protegido pela LGPD) ===
+- CPF (XXX.XXX.XXX-XX) — SEMPRE, de qualquer pessoa, inclusive agente publico
+- RG (XX.XXX.XXX-X ou similar, com ou sem orgao emissor)
+- Endereco RESIDENCIAL de pessoa fisica (logradouro, numero, complemento, bairro, CEP) — quando contexto indica "residente", "domiciliado", "morador"
+- Email PESSOAL (@gmail, @hotmail, @yahoo, @outlook, etc.)
 - Telefone/celular pessoal
+- Dados bancarios pessoais (agencia, conta, banco de pessoa fisica)
+- Nome de pessoa fisica SEM cargo publico ou funcao identificavel no documento — pessoa privada citada sem contexto funcional
 
-NUNCA TARJAR:
-- Nomes de pessoas — NENHUM nome deve ser tarjado (nem pessoa fisica privada, nem agente publico, nem testemunha, nem representante, nem socio)
+=== NAO TARJAR (dado publico protegido pela LAI) ===
+- Nome de agente publico acompanhado de cargo (Presidente, Vereador, Prefeito, Secretario, Diretor, Servidor, Fiscal, Gestor, Procurador, Assessor, Coordenador, Ouvidor, Tesoureiro, Contador, Pregoeiro, etc.)
+- Nome de representante legal de empresa em contrato publico (socio, diretor, representante legal, gerente, procurador da empresa)
+- Nome de signatario/testemunha de ato administrativo publico
 - CNPJ
 - Nome/razao social de empresa
-- Endereco de SEDE de empresa (ainda que contenha rua, numero, CEP)
-- Cargo (presidente, vereador, diretor, socio, consultor, fiscal, etc.)
-- Valores monetarios, datas
-- Numero de contrato, processo, portaria, matricula
-- Objeto do contrato, clausulas, texto descritivo
-- Rotulos/labels como "CPF:", "RG:", "Email:", "Telefone:"
+- Endereco de SEDE de empresa ou orgao publico ("com sede", "sediada", "estabelecida", "localizada")
+- Email INSTITUCIONAL (@camara.gov.br, @prefeitura.gov.br, @jus.br, @leg.br, etc.)
+- Cargo, funcao, matricula funcional
+- Valores monetarios, datas, prazos
+- Numero de contrato, processo, portaria, licitacao
+- Clausulas, objeto, texto descritivo
 
-COMO DECIDIR ENDERECO (residencial vs sede):
-- Use o campo "linha". Se contem "com sede", "sediada", "estabelecida", "localizada" e nao contem "residente"/"domiciliado" — e SEDE de empresa, NAO TARJAR.
-- Se contem "residente", "domiciliado", "morador", "residencia" — e residencial, TARJAR logradouro, numero, complemento, bairro e CEP.
-- Um endereco pode se estender por varias linhas; tarjar todas as partes (continuacao do logradouro, bairro, CEP) mesmo que a palavra "residente" so apareca na primeira linha.
+=== COMO DECIDIR NOMES ===
+Leia o campo "linha" para contexto:
+1. Se a linha contem um cargo/funcao publica (presidente, vereador, secretario, diretor, fiscal, representante legal, socio-administrador, etc.) → o nome NAO deve ser tarjado
+2. Se a pessoa aparece apenas como parte civil sem cargo, sem funcao publica, e sem vinculo contratual identificavel → o nome DEVE ser tarjado
+3. Na duvida entre tarjar ou nao, NAO tarje — a LAI prioriza transparencia
 
-REGRAS DE FORMATO:
-1. "d" deve ser substring EXATA encontrada em "t" OU na "linha" (se a frase esta quebrada entre varios itens). Preserve capitalizacao, pontuacao e espacos.
-2. Um mesmo item pode gerar varias tarjas com o mesmo "i".
-3. Nao inclua rotulos (ex: "CPF:", "RG:", "Email:") na tarja — so o valor.
-4. LEMBRETE: jamais retorne nome de pessoa como tarja.
+=== COMO DECIDIR ENDERECO ===
+- "com sede", "sediada", "estabelecida", "localizada" SEM "residente"/"domiciliado" → SEDE, NAO tarjar
+- "residente", "domiciliado", "morador", "residencia" → RESIDENCIAL, tarjar logradouro+numero+bairro+CEP
+- Endereco pode continuar em linhas seguintes; tarjar todas as partes
 
-Retorne SOMENTE este JSON, sem comentarios:
+=== FORMATO DE RESPOSTA ===
+1. "d" deve ser substring EXATA de "t" ou "linha". Preserve capitalizacao, pontuacao e espacos.
+2. Um item pode gerar varias tarjas (mesmo "i").
+3. NAO inclua rotulos ("CPF:", "RG:", "Email:") na tarja — so o valor.
+4. Para nomes de pessoas privadas: inclua o nome completo como "d".
+
+Retorne SOMENTE este JSON:
 {"tarjas": [{"i": 0, "d": "trecho exato"}]}`;
 
 module.exports = {
@@ -338,4 +376,5 @@ module.exports = {
   PROMPT_INSTRUCOES,
   linhaEhSedeEmpresa,
   linhaEhResidencia,
+  linhaTemCargoPublico,
 };

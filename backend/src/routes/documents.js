@@ -19,6 +19,48 @@ const prisma = new PrismaClient();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
+// Prompt de anonimizacao de texto (DOCX, texto puro, OCR) com marco LAI/LGPD
+function buildPromptTexto(texto, mascara) {
+  const mascaraDesc = { asterisk: 'XXXXX', tarjeta: '||||', etiqueta: 'a etiqueta correspondente entre colchetes como [CPF], [NOME], [RG]' };
+  return `Voce e um sistema de anonimizacao de documentos publicos de camaras municipais brasileiras. Aplique o marco juridico LAI (Lei 12.527/2011) + LGPD (Lei 13.709/2018).
+
+REGRA DE OURO: Transparencia e a regra (LAI), sigilo e a excecao (LGPD so para dados pessoais).
+
+=== SUBSTITUIR pela mascara ${mascaraDesc[mascara]} ===
+- CPF (XXX.XXX.XXX-XX) — SEMPRE, de qualquer pessoa, inclusive agente publico ou servidor
+- RG (com ou sem orgao emissor)
+- Endereco RESIDENCIAL ("residente em", "domiciliado em", "morador") — logradouro, numero, complemento, bairro, CEP
+- Email PESSOAL (@gmail, @hotmail, @yahoo, @outlook, etc.)
+- Telefone/celular pessoal
+- Dados bancarios pessoais (agencia, conta)
+- Nome de pessoa fisica SEM cargo publico ou funcao identificavel no contexto do documento
+
+=== PRESERVAR (NAO substituir) ===
+- Nome de agente publico COM cargo: Presidente, Vereador, Prefeito, Secretario, Diretor, Servidor, Fiscal, Gestor, Procurador, Assessor, Coordenador, Tesoureiro, Contador, Pregoeiro, etc.
+- Nome de representante legal de empresa em contrato publico (socio, diretor, representante legal)
+- Nome de signatario ou testemunha de ato administrativo
+- CNPJ, razao social de empresa
+- Endereco de SEDE de empresa ou orgao publico ("com sede em", "sediada em")
+- Email INSTITUCIONAL (@camara.gov.br, @prefeitura.gov.br, @jus.br)
+- Cargo, funcao, matricula funcional
+- Valores, datas, prazos, numeros de contrato/processo/portaria
+- Clausulas, objeto, texto descritivo
+
+=== COMO DECIDIR NOMES ===
+- Se o nome aparece junto a um cargo publico ou funcao → PRESERVAR (dado publico pela LAI)
+- Se o nome aparece como parte civil sem cargo, sem funcao, sem vinculo → SUBSTITUIR (dado pessoal pela LGPD)
+- Na duvida → PRESERVAR (LAI prioriza transparencia)
+
+Retorne SOMENTE o texto com as substituicoes feitas, sem comentarios.
+Depois adicione exatamente: ---STATS---
+Depois um JSON com contagem de cada tipo substituido: {"nome":0,"cpf":0,"rg":0,"endereco":0,"email":0,"telefone":0,"data_nasc":0,"banco":0}
+Depois adicione exatamente: ---TIPO---
+Depois o tipo: contrato, ata, processo, convenio, folha, saude, ou outro
+
+DOCUMENTO:
+${texto}`;
+}
+
 const authMiddleware = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -155,18 +197,7 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
       if (resultado.textoOCR) {
         // Reutiliza a pipeline de texto (igual a DOCX/texto puro) com o conteudo OCR
         const mascara = req.body.mascara || 'asterisk';
-        const mascaraDesc = { asterisk: 'XXXXX', tarjeta: '||||', etiqueta: 'a etiqueta correspondente entre colchetes como [CPF], [NOME], [RG]' };
-        const prompt = `Voce e um sistema de anonimizacao de documentos publicos brasileiros conforme a LGPD e LAI.
-Substitua TODOS os dados pessoais de pessoas fisicas privadas pela mascara ${mascaraDesc[mascara]}.
-NAO substitua nomes de agentes publicos no exercicio de suas funcoes.
-Retorne SOMENTE o texto com as substituicoes feitas, sem comentarios.
-Depois adicione exatamente: ---STATS---
-Depois um JSON: {"nome":0,"cpf":0,"rg":0,"endereco":0,"email":0,"telefone":0,"data_nasc":0,"banco":0}
-Depois adicione exatamente: ---TIPO---
-Depois o tipo: contrato, ata, processo, convenio, folha, saude, ou outro
-
-DOCUMENTO:
-${resultado.textoOCR}`;
+        const prompt = buildPromptTexto(resultado.textoOCR, mascara);
 
         const message = await anthropic.messages.create({
           model: 'claude-sonnet-4-20250514',
@@ -218,18 +249,7 @@ ${resultado.textoOCR}`;
     if (!texto.trim()) return res.status(400).json({ erro: 'Nenhum texto fornecido' });
 
     const mascara = req.body.mascara || 'asterisk';
-    const mascaraDesc = { asterisk: 'XXXXX', tarjeta: '||||', etiqueta: 'a etiqueta correspondente entre colchetes como [CPF], [NOME], [RG]' };
-    const prompt = `Voce e um sistema de anonimizacao de documentos publicos brasileiros conforme a LGPD e LAI.
-Substitua TODOS os dados pessoais de pessoas fisicas privadas pela mascara ${mascaraDesc[mascara]}.
-NAO substitua nomes de agentes publicos no exercicio de suas funcoes.
-Retorne SOMENTE o texto com as substituicoes feitas, sem comentarios.
-Depois adicione exatamente: ---STATS---
-Depois um JSON: {"nome":0,"cpf":0,"rg":0,"endereco":0,"email":0,"telefone":0,"data_nasc":0,"banco":0}
-Depois adicione exatamente: ---TIPO---
-Depois o tipo: contrato, ata, processo, convenio, folha, saude, ou outro
-
-DOCUMENTO:
-${texto}`;
+    const prompt = buildPromptTexto(texto, mascara);
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
