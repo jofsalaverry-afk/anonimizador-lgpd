@@ -36,6 +36,7 @@ const ORIGENS_PERMITIDAS_CORS = [
   'https://anonimizadorlgpd.com',
   'https://www.anonimizadorlgpd.com',
   'https://melodious-emotion-production-c6a6.up.railway.app',
+  'https://loquacious-taiyaki-921c36.netlify.app',
   'http://localhost:3000',
   'http://localhost:5173'
 ];
