@@ -18,6 +18,25 @@ enum BaseLegal {
   EXERCICIO_DIREITOS
 }
 
+enum TipoDireito {
+  ACESSO
+  CORRECAO
+  ELIMINACAO
+  PORTABILIDADE
+  OPOSICAO
+  REVOGACAO
+  INFORMACAO
+  PETICAO
+}
+
+enum StatusDSAR {
+  RECEBIDA
+  EM_ANALISE
+  RESPONDIDA
+  ENCERRADA
+  CANCELADA
+}
+
 enum Perfil {
   ENCARREGADO_LGPD
   GESTOR
@@ -36,10 +55,12 @@ model Organizacao {
   logoBase64   String?
   cabecalho    String?
   municipio    String?
-  modulosAtivos String[]   @default(["anonimizador"])
-  usuarios     Usuario[]
-  documentos   Documento[]
-  tratamentos  Tratamento[]
+  modulosAtivos  String[]   @default(["anonimizador"])
+  usuarios       Usuario[]
+  documentos     Documento[]
+  tratamentos    Tratamento[]
+  solicitacoes   SolicitacaoTitular[]
+  modelosDSAR    ModeloRespostaDSAR[]
 }
 
 model Usuario {
@@ -141,4 +162,59 @@ model TratamentoHistorico {
   criadoEm      DateTime   @default(now())
 
   @@index([tratamentoId, criadoEm])
+}
+
+// ============ DSAR (Direitos do Titular) ============
+
+model SolicitacaoTitular {
+  id               String      @id @default(cuid())
+  organizacaoId    String
+  organizacao      Organizacao @relation(fields: [organizacaoId], references: [id])
+  protocolo        String      @unique
+  titularNome      String
+  titularEmail     String
+  titularCpf       String?
+  tipoDireito      TipoDireito
+  descricao        String
+  status           StatusDSAR  @default(RECEBIDA)
+  dataRecebimento  DateTime    @default(now())
+  dataLimite       DateTime
+  dataResposta     DateTime?
+  respostaTexto    String?
+  responsavelId    String?
+  criadoEm         DateTime    @default(now())
+  atualizadoEm     DateTime    @updatedAt
+
+  evidencias       EvidenciaDSAR[]
+
+  @@index([organizacaoId, status])
+  @@index([protocolo])
+  @@index([organizacaoId, dataLimite])
+}
+
+model EvidenciaDSAR {
+  id             String             @id @default(cuid())
+  solicitacaoId  String
+  solicitacao    SolicitacaoTitular @relation(fields: [solicitacaoId], references: [id], onDelete: Cascade)
+  tipo           String
+  descricao      String
+  arquivoUrl     String?
+  hashSha256     String?
+  autorId        String
+  criadoEm       DateTime           @default(now())
+
+  @@index([solicitacaoId])
+}
+
+model ModeloRespostaDSAR {
+  id             String      @id @default(cuid())
+  organizacaoId  String
+  organizacao    Organizacao @relation(fields: [organizacaoId], references: [id])
+  tipoDireito    TipoDireito
+  titulo         String
+  conteudo       String
+  padrao         Boolean     @default(false)
+  criadoEm       DateTime    @default(now())
+
+  @@index([organizacaoId, tipoDireito])
 }

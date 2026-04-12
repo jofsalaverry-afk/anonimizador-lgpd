@@ -96,6 +96,7 @@ const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const documentRoutes = require('./routes/documents');
 const ropaRoutes = require('./routes/ropa');
+const dsarRoutes = require('./routes/dsar');
 
 // Limites aplicados antes do router, matchando paths especificos
 app.use('/auth/login', loginLimiter);
@@ -109,6 +110,8 @@ app.use('/perfil', require('./routes/perfil'));
 app.use('/documents', documentRoutes);
 app.use('/ropa', documentLimiter);
 app.use('/ropa', ropaRoutes);
+app.use('/dsar', documentLimiter);
+app.use('/dsar', dsarRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Anonimizador LGPD API rodando!' });
