@@ -71,8 +71,6 @@ router.get('/me', async (req, res) => {
       select: { id: true, nome: true, email: true, perfil: true, ativo: true, organizacaoId: true, organizacao: { select: { nome: true, plano: true, modulosAtivos: true } } }
     });
     if (!usuario) return res.status(404).json({ erro: 'Usuario nao encontrado' });
-    // DEBUG temporario — remover apos confirmacao
-    console.log('[/auth/me] usuario:', usuario.email, '| orgId:', usuario.organizacaoId, '| modulosAtivos:', usuario.organizacao.modulosAtivos);
     const { organizacao, ...rest } = usuario;
     res.json({ ...rest, orgNome: organizacao.nome, plano: organizacao.plano, modulosAtivos: organizacao.modulosAtivos });
   } catch (err) {
