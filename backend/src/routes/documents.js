@@ -66,7 +66,7 @@ const authMiddleware = (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ erro: 'Token nao fornecido' });
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.camara = decoded;
+    req.usuario = decoded;
     next();
   } catch (err) {
     res.status(401).json({ erro: 'Token invalido' });
@@ -165,13 +165,13 @@ router.get('/', authMiddleware, async (req, res) => {
     const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const [items, total] = await Promise.all([
       prisma.documento.findMany({
-        where: { camaraId: req.camara.id },
+        where: { organizacaoId: req.usuario.organizacaoId },
         orderBy: { criadoEm: 'desc' },
         select: { id: true, tipoDocumento: true, qtdDadosMascarados: true, dadosJson: true, criadoEm: true },
         take: limit,
         skip: offset
       }),
-      prisma.documento.count({ where: { camaraId: req.camara.id } })
+      prisma.documento.count({ where: { organizacaoId: req.usuario.organizacaoId } })
     ]);
     res.json({ total, limit, offset, items });
   } catch (err) {
@@ -219,7 +219,7 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
 
         const qtdTotal = Object.values(stats).reduce((a, b) => a + b, 0);
         await prisma.documento.create({
-          data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: qtdTotal, dadosJson: stats }
+          data: { organizacaoId: req.usuario.organizacaoId, tipoDocumento, qtdDadosMascarados: qtdTotal, dadosJson: stats }
         });
 
         return res.json({
@@ -231,7 +231,7 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
 
       // PDF normal com texto — retorna PDF com tarjas
       await prisma.documento.create({
-        data: { camaraId: req.camara.id, tipoDocumento: resultado.tipoDocumento, qtdDadosMascarados: Object.values(resultado.stats).reduce((a,b)=>a+b,0), dadosJson: resultado.stats }
+        data: { organizacaoId: req.usuario.organizacaoId, tipoDocumento: resultado.tipoDocumento, qtdDadosMascarados: Object.values(resultado.stats).reduce((a,b)=>a+b,0), dadosJson: resultado.stats }
       });
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
@@ -271,7 +271,7 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
 
     const qtdTotal = Object.values(stats).reduce((a, b) => a + b, 0);
     await prisma.documento.create({
-      data: { camaraId: req.camara.id, tipoDocumento, qtdDadosMascarados: qtdTotal, dadosJson: stats }
+      data: { organizacaoId: req.usuario.organizacaoId, tipoDocumento, qtdDadosMascarados: qtdTotal, dadosJson: stats }
     });
 
     res.json({ textoAnonimizado, stats, tipoDocumento, leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro });

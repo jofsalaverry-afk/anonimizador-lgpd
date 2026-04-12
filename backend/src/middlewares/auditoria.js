@@ -41,10 +41,10 @@ function auditoriaMiddleware(prisma) {
       if (req.admin) {
         userId = req.admin.id;
         userType = 'admin';
-      } else if (req.camara) {
-        userId = req.camara.id;
-        userType = 'camara';
-        camaraId = req.camara.id;
+      } else if (req.usuario) {
+        userId = req.usuario.id;
+        userType = 'usuario';
+        camaraId = req.usuario.organizacaoId;
       }
       // Nao audita requests anonimas (login fail, healthcheck, preflight)
       if (!userId) return;

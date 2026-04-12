@@ -10,25 +10,51 @@ const prisma = new PrismaClient();
 router.post('/login', async (req, res) => {
   try {
     const { email, senha } = req.body;
-    const camara = await prisma.camara.findUnique({ where: { email } });
-    if (!camara) {
-      auditarLogin(prisma, { req, sucesso: false, userType: 'camara', motivo: 'email_nao_encontrado' });
-      return res.status(401).json({ erro: 'Email ou senha inválidos' });
+    const usuario = await prisma.usuario.findUnique({
+      where: { email },
+      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true } } }
+    });
+    if (!usuario) {
+      auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', motivo: 'email_nao_encontrado' });
+      return res.status(401).json({ erro: 'Email ou senha invalidos' });
     }
-    if (!camara.ativo) {
-      auditarLogin(prisma, { req, sucesso: false, userType: 'camara', userId: camara.id, motivo: 'conta_desativada' });
-      return res.status(403).json({ erro: 'Acesso desativado. Entre em contato com o administrador.' });
+    if (!usuario.organizacao.ativo) {
+      auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', userId: usuario.id, motivo: 'organizacao_desativada' });
+      return res.status(403).json({ erro: 'Organizacao desativada. Entre em contato com o administrador.' });
     }
-    const senhaValida = await bcrypt.compare(senha, camara.senhaHash);
+    if (!usuario.ativo) {
+      auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', userId: usuario.id, motivo: 'usuario_desativado' });
+      return res.status(403).json({ erro: 'Acesso desativado. Entre em contato com o gestor da sua organizacao.' });
+    }
+    const senhaValida = await bcrypt.compare(senha, usuario.senhaHash);
     if (!senhaValida) {
-      auditarLogin(prisma, { req, sucesso: false, userType: 'camara', userId: camara.id, motivo: 'senha_invalida' });
-      return res.status(401).json({ erro: 'Email ou senha inválidos' });
+      auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', userId: usuario.id, motivo: 'senha_invalida' });
+      return res.status(401).json({ erro: 'Email ou senha invalidos' });
     }
-    await prisma.camara.update({ where: { id: camara.id }, data: { ultimoAcesso: new Date() } });
-    const token = jwt.sign({ id: camara.id, email: camara.email, nome: camara.nome }, process.env.JWT_SECRET, { expiresIn: '8h' });
-    auditarLogin(prisma, { req, sucesso: true, userType: 'camara', userId: camara.id });
-    res.json({ token, camara: { id: camara.id, nome: camara.nome, email: camara.email, plano: camara.plano } });
+    await prisma.usuario.update({ where: { id: usuario.id }, data: { ultimoAcesso: new Date() } });
+    const token = jwt.sign({
+      id: usuario.id,
+      email: usuario.email,
+      nome: usuario.nome,
+      perfil: usuario.perfil,
+      organizacaoId: usuario.organizacaoId,
+      orgNome: usuario.organizacao.nome
+    }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    auditarLogin(prisma, { req, sucesso: true, userType: 'usuario', userId: usuario.id });
+    res.json({
+      token,
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        perfil: usuario.perfil,
+        organizacaoId: usuario.organizacaoId,
+        orgNome: usuario.organizacao.nome,
+        plano: usuario.organizacao.plano
+      }
+    });
   } catch (err) {
+    console.error('[auth/login]', err);
     res.status(500).json({ erro: 'Erro interno do servidor' });
   }
 });
@@ -36,12 +62,16 @@ router.post('/login', async (req, res) => {
 router.get('/me', async (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
+    if (!token) return res.status(401).json({ erro: 'Token nao fornecido' });
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const camara = await prisma.camara.findUnique({ where: { id: decoded.id }, select: { id: true, nome: true, email: true, cnpj: true, plano: true, ativo: true } });
-    res.json(camara);
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: decoded.id },
+      select: { id: true, nome: true, email: true, perfil: true, ativo: true, organizacaoId: true, organizacao: { select: { nome: true, plano: true } } }
+    });
+    if (!usuario) return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    res.json({ ...usuario, orgNome: usuario.organizacao.nome, plano: usuario.organizacao.plano });
   } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
+    res.status(401).json({ erro: 'Token invalido' });
   }
 });
 

@@ -2,6 +2,23 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 
+const PERFIL_LABEL = {
+  ENCARREGADO_LGPD: 'DPO',
+  GESTOR: 'Gestor',
+  OPERADOR: 'Operador',
+  AUDITOR: 'Auditor',
+  TREINANDO: 'Treinando'
+};
+
+const MODULOS_DISPONIVEIS = [
+  { id: 'anonimizador', nome: 'Anonimizador' },
+  { id: 'ropa', nome: 'ROPA' },
+  { id: 'dsar', nome: 'DSAR' },
+  { id: 'repositorio', nome: 'Repositorio' },
+  { id: 'treinamento', nome: 'Treinamento' },
+  { id: 'checklist', nome: 'Checklist' }
+];
+
 export default function Admin() {
   const [token, setToken] = useState(localStorage.getItem('admin_token') || '');
   const [email, setEmail] = useState('');
@@ -9,10 +26,11 @@ export default function Admin() {
   const [erro, setErro] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const [camaras, setCamaras] = useState([]);
+  const [orgs, setOrgs] = useState([]);
   const [stats, setStats] = useState(null);
   const [form, setForm] = useState({ nome: '', cnpj: '', email: '', senha: '', plano: 'basico' });
   const [msg, setMsg] = useState('');
+  const [expandida, setExpandida] = useState(null);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -23,7 +41,7 @@ export default function Admin() {
         axios.get(`${API}/admin/camaras`, { headers }),
         axios.get(`${API}/admin/stats`, { headers })
       ]);
-      setCamaras(c.data);
+      setOrgs(c.data);
       setStats(s.data);
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
@@ -55,30 +73,42 @@ export default function Admin() {
   const handleLogout = () => {
     localStorage.removeItem('admin_token');
     setToken('');
-    setCamaras([]);
+    setOrgs([]);
     setStats(null);
   };
 
-  const criarCamara = async (e) => {
+  const criarOrg = async (e) => {
     e.preventDefault();
     setMsg('');
     setErro('');
     try {
       await axios.post(`${API}/admin/camaras`, form, { headers });
       setForm({ nome: '', cnpj: '', email: '', senha: '', plano: 'basico' });
-      setMsg('Câmara criada com sucesso');
+      setMsg('Organizacao criada com sucesso');
       carregar();
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao criar câmara');
+      setErro(err.response?.data?.erro || 'Erro ao criar organizacao');
     }
   };
 
-  const toggleCamara = async (id) => {
+  const toggleOrg = async (id) => {
     try {
       await axios.patch(`${API}/admin/camaras/${id}/toggle`, {}, { headers });
       carregar();
     } catch (err) {
       setErro('Erro ao alterar status');
+    }
+  };
+
+  const toggleModulo = async (orgId, modulo, ativo, modulosAtuais) => {
+    const novos = ativo
+      ? modulosAtuais.filter(m => m !== modulo)
+      : [...modulosAtuais, modulo];
+    try {
+      await axios.patch(`${API}/admin/camaras/${orgId}/modulos`, { modulosAtivos: novos }, { headers });
+      carregar();
+    } catch (err) {
+      setErro('Erro ao alterar modulos');
     }
   };
 
@@ -128,60 +158,103 @@ export default function Admin() {
           <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
             <div className="card" style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 700, color: '#1d4ed8' }}>{stats.totalCamaras}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>Câmaras cadastradas</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Organizacoes</div>
             </div>
             <div className="card" style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 700, color: '#16a34a' }}>{stats.camarasAtivas}</div>
               <div style={{ fontSize: 12, color: '#64748b' }}>Ativas</div>
             </div>
             <div className="card" style={{ flex: 1, textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#7c3aed' }}>{stats.totalUsuarios}</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Usuarios</div>
+            </div>
+            <div className="card" style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 700, color: '#475569' }}>{stats.totalDocumentos}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>Documentos processados</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Documentos</div>
             </div>
           </div>
         )}
 
         <div className="card" style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Criar nova câmara</h2>
-          <form onSubmit={criarCamara}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Criar nova organizacao</h2>
+          <form onSubmit={criarOrg}>
             <label>Nome</label>
-            <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Câmara Municipal de ..." required />
+            <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Camara Municipal de ..." required />
             <label>CNPJ</label>
             <input value={form.cnpj} onChange={e => setForm({ ...form, cnpj: e.target.value })} placeholder="00.000.000/0001-00" required />
-            <label>E-mail</label>
+            <label>E-mail do primeiro usuario (Gestor)</label>
             <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="contato@camara.gov.br" required />
             <label>Senha inicial</label>
             <input type="text" value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} placeholder="senha inicial" required />
             <label>Plano</label>
             <select value={form.plano} onChange={e => setForm({ ...form, plano: e.target.value })} style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12 }}>
-              <option value="basico">Básico</option>
-              <option value="intermediario">Intermediário</option>
+              <option value="basico">Basico</option>
+              <option value="intermediario">Intermediario</option>
               <option value="premium">Premium</option>
             </select>
             {msg && <p style={{ color: '#16a34a', fontSize: 13, marginBottom: 12 }}>{msg}</p>}
             {erro && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{erro}</p>}
-            <button className="btn-primary" type="submit">Criar câmara</button>
+            <button className="btn-primary" type="submit">Criar organizacao</button>
           </form>
         </div>
 
         <div className="card">
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Câmaras cadastradas ({camaras.length})</h2>
-          {camaras.length === 0 && <p style={{ fontSize: 13, color: '#64748b' }}>Nenhuma câmara cadastrada ainda.</p>}
-          {camaras.map(c => (
-            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottom: '1px solid #f1f5f9' }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{c.nome}</div>
-                <div style={{ fontSize: 12, color: '#64748b' }}>{c.email} · {c.cnpj} · {c.plano}</div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{c._count?.documentos || 0} documentos processados</div>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Organizacoes ({orgs.length})</h2>
+          {orgs.length === 0 && <p style={{ fontSize: 13, color: '#64748b' }}>Nenhuma organizacao cadastrada.</p>}
+          {orgs.map(o => (
+            <div key={o.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '12px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{o.nome}</div>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>{o.cnpj} · {o.plano} · {o._count?.usuarios || 0} usuarios · {o._count?.documentos || 0} docs</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: o.ativo ? '#dcfce7' : '#fee2e2', color: o.ativo ? '#16a34a' : '#dc2626' }}>
+                    {o.ativo ? 'ativa' : 'inativa'}
+                  </span>
+                  <button onClick={() => setExpandida(expandida === o.id ? null : o.id)} style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', color: '#475569' }}>
+                    {expandida === o.id ? 'Fechar' : 'Detalhes'}
+                  </button>
+                  <button onClick={() => toggleOrg(o.id)} style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', color: '#475569' }}>
+                    {o.ativo ? 'Desativar' : 'Ativar'}
+                  </button>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: c.ativo ? '#dcfce7' : '#fee2e2', color: c.ativo ? '#16a34a' : '#dc2626' }}>
-                  {c.ativo ? 'ativa' : 'inativa'}
-                </span>
-                <button onClick={() => toggleCamara(c.id)} style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', color: '#475569' }}>
-                  {c.ativo ? 'Desativar' : 'Ativar'}
-                </button>
-              </div>
+
+              {expandida === o.id && (
+                <div style={{ marginTop: 12, padding: 12, background: '#f8fafc', borderRadius: 8 }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Modulos</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {MODULOS_DISPONIVEIS.map(m => {
+                        const ativo = (o.modulosAtivos || []).includes(m.id);
+                        return (
+                          <button key={m.id} onClick={() => toggleModulo(o.id, m.id, ativo, o.modulosAtivos || [])}
+                            style={{ fontSize: 11, padding: '4px 10px', borderRadius: 12, border: '1px solid', cursor: 'pointer',
+                              background: ativo ? '#dcfce7' : '#f1f5f9',
+                              borderColor: ativo ? '#16a34a' : '#e2e8f0',
+                              color: ativo ? '#16a34a' : '#94a3b8' }}>
+                            {ativo ? '● ' : '○ '}{m.nome}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Usuarios</div>
+                    {(o.usuarios || []).map(u => (
+                      <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <div>
+                          <span style={{ fontSize: 12, color: '#1e293b' }}>{u.email}</span>
+                          <span style={{ fontSize: 11, marginLeft: 8, padding: '1px 6px', borderRadius: 8, background: '#ede9fe', color: '#7c3aed' }}>{PERFIL_LABEL[u.perfil] || u.perfil}</span>
+                        </div>
+                        <span style={{ fontSize: 11, color: u.ativo ? '#16a34a' : '#dc2626' }}>{u.ativo ? 'ativo' : 'inativo'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -14,7 +14,7 @@ export default function Login({ onLogin }) {
     setErro('');
     try {
       const res = await axios.post(`${API}/auth/login`, { email, senha });
-      onLogin(res.data.token, res.data.camara);
+      onLogin(res.data.token, res.data.usuario);
     } catch (err) {
       setErro(err.response?.data?.erro || 'Erro ao fazer login');
     }
@@ -27,7 +27,7 @@ export default function Login({ onLogin }) {
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: 32, marginBottom: 8 }}>🏛️</div>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>Anonimizador LGPD</h1>
-          <p style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Sistema para câmaras municipais</p>
+          <p style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Sistema para camaras municipais</p>
         </div>
         <form onSubmit={handleSubmit}>
           <label>E-mail</label>
