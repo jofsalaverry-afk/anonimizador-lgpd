@@ -179,12 +179,13 @@ export default function Anonimizador({ token, onTokenInvalido }) {
               </span>
             )}
           </div>
-          {resultado.stats && Object.values(resultado.stats).reduce((a, b) => a + b, 0) === 0 && (
+          {resultado.stats && Object.values(resultado.stats).reduce((a, b) => a + b, 0) === 0 ? (
             <div style={{ background: '#f0f9ff', border: '1px solid #0ea5e9', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
               <p style={{ color: '#0369a1', fontSize: 13, fontWeight: 500, margin: 0 }}>Documento processado. Nenhum dado pessoal identificado.</p>
             </div>
+          ) : (
+            <textarea value={resultado.textoAnonimizado} readOnly rows={10} style={{ fontFamily: 'monospace', fontSize: 13, background: '#f8fafc' }} />
           )}
-          <textarea value={resultado.textoAnonimizado} readOnly rows={10} style={{ fontFamily: 'monospace', fontSize: 13, background: '#f8fafc' }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button onClick={baixarPDF} disabled={loadingPDF} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: '#1d4ed8', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
               {loadingPDF ? '⏳ Gerando...' : '⬇ Baixar PDF'}
