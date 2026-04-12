@@ -31,18 +31,22 @@ export default function Admin() {
   const [form, setForm] = useState({ nome: '', cnpj: '', email: '', senha: '', plano: 'basico' });
   const [msg, setMsg] = useState('');
   const [expandida, setExpandida] = useState(null);
+  const [trilhas, setTrilhas] = useState([]);
+  const [edicaoModulo, setEdicaoModulo] = useState({});
 
   const headers = { Authorization: `Bearer ${token}` };
 
   const carregar = useCallback(async () => {
     if (!token) return;
     try {
-      const [c, s] = await Promise.all([
+      const [c, s, t] = await Promise.all([
         axios.get(`${API}/admin/camaras`, { headers }),
-        axios.get(`${API}/admin/stats`, { headers })
+        axios.get(`${API}/admin/stats`, { headers }),
+        axios.get(`${API}/admin/treinamento/trilhas`, { headers })
       ]);
       setOrgs(c.data);
       setStats(s.data);
+      setTrilhas(t.data);
     } catch (err) {
       if (err.response?.status === 401 || err.response?.status === 403) {
         localStorage.removeItem('admin_token');
@@ -51,6 +55,27 @@ export default function Admin() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  const salvarModulo = async (trilhaId, moduloId) => {
+    const key = `${trilhaId}:${moduloId}`;
+    const edit = edicaoModulo[key];
+    if (!edit || !edit.youtubeId) return;
+    try {
+      await axios.put(
+        `${API}/admin/treinamento/trilhas/${trilhaId}/modulos/${moduloId}`,
+        { youtubeId: edit.youtubeId, titulo: edit.titulo || null },
+        { headers }
+      );
+      setEdicaoModulo(prev => {
+        const novo = { ...prev };
+        delete novo[key];
+        return novo;
+      });
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao salvar modulo');
+    }
+  };
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -276,6 +301,63 @@ export default function Admin() {
                   </div>
                 </div>
               )}
+            </div>
+          ))}
+        </div>
+
+        {/* ========== Treinamento ========== */}
+        <div className="card mt-20">
+          <h2 className="card-header">Treinamentos — curadoria de videos</h2>
+          <p className="text-muted mb-16">Cole o ID ou a URL completa do YouTube para cada modulo. Os videos sao compartilhados entre todas as organizacoes com o modulo treinamento ativo.</p>
+
+          {trilhas.length === 0 && <p className="text-muted">Carregando trilhas...</p>}
+
+          {trilhas.map(trilha => (
+            <div key={trilha.id} className="org-expand mb-16">
+              <div className="flex-center gap-8 mb-12">
+                <span className="text-sm" style={{ fontWeight: 700 }}>{trilha.titulo}</span>
+                <span className="badge badge-info">{trilha.nivel}</span>
+              </div>
+
+              {trilha.modulos.map(modulo => {
+                const key = `${trilha.id}:${modulo.moduloId}`;
+                const edit = edicaoModulo[key] || {};
+                const valorInput = edit.youtubeId !== undefined ? edit.youtubeId : modulo.youtubeId;
+                return (
+                  <div key={modulo.moduloId} className="user-row" style={{ display: 'block', padding: '12px 0' }}>
+                    <div className="flex-center gap-8 mb-8">
+                      <img
+                        src={`https://img.youtube.com/vi/${modulo.youtubeId}/mqdefault.jpg`}
+                        alt=""
+                        style={{ width: 80, height: 45, borderRadius: 6, objectFit: 'cover' }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div className="text-sm" style={{ fontWeight: 600 }}>{modulo.titulo}</div>
+                        <div className="text-muted text-xs">{modulo.duracaoMin} min · ID atual: {modulo.youtubeId}</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-8">
+                      <input
+                        type="text"
+                        placeholder="Cole o ID ou URL do YouTube"
+                        value={valorInput}
+                        onChange={e => setEdicaoModulo(prev => ({
+                          ...prev,
+                          [key]: { ...prev[key], youtubeId: e.target.value }
+                        }))}
+                        style={{ marginBottom: 0, flex: 1 }}
+                      />
+                      <button
+                        onClick={() => salvarModulo(trilha.id, modulo.moduloId)}
+                        className="btn-primary btn-sm"
+                        disabled={!edit.youtubeId || edit.youtubeId === modulo.youtubeId}
+                      >
+                        Salvar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>

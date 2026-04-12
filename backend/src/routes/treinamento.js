@@ -33,19 +33,13 @@ const requireModulo = async (req, res, next) => {
   }
 };
 
-// ---------- Conteudo (hardcoded — MVP) ----------
-// MVP: trilhas hardcoded. Conteudo inicial curado pela usuaria com
-// videos publicos sobre LGPD.
-//
-// NOTA DE CURACAO:
-// - Trilha 1 / Modulo 1 ("O que e a LGPD?"): youtubeId 'pdk8lyemxn4'
-//   confirmado como video publico real sobre LGPD.
-// - Demais modulos usam o mesmo video como placeholder — o admin deve
-//   substituir por IDs de videos reais da ANPD, Senado, Sebrae, canais
-//   oficiais de universidades, etc. Basta editar os youtubeId abaixo.
+// ---------- Conteudo base (hardcoded) ----------
+// Trilhas base — o admin pode sobrescrever youtubeId e titulo via
+// tabela TrilhaOverride sem alterar codigo. Cada modulo tem um
+// moduloId estavel para ser referenciado nos overrides.
 const PLACEHOLDER_VIDEO = 'pdk8lyemxn4';
 
-const TRILHAS = [
+const TRILHAS_BASE = [
   {
     id: 'introducao-lgpd',
     titulo: 'Introducao a LGPD',
@@ -53,15 +47,17 @@ const TRILHAS = [
     nivel: 'Basico',
     modulos: [
       {
+        moduloId: 'o-que-e-lgpd',
         titulo: 'O que e a LGPD?',
         descricao: 'Visao geral da Lei 13.709/2018, seus objetivos e aplicabilidade no setor publico.',
         youtubeId: 'pdk8lyemxn4',
         duracaoMin: 8
       },
       {
+        moduloId: 'principios-lgpd',
         titulo: 'Principios da LGPD',
         descricao: 'Os 10 principios fundamentais: finalidade, adequacao, necessidade, livre acesso, qualidade, transparencia, seguranca, prevencao, nao discriminacao e responsabilizacao.',
-        youtubeId: PLACEHOLDER_VIDEO,  // TODO: curar — video especifico sobre principios
+        youtubeId: PLACEHOLDER_VIDEO,
         duracaoMin: 12
       }
     ]
@@ -73,33 +69,77 @@ const TRILHAS = [
     nivel: 'Intermediario',
     modulos: [
       {
+        moduloId: 'direitos-do-titular',
         titulo: 'Quais sao os direitos do titular?',
         descricao: 'Detalhamento dos 9 direitos do Art. 18: confirmacao, acesso, correcao, anonimizacao, portabilidade, eliminacao, informacao, revogacao e peticao a ANPD.',
-        youtubeId: PLACEHOLDER_VIDEO,  // TODO: curar — video sobre Art. 18
+        youtubeId: PLACEHOLDER_VIDEO,
         duracaoMin: 10
       },
       {
+        moduloId: 'responder-15-dias',
         titulo: 'Como responder solicitacoes dentro do prazo de 15 dias',
         descricao: 'Fluxo completo de atendimento: recebimento, validacao de identidade, analise, resposta e registro de evidencias.',
-        youtubeId: PLACEHOLDER_VIDEO,  // TODO: curar — video sobre prazo de resposta DSAR
+        youtubeId: PLACEHOLDER_VIDEO,
         duracaoMin: 14
       }
     ]
   }
 ];
 
+// ---------- Merge com overrides ----------
+
+async function getTrilhasComOverrides() {
+  const overrides = await prisma.trilhaOverride.findMany();
+  const mapa = {};
+  for (const o of overrides) {
+    mapa[`${o.trilhaId}:${o.moduloId}`] = o;
+  }
+  return TRILHAS_BASE.map(t => ({
+    ...t,
+    modulos: t.modulos.map(m => {
+      const ov = mapa[`${t.id}:${m.moduloId}`];
+      if (!ov) return m;
+      return {
+        ...m,
+        youtubeId: ov.youtubeId || m.youtubeId,
+        titulo: ov.titulo || m.titulo
+      };
+    })
+  }));
+}
+
+// Helper exportado para uso pelas rotas admin
+async function getTrilhaBase(trilhaId) {
+  const base = TRILHAS_BASE.find(t => t.id === trilhaId);
+  return base || null;
+}
+
 // ---------- Rotas ----------
 
 router.use(authMiddleware, requireModulo);
 
-router.get('/trilhas', (req, res) => {
-  res.json(TRILHAS);
+router.get('/trilhas', async (req, res) => {
+  try {
+    const trilhas = await getTrilhasComOverrides();
+    res.json(trilhas);
+  } catch (err) {
+    console.error('[GET /treinamento/trilhas]', err);
+    res.status(500).json({ erro: 'Erro ao listar trilhas' });
+  }
 });
 
-router.get('/trilhas/:id', (req, res) => {
-  const trilha = TRILHAS.find(t => t.id === req.params.id);
-  if (!trilha) return res.status(404).json({ erro: 'Trilha nao encontrada' });
-  res.json(trilha);
+router.get('/trilhas/:id', async (req, res) => {
+  try {
+    const trilhas = await getTrilhasComOverrides();
+    const trilha = trilhas.find(t => t.id === req.params.id);
+    if (!trilha) return res.status(404).json({ erro: 'Trilha nao encontrada' });
+    res.json(trilha);
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao buscar trilha' });
+  }
 });
 
 module.exports = router;
+module.exports.getTrilhasComOverrides = getTrilhasComOverrides;
+module.exports.getTrilhaBase = getTrilhaBase;
+module.exports.TRILHAS_BASE = TRILHAS_BASE;

@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
 const { auditarLogin } = require('../middlewares/auditoria');
+const { getTrilhasComOverrides, TRILHAS_BASE } = require('./treinamento');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -178,6 +179,59 @@ router.get('/stats', adminAuth, async (req, res) => {
     res.json({ totalCamaras: totalOrgs, camarasAtivas: orgsAtivas, totalDocumentos, totalUsuarios });
   } catch (err) {
     res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+// ---------- Treinamento — gestao de trilhas ----------
+
+// Extrai ID do video de uma URL do YouTube ou retorna o proprio ID se
+// ja for um ID (11 chars alfanumerico/underscore/hifen).
+function extrairYoutubeId(entrada) {
+  if (!entrada) return null;
+  const s = entrada.trim();
+  // Se ja e um ID valido (11 chars, [A-Za-z0-9_-])
+  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+  // Tenta extrair de URL
+  const match = s.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
+router.get('/treinamento/trilhas', adminAuth, async (req, res) => {
+  try {
+    const trilhas = await getTrilhasComOverrides();
+    res.json(trilhas);
+  } catch (err) {
+    console.error('[GET /admin/treinamento/trilhas]', err);
+    res.status(500).json({ erro: 'Erro ao listar trilhas' });
+  }
+});
+
+router.put('/treinamento/trilhas/:trilhaId/modulos/:moduloId', adminAuth, async (req, res) => {
+  try {
+    const { trilhaId, moduloId } = req.params;
+    const { youtubeId: entradaRaw, titulo } = req.body;
+
+    // Valida que a trilha e modulo existem no hardcoded base
+    const trilhaBase = TRILHAS_BASE.find(t => t.id === trilhaId);
+    if (!trilhaBase) return res.status(404).json({ erro: 'Trilha nao encontrada' });
+    const moduloBase = trilhaBase.modulos.find(m => m.moduloId === moduloId);
+    if (!moduloBase) return res.status(404).json({ erro: 'Modulo nao encontrado' });
+
+    // Extrai/valida o youtubeId (aceita URL completa)
+    const youtubeId = extrairYoutubeId(entradaRaw);
+    if (!youtubeId) return res.status(400).json({ erro: 'youtubeId invalido (informe o ID de 11 chars ou a URL do YouTube)' });
+
+    // Upsert no override
+    const override = await prisma.trilhaOverride.upsert({
+      where: { trilhaId_moduloId: { trilhaId, moduloId } },
+      create: { trilhaId, moduloId, youtubeId, titulo: titulo || null },
+      update: { youtubeId, titulo: titulo || null }
+    });
+
+    res.json(override);
+  } catch (err) {
+    console.error('[PUT /admin/treinamento/trilhas/:trilhaId/modulos/:moduloId]', err);
+    res.status(500).json({ erro: 'Erro ao salvar override' });
   }
 });
 

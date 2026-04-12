@@ -369,3 +369,18 @@ model AlertaConformidade {
   @@index([organizacaoId, lido])
   @@index([organizacaoId, criadoEm])
 }
+
+// ============ Treinamento ============
+// Override de youtubeId/titulo de modulos das trilhas hardcoded.
+// Permite admin curar conteudo sem alterar codigo. Global — afeta
+// todas as organizacoes (trilhas sao compartilhadas).
+model TrilhaOverride {
+  id         String   @id @default(cuid())
+  trilhaId   String
+  moduloId   String
+  youtubeId  String
+  titulo     String?
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([trilhaId, moduloId])
+}
