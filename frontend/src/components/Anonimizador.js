@@ -2,7 +2,7 @@ import { useState } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 
-export default function Anonimizador({ token }) {
+export default function Anonimizador({ token, onTokenInvalido }) {
   const [texto, setTexto] = useState('');
   const [arquivo, setArquivo] = useState(null);
   const [nomeArquivo, setNomeArquivo] = useState('');
@@ -30,17 +30,31 @@ export default function Anonimizador({ token }) {
     if (input) input.value = '';
   };
 
-  // Utilitario para extrair mensagem de erro de respostas blob (quando responseType e blob,
+  // Header de autorizacao reutilizado em todas as chamadas autenticadas.
+  // NAO incluir Content-Type aqui — axios gera automaticamente o
+  // multipart/form-data com boundary correto ao enviar FormData.
+  const authHeaders = { Authorization: `Bearer ${token}` };
+
+  // Extrai mensagem de erro de respostas blob (quando responseType e blob,
   // erros JSON do servidor chegam como Blob e precisam ser parseados)
-  const extrairErroBlob = async (err) => {
+  const tratarErro = async (err) => {
+    const status = err.response?.status;
+    if (status === 401) {
+      setErro('Sessao expirada. Faca login novamente.');
+      if (onTokenInvalido) onTokenInvalido();
+      return;
+    }
+    let msg = 'Erro ao processar';
     if (err.response?.data instanceof Blob) {
       try {
         const text = await err.response.data.text();
         const json = JSON.parse(text);
-        return json.erro || 'Erro ao processar';
-      } catch { return 'Erro ao processar'; }
+        msg = json.erro || msg;
+      } catch { /* mantém msg padrão */ }
+    } else {
+      msg = err.response?.data?.erro || msg;
     }
-    return err.response?.data?.erro || 'Erro ao processar';
+    setErro(msg);
   };
 
   const handleSubmit = async () => {
@@ -55,7 +69,7 @@ export default function Anonimizador({ token }) {
       if (arquivo && arquivo.name.endsWith('.pdf')) {
         // PDF pode retornar blob (PDF normal) ou JSON (PDF escaneado via OCR)
         const res = await axios.post(`${API}/documents/anonymize`, formData, {
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+          headers: authHeaders,
           responseType: 'blob',
           timeout: 180000
         });
@@ -76,14 +90,13 @@ export default function Anonimizador({ token }) {
         }
       } else {
         const res = await axios.post(`${API}/documents/anonymize`, formData, {
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+          headers: authHeaders,
           timeout: 120000
         });
         setResultado(res.data);
       }
     } catch (err) {
-      const msg = await extrairErroBlob(err);
-      setErro(msg);
+      await tratarErro(err);
     }
     setLoading(false);
   };
@@ -98,7 +111,7 @@ export default function Anonimizador({ token }) {
       const formData = new FormData();
       formData.append('arquivo', arquivo);
       const res = await axios.post(`${API}/documents/download-pdf`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+        headers: authHeaders,
         responseType: 'blob',
         timeout: 120000
       });

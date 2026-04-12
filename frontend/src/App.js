@@ -30,7 +30,7 @@ function App() {
 
   if (rota === '#admin') return <Admin />;
   if (!token) return <Login onLogin={handleLogin} />;
-  return <Dashboard camara={camara} token={token} onLogout={handleLogout} />;
+  return <Dashboard camara={camara} token={token} onLogout={handleLogout} onTokenInvalido={handleLogout} />;
 }
 
 export default App;
