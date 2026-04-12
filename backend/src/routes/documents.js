@@ -73,6 +73,25 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
+// Middleware que verifica se o modulo esta ativo para a organizacao do usuario.
+// Uso: router.post('/rota', authMiddleware, requireModulo('anonimizador'), ...)
+function requireModulo(modulo) {
+  return async (req, res, next) => {
+    try {
+      const org = await prisma.organizacao.findUnique({
+        where: { id: req.usuario.organizacaoId },
+        select: { modulosAtivos: true }
+      });
+      if (!org || !org.modulosAtivos.includes(modulo)) {
+        return res.status(403).json({ erro: `Modulo "${modulo}" nao esta ativo para sua organizacao.` });
+      }
+      next();
+    } catch (err) {
+      res.status(500).json({ erro: 'Erro ao verificar modulos' });
+    }
+  };
+}
+
 const baseJuridica = {
   contrato: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 31', 'Lei 14.133/2021 Art. 174'],
   ata: ['LGPD Art. 5, I', 'LGPD Art. 7', 'LAI Art. 3', 'LAI Art. 6'],
@@ -180,7 +199,7 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, res) => {
+router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.single('arquivo'), async (req, res) => {
   try {
     if (req.file && req.file.mimetype === 'application/pdf') {
       const resultado = await anonimizarPDF(req.file.buffer);
@@ -281,7 +300,7 @@ router.post('/anonymize', authMiddleware, upload.single('arquivo'), async (req, 
   }
 });
 
-router.post('/download-pdf', authMiddleware, upload.single('arquivo'), async (req, res) => {
+router.post('/download-pdf', authMiddleware, requireModulo('anonimizador'), upload.single('arquivo'), async (req, res) => {
   try {
     if (!req.file || req.file.mimetype !== 'application/pdf') {
       return res.status(400).json({ erro: 'Envie um PDF no campo "arquivo"' });
