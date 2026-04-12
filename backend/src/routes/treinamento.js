@@ -34,9 +34,17 @@ const requireModulo = async (req, res, next) => {
 };
 
 // ---------- Conteudo (hardcoded — MVP) ----------
-// Para o MVP, as trilhas sao hardcoded. O admin pode curar substituindo
-// os youtubeId por videos publicos reais. Em versao futura isso vai
-// para uma tabela Trilha/ModuloTrilha no banco.
+// MVP: trilhas hardcoded. Conteudo inicial curado pela usuaria com
+// videos publicos sobre LGPD.
+//
+// NOTA DE CURACAO:
+// - Trilha 1 / Modulo 1 ("O que e a LGPD?"): youtubeId 'pdk8lyemxn4'
+//   confirmado como video publico real sobre LGPD.
+// - Demais modulos usam o mesmo video como placeholder — o admin deve
+//   substituir por IDs de videos reais da ANPD, Senado, Sebrae, canais
+//   oficiais de universidades, etc. Basta editar os youtubeId abaixo.
+const PLACEHOLDER_VIDEO = 'pdk8lyemxn4';
+
 const TRILHAS = [
   {
     id: 'introducao-lgpd',
@@ -47,13 +55,13 @@ const TRILHAS = [
       {
         titulo: 'O que e a LGPD?',
         descricao: 'Visao geral da Lei 13.709/2018, seus objetivos e aplicabilidade no setor publico.',
-        youtubeId: 'OzZ3o1kPBdU',
+        youtubeId: 'pdk8lyemxn4',
         duracaoMin: 8
       },
       {
         titulo: 'Principios da LGPD',
         descricao: 'Os 10 principios fundamentais: finalidade, adequacao, necessidade, livre acesso, qualidade, transparencia, seguranca, prevencao, nao discriminacao e responsabilizacao.',
-        youtubeId: 'VNu1XkFnHsY',
+        youtubeId: PLACEHOLDER_VIDEO,  // TODO: curar — video especifico sobre principios
         duracaoMin: 12
       }
     ]
@@ -67,13 +75,13 @@ const TRILHAS = [
       {
         titulo: 'Quais sao os direitos do titular?',
         descricao: 'Detalhamento dos 9 direitos do Art. 18: confirmacao, acesso, correcao, anonimizacao, portabilidade, eliminacao, informacao, revogacao e peticao a ANPD.',
-        youtubeId: 'sXWC9P6BJME',
+        youtubeId: PLACEHOLDER_VIDEO,  // TODO: curar — video sobre Art. 18
         duracaoMin: 10
       },
       {
         titulo: 'Como responder solicitacoes dentro do prazo de 15 dias',
         descricao: 'Fluxo completo de atendimento: recebimento, validacao de identidade, analise, resposta e registro de evidencias.',
-        youtubeId: 'lpqSLJLcHvE',
+        youtubeId: PLACEHOLDER_VIDEO,  // TODO: curar — video sobre prazo de resposta DSAR
         duracaoMin: 14
       }
     ]
