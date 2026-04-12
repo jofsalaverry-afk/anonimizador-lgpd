@@ -370,6 +370,27 @@ model AlertaConformidade {
   @@index([organizacaoId, criadoEm])
 }
 
+// ============ DSAR OTP (verificacao de titular) ============
+// Guarda dados de solicitacao publica pendente + codigo OTP.
+// Quando o titular confirma o codigo, a solicitacao real
+// (SolicitacaoTitular) e criada a partir destes dados.
+model DsarOtp {
+  id             String      @id @default(cuid())
+  organizacaoId  String
+  email          String
+  codigo         String
+  titularNome    String
+  titularCpf     String?
+  tipoDireito    TipoDireito
+  descricao      String
+  expiresAt      DateTime
+  usado          Boolean     @default(false)
+  criadoEm       DateTime    @default(now())
+
+  @@index([email, codigo, usado])
+  @@index([expiresAt])
+}
+
 // ============ Treinamento ============
 // Override de youtubeId/titulo de modulos das trilhas hardcoded.
 // Permite admin curar conteudo sem alterar codigo. Global — afeta

@@ -1,7 +1,20 @@
 const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
+const {
+  gerarProtocolo,
+  enriquecerSolicitacao,
+  criarOtpDSAR,
+  validarOtpDSAR,
+  criarSolicitacaoApartirDeOtp
+} = require('../services/dsarService');
+const {
+  enviarOTP,
+  enviarConfirmacaoSolicitacao,
+  enviarRespostaTitular
+} = require('../services/emailService');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -34,55 +47,14 @@ const requireModulo = async (req, res, next) => {
   }
 };
 
-// ---------- Helpers ----------
-
-// Gera protocolo sequencial: SIGLA-ANO-SEQ (ex: CMP-2026-001)
-async function gerarProtocolo(organizacaoId) {
-  const org = await prisma.organizacao.findUnique({
-    where: { id: organizacaoId },
-    select: { nome: true }
-  });
-  // Extrai sigla: primeiras letras de cada palavra significativa (max 3)
-  const palavras = (org?.nome || 'ORG').replace(/^(Camara|Câmara)\s+(Municipal\s+)?(de\s+|do\s+|da\s+)?/i, '').split(/\s+/).filter(Boolean);
-  let sigla;
-  if (palavras.length === 0) {
-    sigla = 'ORG';
-  } else if (palavras.length === 1) {
-    sigla = palavras[0].slice(0, 3).toUpperCase();
-  } else {
-    sigla = palavras.slice(0, 3).map(p => p[0]).join('').toUpperCase();
-  }
-
-  const ano = new Date().getFullYear();
-
-  // Conta solicitacoes da org no ano atual para gerar sequencial
-  const inicioAno = new Date(`${ano}-01-01T00:00:00.000Z`);
-  const fimAno = new Date(`${ano + 1}-01-01T00:00:00.000Z`);
-  const count = await prisma.solicitacaoTitular.count({
-    where: {
-      organizacaoId,
-      criadoEm: { gte: inicioAno, lt: fimAno }
-    }
-  });
-
-  const seq = String(count + 1).padStart(3, '0');
-  return `${sigla}-${ano}-${seq}`;
-}
-
-// Calcula SLA badge: verde (>5 dias), amarelo (2-5), vermelho (<2)
-function calcularSLA(dataLimite) {
-  const agora = new Date();
-  const limite = new Date(dataLimite);
-  const diasRestantes = Math.ceil((limite - agora) / (1000 * 60 * 60 * 24));
-  if (diasRestantes < 0) return { cor: 'vencido', dias: diasRestantes, label: `Vencido ha ${Math.abs(diasRestantes)} dia(s)` };
-  if (diasRestantes < 2) return { cor: 'vermelho', dias: diasRestantes, label: `${diasRestantes} dia(s) restante(s)` };
-  if (diasRestantes <= 5) return { cor: 'amarelo', dias: diasRestantes, label: `${diasRestantes} dias restantes` };
-  return { cor: 'verde', dias: diasRestantes, label: `${diasRestantes} dias restantes` };
-}
-
-function enriquecerSolicitacao(s) {
-  return { ...s, sla: calcularSLA(s.dataLimite) };
-}
+// Rate limiter especifico para rotas publicas de OTP: protege contra abuso
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas tentativas. Aguarde 15 minutos.' }
+});
 
 // ---------- Rotas autenticadas (modulo dsar) ----------
 
@@ -141,6 +113,19 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
       },
       include: { evidencias: true }
     });
+
+    // Envia confirmacao por email ao titular (fire-and-forget)
+    const org = await prisma.organizacao.findUnique({
+      where: { id: req.usuario.organizacaoId },
+      select: { nome: true }
+    });
+    enviarConfirmacaoSolicitacao({
+      to: titularEmail,
+      titularNome,
+      protocolo: sol.protocolo,
+      dataLimite: sol.dataLimite,
+      orgNome: org?.nome || 'Organizacao'
+    }).catch(e => console.error('[dsar] falha email confirmacao:', e.message));
 
     res.status(201).json(enriquecerSolicitacao(sol));
   } catch (err) {
@@ -212,7 +197,7 @@ router.post('/solicitacoes/:id/evidencias', authMiddleware, requireModulo, async
   }
 });
 
-// Responde a solicitacao (muda status para RESPONDIDA + registra resposta)
+// Responde a solicitacao (muda status para RESPONDIDA + envia email ao titular)
 router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async (req, res) => {
   try {
     if (!['GESTOR', 'ENCARREGADO_LGPD'].includes(req.usuario.perfil)) {
@@ -238,6 +223,19 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
       include: { evidencias: true }
     });
 
+    // Envia resposta por email ao titular (fire-and-forget)
+    const org = await prisma.organizacao.findUnique({
+      where: { id: req.usuario.organizacaoId },
+      select: { nome: true }
+    });
+    enviarRespostaTitular({
+      to: sol.titularEmail,
+      titularNome: sol.titularNome,
+      protocolo: sol.protocolo,
+      respostaTexto,
+      orgNome: org?.nome || 'Organizacao'
+    }).catch(e => console.error('[dsar] falha email resposta:', e.message));
+
     res.json(enriquecerSolicitacao(sol));
   } catch (err) {
     console.error('[POST /dsar/solicitacoes/:id/responder]', err);
@@ -245,36 +243,77 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
   }
 });
 
-// ---------- Rota publica (sem auth) — formulario do titular ----------
+// ---------- Rotas publicas (sem auth, com OTP) ----------
 
-router.post('/publico/nova-solicitacao', async (req, res) => {
+// Passo 1: titular envia o formulario. Gera OTP e envia email.
+// NAO cria SolicitacaoTitular ainda — so guarda dados em DsarOtp.
+router.post('/publico/solicitar-otp', otpLimiter, async (req, res) => {
   try {
     const { organizacaoId, titularNome, titularEmail, titularCpf, tipoDireito, descricao } = req.body;
     if (!organizacaoId || !titularNome || !titularEmail || !tipoDireito || !descricao) {
       return res.status(400).json({ erro: 'organizacaoId, titularNome, titularEmail, tipoDireito e descricao sao obrigatorios' });
     }
 
-    // Verifica se a org existe e tem modulo dsar ativo
     const org = await prisma.organizacao.findUnique({
       where: { id: organizacaoId },
-      select: { id: true, ativo: true, modulosAtivos: true }
+      select: { id: true, nome: true, ativo: true, modulosAtivos: true }
     });
     if (!org || !org.ativo) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
     if (!org.modulosAtivos.includes('dsar')) return res.status(403).json({ erro: 'Este servico nao esta disponivel para esta organizacao' });
 
-    const protocolo = await gerarProtocolo(organizacaoId);
-    const dataRecebimento = new Date();
-    const dataLimite = new Date(dataRecebimento);
-    dataLimite.setDate(dataLimite.getDate() + 15);
-
-    const sol = await prisma.solicitacaoTitular.create({
-      data: {
-        organizacaoId, protocolo,
-        titularNome, titularEmail, titularCpf: titularCpf || null,
-        tipoDireito, descricao,
-        dataRecebimento, dataLimite
-      }
+    const otp = await criarOtpDSAR({
+      organizacaoId, email: titularEmail, titularNome, titularCpf, tipoDireito, descricao
     });
+
+    // Envia email com o codigo (await para reportar erro real ao titular)
+    try {
+      await enviarOTP({
+        to: titularEmail,
+        titularNome,
+        codigo: otp.codigo,
+        orgNome: org.nome
+      });
+    } catch (e) {
+      console.error('[dsar] falha ao enviar OTP:', e.message);
+      // Em dev (sem SMTP), seguimos mesmo assim — o emailService loga no console
+    }
+
+    res.status(200).json({
+      ok: true,
+      mensagem: `Um codigo de verificacao foi enviado para ${titularEmail}. O codigo expira em 10 minutos.`,
+      expiraEm: otp.expiresAt
+    });
+  } catch (err) {
+    console.error('[POST /dsar/publico/solicitar-otp]', err);
+    res.status(500).json({ erro: 'Erro ao solicitar codigo de verificacao' });
+  }
+});
+
+// Passo 2: titular confirma OTP. Cria a solicitacao real.
+router.post('/publico/confirmar-otp', otpLimiter, async (req, res) => {
+  try {
+    const { titularEmail, codigo } = req.body;
+    if (!titularEmail || !codigo) {
+      return res.status(400).json({ erro: 'titularEmail e codigo sao obrigatorios' });
+    }
+
+    const otp = await validarOtpDSAR({ email: titularEmail, codigo: String(codigo).trim() });
+    if (!otp) return res.status(400).json({ erro: 'Codigo invalido ou expirado' });
+
+    const sol = await criarSolicitacaoApartirDeOtp(otp);
+
+    // Envia confirmacao da solicitacao oficial
+    const org = await prisma.organizacao.findUnique({
+      where: { id: otp.organizacaoId },
+      select: { nome: true }
+    });
+    enviarConfirmacaoSolicitacao({
+      to: otp.email,
+      titularNome: otp.titularNome,
+      protocolo: sol.protocolo,
+      dataLimite: sol.dataLimite,
+      orgNome: org?.nome || 'Organizacao'
+    }).catch(e => console.error('[dsar] falha email confirmacao:', e.message));
 
     res.status(201).json({
       protocolo: sol.protocolo,
@@ -282,9 +321,16 @@ router.post('/publico/nova-solicitacao', async (req, res) => {
       mensagem: `Sua solicitacao foi registrada com o protocolo ${sol.protocolo}. O prazo para resposta e de 15 dias corridos.`
     });
   } catch (err) {
-    console.error('[POST /dsar/publico/nova-solicitacao]', err);
-    res.status(500).json({ erro: 'Erro ao registrar solicitacao' });
+    console.error('[POST /dsar/publico/confirmar-otp]', err);
+    res.status(500).json({ erro: 'Erro ao confirmar codigo' });
   }
+});
+
+// Rota legado — redireciona para o novo fluxo OTP
+router.post('/publico/nova-solicitacao', async (req, res) => {
+  res.status(410).json({
+    erro: 'Este endpoint foi substituido. Use POST /dsar/publico/solicitar-otp e depois POST /dsar/publico/confirmar-otp.'
+  });
 });
 
 module.exports = router;

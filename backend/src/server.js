@@ -130,6 +130,13 @@ app.get('/health', (req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
+  // Inicializa cron jobs apos o servidor subir
+  try {
+    const { iniciarCron } = require('./services/cronJobs');
+    iniciarCron();
+  } catch (err) {
+    console.error('[server] falha ao iniciar cron:', err.message);
+  }
 });
 
 module.exports = { prisma };

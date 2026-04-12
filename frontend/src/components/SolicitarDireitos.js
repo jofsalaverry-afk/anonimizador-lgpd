@@ -14,12 +14,15 @@ const TIPO_OPTIONS = [
 ];
 
 export default function SolicitarDireitos({ organizacaoId }) {
+  const [etapa, setEtapa] = useState('form'); // 'form' | 'otp' | 'sucesso'
   const [form, setForm] = useState({ titularNome: '', titularEmail: '', titularCpf: '', tipoDireito: '', descricao: '' });
+  const [codigo, setCodigo] = useState('');
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState('');
   const [resultado, setResultado] = useState(null);
+  const [otpInfo, setOtpInfo] = useState(null);
 
-  const enviar = async (e) => {
+  const solicitarOTP = async (e) => {
     e.preventDefault();
     if (!form.titularNome || !form.titularEmail || !form.tipoDireito || !form.descricao) {
       return setErro('Preencha todos os campos obrigatorios');
@@ -27,17 +30,39 @@ export default function SolicitarDireitos({ organizacaoId }) {
     setLoading(true);
     setErro('');
     try {
-      const res = await axios.post(`${API}/dsar/publico/nova-solicitacao`, {
+      const res = await axios.post(`${API}/dsar/publico/solicitar-otp`, {
         ...form, organizacaoId
       });
-      setResultado(res.data);
+      setOtpInfo(res.data);
+      setEtapa('otp');
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao enviar solicitacao. Tente novamente.');
+      setErro(err.response?.data?.erro || 'Erro ao solicitar codigo. Tente novamente.');
     }
     setLoading(false);
   };
 
-  if (resultado) {
+  const confirmarOTP = async (e) => {
+    e.preventDefault();
+    if (!codigo || codigo.length < 6) {
+      return setErro('Informe o codigo de 6 digitos recebido por email');
+    }
+    setLoading(true);
+    setErro('');
+    try {
+      const res = await axios.post(`${API}/dsar/publico/confirmar-otp`, {
+        titularEmail: form.titularEmail,
+        codigo
+      });
+      setResultado(res.data);
+      setEtapa('sucesso');
+    } catch (err) {
+      setErro(err.response?.data?.erro || 'Codigo invalido ou expirado.');
+    }
+    setLoading(false);
+  };
+
+  // ========== Tela 3: sucesso ==========
+  if (etapa === 'sucesso' && resultado) {
     return (
       <div className="page-center">
         <div className="login-card">
@@ -53,12 +78,65 @@ export default function SolicitarDireitos({ organizacaoId }) {
             <div className="detail-value">{new Date(resultado.dataLimite).toLocaleDateString('pt-BR')}</div>
           </div>
           <div className="alert-info">{resultado.mensagem}</div>
-          <p className="text-muted text-center">Guarde o numero de protocolo para acompanhamento.</p>
+          <p className="text-muted text-center">Guarde o numero de protocolo para acompanhamento. Uma copia foi enviada ao seu email.</p>
         </div>
       </div>
     );
   }
 
+  // ========== Tela 2: OTP ==========
+  if (etapa === 'otp') {
+    return (
+      <div className="page-center">
+        <div className="login-card">
+          <div className="login-header">
+            <div className="login-icon">📧</div>
+            <h1 className="login-title">Verificacao por email</h1>
+            <p className="login-subtitle">Enviamos um codigo de 6 digitos para {form.titularEmail}</p>
+          </div>
+
+          {erro && <div className="alert-error">{erro}</div>}
+
+          <form onSubmit={confirmarOTP}>
+            <label>Codigo de verificacao</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={codigo}
+              onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))}
+              placeholder="000000"
+              autoFocus
+              required
+              style={{ fontSize: 24, letterSpacing: 8, textAlign: 'center', fontWeight: 700 }}
+            />
+
+            {otpInfo?.expiraEm && (
+              <p className="text-muted text-xs text-center mb-16">
+                O codigo expira em 10 minutos (ate {new Date(otpInfo.expiraEm).toLocaleTimeString('pt-BR')})
+              </p>
+            )}
+
+            <button className="btn-primary" type="submit" disabled={loading}>
+              {loading ? 'Verificando...' : 'Confirmar e enviar solicitacao'}
+            </button>
+          </form>
+
+          <p className="text-center mt-16">
+            <button
+              type="button"
+              onClick={() => { setEtapa('form'); setCodigo(''); setErro(''); }}
+              className="link-back"
+            >
+              ← Voltar e corrigir dados
+            </button>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ========== Tela 1: formulario ==========
   return (
     <div className="page-center">
       <div className="login-card">
@@ -70,7 +148,7 @@ export default function SolicitarDireitos({ organizacaoId }) {
 
         {erro && <div className="alert-error">{erro}</div>}
 
-        <form onSubmit={enviar}>
+        <form onSubmit={solicitarOTP}>
           <label>Nome completo *</label>
           <input value={form.titularNome} onChange={e => setForm({ ...form, titularNome: e.target.value })} placeholder="Seu nome completo" required />
 
@@ -90,12 +168,12 @@ export default function SolicitarDireitos({ organizacaoId }) {
           <textarea value={form.descricao} onChange={e => setForm({ ...form, descricao: e.target.value })} rows={4} placeholder="Descreva com detalhes o que deseja..." required />
 
           <button className="btn-primary" type="submit" disabled={loading}>
-            {loading ? 'Enviando...' : 'Enviar solicitacao'}
+            {loading ? 'Enviando...' : 'Receber codigo de verificacao'}
           </button>
         </form>
 
         <p className="text-muted text-xs text-center mt-16">
-          Seus dados serao tratados exclusivamente para atender esta solicitacao, conforme a LGPD.
+          Para sua seguranca, enviaremos um codigo de 6 digitos ao seu email antes de registrar a solicitacao. Seus dados serao tratados exclusivamente para atender esta solicitacao, conforme a LGPD.
         </p>
       </div>
     </div>
