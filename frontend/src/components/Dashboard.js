@@ -5,6 +5,7 @@ import Ropa from './Ropa';
 import Dsar from './Dsar';
 import Repositorio from './Repositorio';
 import ChecklistPage from './ChecklistPage';
+import Treinamento from './Treinamento';
 import AlertasCenter from './AlertasCenter';
 
 const PERFIL_LABEL = {
@@ -21,7 +22,8 @@ const PAGE_TITLES = {
   dsar: 'Direitos do Titular',
   documentos: 'Repositorio de Documentos',
   incidentes: 'Gestao de Incidentes',
-  conformidade: 'Checklist de Conformidade'
+  conformidade: 'Checklist de Conformidade',
+  treinamento: 'Treinamentos LGPD'
 };
 
 export default function Dashboard({ usuario, token, onLogout, onTokenInvalido }) {
@@ -76,6 +78,11 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
                 <span className="nav-icon">✓</span> Conformidade
               </button>
             )}
+            {modulos.includes('treinamento') && (
+              <button onClick={() => setPagina('treinamento')} className={`nav-item ${pagina === 'treinamento' ? 'nav-item-active' : ''}`}>
+                <span className="nav-icon">🎓</span> Treinamentos
+              </button>
+            )}
           </nav>
 
           <div className="sidebar-footer">
@@ -112,6 +119,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           {pagina === 'documentos' && <Repositorio token={token} subpagina="documentos" />}
           {pagina === 'incidentes' && <Repositorio token={token} subpagina="incidentes" />}
           {pagina === 'conformidade' && <ChecklistPage token={token} />}
+          {pagina === 'treinamento' && <Treinamento token={token} />}
         </div>
       </div>
     </div>
