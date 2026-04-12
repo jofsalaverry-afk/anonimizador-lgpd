@@ -153,24 +153,48 @@ export default function Admin() {
         <button onClick={handleLogout} className="btn-logout">Sair</button>
       </header>
 
-      <div className="main">
+      <div className="content-body">
         {stats && (
           <div className="stats-row">
             <div className="stat-card">
-              <div className="stat-value stat-blue">{stats.totalCamaras}</div>
-              <div className="stat-label">Organizacoes</div>
+              <div className="stat-card-bar stat-card-bar-blue" />
+              <div className="stat-card-body">
+                <div className="stat-card-icon stat-card-icon-blue">🏛️</div>
+                <div>
+                  <div className="stat-value">{stats.totalCamaras}</div>
+                  <div className="stat-label">Organizacoes</div>
+                </div>
+              </div>
             </div>
             <div className="stat-card">
-              <div className="stat-value stat-green">{stats.camarasAtivas}</div>
-              <div className="stat-label">Ativas</div>
+              <div className="stat-card-bar stat-card-bar-green" />
+              <div className="stat-card-body">
+                <div className="stat-card-icon stat-card-icon-green">✓</div>
+                <div>
+                  <div className="stat-value">{stats.camarasAtivas}</div>
+                  <div className="stat-label">Ativas</div>
+                </div>
+              </div>
             </div>
             <div className="stat-card">
-              <div className="stat-value stat-purple">{stats.totalUsuarios}</div>
-              <div className="stat-label">Usuarios</div>
+              <div className="stat-card-bar stat-card-bar-purple" />
+              <div className="stat-card-body">
+                <div className="stat-card-icon stat-card-icon-purple">👤</div>
+                <div>
+                  <div className="stat-value">{stats.totalUsuarios}</div>
+                  <div className="stat-label">Usuarios</div>
+                </div>
+              </div>
             </div>
             <div className="stat-card">
-              <div className="stat-value stat-slate">{stats.totalDocumentos}</div>
-              <div className="stat-label">Documentos</div>
+              <div className="stat-card-bar stat-card-bar-slate" />
+              <div className="stat-card-body">
+                <div className="stat-card-icon stat-card-icon-slate">📄</div>
+                <div>
+                  <div className="stat-value">{stats.totalDocumentos}</div>
+                  <div className="stat-label">Documentos</div>
+                </div>
+              </div>
             </div>
           </div>
         )}

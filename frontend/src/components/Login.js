@@ -23,11 +23,11 @@ export default function Login({ onLogin }) {
 
   return (
     <div className="page-center">
-      <div className="card login-card">
+      <div className="login-card">
         <div className="login-header">
           <div className="login-icon">🏛️</div>
           <h1 className="login-title">Anonimizador LGPD</h1>
-          <p className="login-subtitle">Sistema para camaras municipais</p>
+          <p className="login-subtitle">Plataforma de conformidade para camaras municipais</p>
         </div>
         <form onSubmit={handleSubmit}>
           <label>E-mail</label>

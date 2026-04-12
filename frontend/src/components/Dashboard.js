@@ -10,51 +10,84 @@ const PERFIL_LABEL = {
   TREINANDO: 'Treinando'
 };
 
+const PAGE_TITLES = {
+  anonimizador: 'Anonimizador de Documentos',
+  ropa: 'Mapeamento ROPA'
+};
+
 export default function Dashboard({ usuario, token, onLogout, onTokenInvalido }) {
   const [pagina, setPagina] = useState('anonimizador');
   const modulos = usuario?.modulosAtivos || ['anonimizador'];
+  const showSidebar = modulos.length > 1;
+  const initials = (usuario?.orgNome || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
   return (
-    <div className="page-shell">
-      <header className="header">
-        <div className="header-brand">
-          <span className="header-brand-icon">🏛️</span>
-          <span className="header-brand-text">Anonimizador LGPD</span>
-        </div>
-        <div className="header-right">
-          <div className="header-user">
-            <div className="header-user-org">{usuario?.orgNome}</div>
-            <div className="header-user-meta">
-              {usuario?.nome !== usuario?.orgNome ? `${usuario?.nome} · ` : ''}{PERFIL_LABEL[usuario?.perfil] || usuario?.perfil}
+    <div className={`app-layout ${showSidebar ? '' : 'app-layout-single'}`}>
+      {showSidebar && (
+        <aside className="sidebar">
+          <div className="sidebar-brand">
+            <div className="sidebar-logo">🏛️</div>
+            <div>
+              <div className="sidebar-brand-name">Anonimizador</div>
+              <div className="sidebar-brand-sub">LGPD Compliance</div>
             </div>
           </div>
-          <button onClick={onLogout} className="btn-logout">Sair</button>
-        </div>
-      </header>
 
-      <div className="layout">
-        {/* Sidebar — visivel quando ha mais de 1 modulo ativo */}
-        {modulos.length > 1 && (
-          <nav className="sidebar">
-            <div className="sidebar-section">
-              {modulos.includes('anonimizador') && (
-                <button onClick={() => setPagina('anonimizador')} className={pagina === 'anonimizador' ? 'nav-item nav-item-active' : 'nav-item'}>
-                  <span className="nav-icon">📄</span> Anonimizador
-                </button>
-              )}
-              {modulos.includes('ropa') && (
-                <button onClick={() => setPagina('ropa')} className={pagina === 'ropa' ? 'nav-item nav-item-active' : 'nav-item'}>
-                  <span className="nav-icon">📋</span> Mapeamento ROPA
-                </button>
-              )}
-            </div>
+          <nav className="sidebar-nav">
+            <div className="sidebar-section-label">Modulos</div>
+            {modulos.includes('anonimizador') && (
+              <button onClick={() => setPagina('anonimizador')} className={`nav-item ${pagina === 'anonimizador' ? 'nav-item-active' : ''}`}>
+                <span className="nav-icon">📄</span> Anonimizador
+              </button>
+            )}
+            {modulos.includes('ropa') && (
+              <button onClick={() => setPagina('ropa')} className={`nav-item ${pagina === 'ropa' ? 'nav-item-active' : ''}`}>
+                <span className="nav-icon">📋</span> Mapeamento ROPA
+              </button>
+            )}
           </nav>
-        )}
 
-        <main className="main">
+          <div className="sidebar-footer">
+            <div className="sidebar-user-org">{usuario?.orgNome}</div>
+            <div className="sidebar-user-meta">
+              {usuario?.nome !== usuario?.orgNome ? `${usuario?.nome} · ` : ''}{PERFIL_LABEL[usuario?.perfil] || usuario?.perfil}
+            </div>
+            <button onClick={onLogout} className="sidebar-logout">Sair da conta</button>
+          </div>
+        </aside>
+      )}
+
+      <div className="content-area">
+        <header className="content-header">
+          <h1 className="content-header-title">
+            {showSidebar ? PAGE_TITLES[pagina] || pagina : 'Anonimizador LGPD'}
+          </h1>
+          <div className="content-header-right">
+            {!showSidebar && (
+              <>
+                <div>
+                  <div className="header-user-name">{usuario?.orgNome}</div>
+                  <div className="header-user-role">{PERFIL_LABEL[usuario?.perfil] || usuario?.perfil}</div>
+                </div>
+                <button onClick={onLogout} className="btn-logout">Sair</button>
+              </>
+            )}
+            {showSidebar && (
+              <>
+                <div>
+                  <div className="header-user-name">{usuario?.orgNome}</div>
+                  <div className="header-user-role">{PERFIL_LABEL[usuario?.perfil] || usuario?.perfil}</div>
+                </div>
+                <div className="header-avatar">{initials}</div>
+              </>
+            )}
+          </div>
+        </header>
+
+        <div className="content-body">
           {pagina === 'anonimizador' && <Anonimizador token={token} onTokenInvalido={onTokenInvalido} />}
           {pagina === 'ropa' && <Ropa token={token} />}
-        </main>
+        </div>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 
@@ -10,9 +10,10 @@ export default function Anonimizador({ token, onTokenInvalido }) {
   const [loading, setLoading] = useState(false);
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [erro, setErro] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef(null);
 
-  const handleArquivo = (e) => {
-    const file = e.target.files[0];
+  const selecionarArquivo = (file) => {
     if (!file) return;
     setNomeArquivo(file.name);
     setArquivo(file);
@@ -21,22 +22,27 @@ export default function Anonimizador({ token, onTokenInvalido }) {
     setErro('');
   };
 
+  const handleArquivo = (e) => selecionarArquivo(e.target.files[0]);
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file && (file.name.endsWith('.pdf') || file.name.endsWith('.docx') || file.name.endsWith('.doc'))) {
+      selecionarArquivo(file);
+    }
+  };
+
   const removerArquivo = () => {
     setArquivo(null);
     setNomeArquivo('');
     setResultado(null);
     setErro('');
-    const input = document.getElementById('arquivo-input');
-    if (input) input.value = '';
+    if (fileRef.current) fileRef.current.value = '';
   };
 
-  // Header de autorizacao reutilizado em todas as chamadas autenticadas.
-  // NAO incluir Content-Type aqui — axios gera automaticamente o
-  // multipart/form-data com boundary correto ao enviar FormData.
   const authHeaders = { Authorization: `Bearer ${token}` };
 
-  // Extrai mensagem de erro de respostas blob (quando responseType e blob,
-  // erros JSON do servidor chegam como Blob e precisam ser parseados)
   const tratarErro = async (err) => {
     const status = err.response?.status;
     if (status === 401) {
@@ -50,7 +56,7 @@ export default function Anonimizador({ token, onTokenInvalido }) {
         const text = await err.response.data.text();
         const json = JSON.parse(text);
         msg = json.erro || msg;
-      } catch { /* mantém msg padrão */ }
+      } catch { /* keeps default */ }
     } else {
       msg = err.response?.data?.erro || msg;
     }
@@ -67,31 +73,22 @@ export default function Anonimizador({ token, onTokenInvalido }) {
       else formData.append('texto', texto);
 
       if (arquivo && arquivo.name.endsWith('.pdf')) {
-        // PDF pode retornar blob (PDF normal) ou JSON (PDF escaneado via OCR)
         const res = await axios.post(`${API}/documents/anonymize`, formData, {
-          headers: authHeaders,
-          responseType: 'blob',
-          timeout: 180000
+          headers: authHeaders, responseType: 'blob', timeout: 180000
         });
-
-        // Verificar se a resposta e JSON (OCR) ou blob PDF
         const contentType = res.headers['content-type'] || '';
         if (contentType.includes('application/json')) {
           const text = await res.data.text();
-          const data = JSON.parse(text);
-          setResultado(data);
+          setResultado(JSON.parse(text));
         } else {
           const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
           const a = document.createElement('a');
-          a.href = url;
-          a.download = 'documento-anonimizado.pdf';
-          a.click();
+          a.href = url; a.download = 'documento-anonimizado.pdf'; a.click();
           setResultado({ pdf: true });
         }
       } else {
         const res = await axios.post(`${API}/documents/anonymize`, formData, {
-          headers: authHeaders,
-          timeout: 120000
+          headers: authHeaders, timeout: 120000
         });
         setResultado(res.data);
       }
@@ -102,27 +99,18 @@ export default function Anonimizador({ token, onTokenInvalido }) {
   };
 
   const baixarPDF = async () => {
-    if (!arquivo || !arquivo.name.endsWith('.pdf')) {
-      alert('Selecione um PDF original para gerar as tarjas');
-      return;
-    }
+    if (!arquivo || !arquivo.name.endsWith('.pdf')) { alert('Selecione um PDF original para gerar as tarjas'); return; }
     setLoadingPDF(true);
     try {
       const formData = new FormData();
       formData.append('arquivo', arquivo);
       const res = await axios.post(`${API}/documents/download-pdf`, formData, {
-        headers: authHeaders,
-        responseType: 'blob',
-        timeout: 120000
+        headers: authHeaders, responseType: 'blob', timeout: 120000
       });
       const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
       const a = document.createElement('a');
-      a.href = url;
-      a.download = 'documento-anonimizado.pdf';
-      a.click();
-    } catch (err) {
-      alert('Erro ao gerar PDF');
-    }
+      a.href = url; a.download = 'documento-anonimizado.pdf'; a.click();
+    } catch (err) { alert('Erro ao gerar PDF'); }
     setLoadingPDF(false);
   };
 
@@ -130,19 +118,30 @@ export default function Anonimizador({ token, onTokenInvalido }) {
     const blob = new Blob([resultado.textoAnonimizado], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = 'documento-anonimizado.txt';
-    a.click();
+    a.href = url; a.download = 'documento-anonimizado.txt'; a.click();
   };
 
   return (
     <div>
       <div className="card mb-16">
         <h2 className="card-header">Documento</h2>
-        <label>Cole o texto ou faça upload de PDF/Word</label>
-        <textarea value={texto} onChange={e => { setTexto(e.target.value); setArquivo(null); setNomeArquivo(''); setResultado(null); }} rows={8} placeholder="Cole aqui o contrato, ata, processo, folha de pagamento..." style={{ fontFamily: 'monospace' }} />
-        <label>Ou selecione um arquivo (.pdf ou .docx)</label>
-        <input id="arquivo-input" type="file" accept=".pdf,.docx,.doc" onChange={handleArquivo} />
+        <label>Cole o texto do documento</label>
+        <textarea value={texto} onChange={e => { setTexto(e.target.value); setArquivo(null); setNomeArquivo(''); setResultado(null); }} rows={6} placeholder="Cole aqui o contrato, ata, processo, folha de pagamento..." style={{ fontFamily: 'monospace' }} />
+
+        <label className="mb-8">Ou envie um arquivo</label>
+        <div
+          className={`upload-zone ${dragOver ? 'upload-zone-active' : ''}`}
+          onClick={() => fileRef.current?.click()}
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+        >
+          <span className="upload-zone-icon">📁</span>
+          <div className="upload-zone-text">Clique ou arraste um arquivo aqui</div>
+          <div className="upload-zone-hint">PDF, DOCX — ate 10 MB</div>
+        </div>
+        <input ref={fileRef} type="file" accept=".pdf,.docx,.doc" onChange={handleArquivo} hidden />
+
         {nomeArquivo && (
           <div className="file-pill">
             <span>📎 {nomeArquivo}</span>
@@ -151,15 +150,15 @@ export default function Anonimizador({ token, onTokenInvalido }) {
         )}
       </div>
 
-      {erro && <p className="text-error mb-16">{erro}</p>}
+      {erro && <div className="alert-error">{erro}</div>}
       <button className="btn-primary mb-24" onClick={handleSubmit} disabled={loading}>
-        {loading ? '⏳ Processando... (pode levar até 1 minuto)' : 'Anonimizar documento'}
+        {loading ? '⏳ Processando... (pode levar ate 1 minuto)' : 'Anonimizar documento'}
       </button>
 
       {resultado && resultado.pdf && (
         <div className="alert-success">
           <p><strong>PDF anonimizado com tarjas gerado e baixado com sucesso!</strong></p>
-          <p>O arquivo foi salvo na sua pasta de downloads.</p>
+          <p className="text-sm">O arquivo foi salvo na sua pasta de downloads.</p>
         </div>
       )}
 
@@ -167,39 +166,24 @@ export default function Anonimizador({ token, onTokenInvalido }) {
         <div className="card">
           <h2 className="card-header">Resultado</h2>
           <div className="badge-row mb-16">
-            <span className="badge-success">
-              Tipo: {resultado.tipoDocumento}
-            </span>
-            <span className="badge-muted">
-              {Object.values(resultado.stats).reduce((a, b) => a + b, 0)} dados mascarados
-            </span>
-            {resultado.ocrUsado && (
-              <span className="badge-warning">
-                Lido via digitalizacao
-              </span>
-            )}
+            <span className="badge badge-success">Tipo: {resultado.tipoDocumento}</span>
+            <span className="badge badge-muted">{Object.values(resultado.stats).reduce((a, b) => a + b, 0)} dados mascarados</span>
+            {resultado.ocrUsado && <span className="badge badge-warning">Lido via digitalizacao</span>}
           </div>
           {resultado.stats && Object.values(resultado.stats).reduce((a, b) => a + b, 0) === 0 ? (
-            <div className="alert-info mb-16">
-              <p>Documento processado. Nenhum dado pessoal identificado.</p>
-            </div>
+            <div className="alert-info mb-16">Documento processado. Nenhum dado pessoal identificado.</div>
           ) : (
             <textarea value={resultado.textoAnonimizado} readOnly rows={10} style={{ fontFamily: 'monospace' }} />
           )}
-          <div className="btn-row">
-            <button className="btn-primary" onClick={baixarPDF} disabled={loadingPDF}>
+          <div className="btn-row mt-16">
+            <button className="btn-primary btn-sm" onClick={baixarPDF} disabled={loadingPDF}>
               {loadingPDF ? '⏳ Gerando...' : '⬇ Baixar PDF'}
             </button>
-            <button className="btn-secondary" onClick={baixarTXT}>
-              ⬇ Baixar TXT
-            </button>
+            <button className="btn-secondary btn-sm" onClick={baixarTXT}>⬇ Baixar TXT</button>
           </div>
-          <div className="mb-16">
-            <p className="badge-muted mb-16"><strong>Fundamentação legal:</strong></p>
-            {resultado.leisAplicaveis?.map((l, i) => (
-              <span key={i} className="badge-legal">{l}</span>
-            ))}
-          </div>
+          <hr className="card-divider" />
+          <div className="detail-label mb-8">Fundamentacao legal</div>
+          <div>{resultado.leisAplicaveis?.map((l, i) => <span key={i} className="badge-legal">{l}</span>)}</div>
         </div>
       )}
     </div>
