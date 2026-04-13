@@ -20,7 +20,7 @@ const { validar, validarEmail, validarCpf, validarCuid, sanitizarTexto, validarE
 const router = express.Router();
 const prisma = new PrismaClient();
 
-const TIPOS_DIREITO = ['ACESSO', 'CORRECAO', 'ELIMINACAO', 'PORTABILIDADE', 'OPOSICAO', 'REVOGACAO', 'INFORMACAO', 'PETICAO'];
+const TIPOS_DIREITO = ['CONFIRMACAO', 'ACESSO', 'CORRECAO', 'ANONIMIZACAO', 'PORTABILIDADE', 'ELIMINACAO', 'INFORMACAO', 'REVOGACAO', 'OPOSICAO', 'PETICAO', 'OUTRO'];
 
 const validadoresSolicitarOtp = [
   validarCuid('organizacaoId', 'body'),

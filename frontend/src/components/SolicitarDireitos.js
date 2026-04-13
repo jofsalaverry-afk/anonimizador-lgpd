@@ -2,19 +2,28 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 
-// Os 5 direitos expostos na pagina publica — subset dos 8 do enum do Prisma,
-// escolhidos por serem os mais comuns e entendiveis para o cidadao leigo.
+// Os 9 direitos do Art. 18 da LGPD (Lei 13.709/2018). OUTRO abre um
+// campo livre para o titular descrever um direito especifico nao coberto
+// pelos itens padrao — o texto e concatenado no inicio da descricao
+// para o responsavel da camara ter contexto claro.
 const TIPO_OPTIONS = [
-  { value: 'ACESSO', label: 'Acesso aos meus dados' },
-  { value: 'CORRECAO', label: 'Correcao de dados incorretos' },
-  { value: 'ELIMINACAO', label: 'Exclusao dos meus dados' },
-  { value: 'PORTABILIDADE', label: 'Portabilidade dos meus dados' },
-  { value: 'REVOGACAO', label: 'Revogacao do consentimento' }
+  { value: 'CONFIRMACAO', label: 'Confirmacao de existencia de tratamento' },
+  { value: 'ACESSO', label: 'Acesso aos dados' },
+  { value: 'CORRECAO', label: 'Correcao de dados incompletos, inexatos ou desatualizados' },
+  { value: 'ANONIMIZACAO', label: 'Anonimizacao, bloqueio ou eliminacao de dados desnecessarios' },
+  { value: 'PORTABILIDADE', label: 'Portabilidade dos dados' },
+  { value: 'ELIMINACAO', label: 'Eliminacao dos dados tratados com consentimento' },
+  { value: 'INFORMACAO', label: 'Informacao sobre compartilhamento com terceiros' },
+  { value: 'REVOGACAO', label: 'Revogacao do consentimento' },
+  { value: 'OUTRO', label: 'Outro (descrever)' }
 ];
 
 export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdProp }) {
   const [etapa, setEtapa] = useState('form'); // 'form' | 'otp' | 'sucesso'
   const [form, setForm] = useState({ titularNome: '', titularEmail: '', titularCpf: '', tipoDireito: '', descricao: '' });
+  // Texto livre so usado quando tipoDireito === 'OUTRO'. Concatenado na
+  // descricao no momento do envio para ficar visivel ao atendente.
+  const [direitoCustom, setDireitoCustom] = useState('');
   const [consentimento, setConsentimento] = useState(false);
   const [codigo, setCodigo] = useState('');
   const [loading, setLoading] = useState(false);
@@ -49,6 +58,9 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
     if (!form.titularNome || !form.titularEmail || !form.tipoDireito || !form.descricao) {
       return setErro('Preencha todos os campos obrigatorios');
     }
+    if (form.tipoDireito === 'OUTRO' && !direitoCustom.trim()) {
+      return setErro('Descreva qual direito voce deseja exercer');
+    }
     if (!consentimento) {
       return setErro('Voce precisa confirmar o consentimento LGPD para continuar');
     }
@@ -58,8 +70,13 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
     setLoading(true);
     setErro('');
     try {
+      // Quando o titular escolhe "Outro", prependa o direito descrito na
+      // descricao para dar contexto claro ao responsavel da organizacao.
+      const descricaoFinal = form.tipoDireito === 'OUTRO'
+        ? `[Direito: ${direitoCustom.trim()}]\n\n${form.descricao}`
+        : form.descricao;
       const res = await axios.post(`${API}/dsar/publico/solicitar-otp`, {
-        ...form, organizacaoId: org.id
+        ...form, descricao: descricaoFinal, organizacaoId: org.id
       });
       setOtpInfo(res.data);
       setEtapa('otp');
@@ -231,6 +248,19 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
             <option value="">Selecione...</option>
             {TIPO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+
+          {form.tipoDireito === 'OUTRO' && (
+            <>
+              <label>Descreva o direito que deseja exercer *</label>
+              <input
+                value={direitoCustom}
+                onChange={e => setDireitoCustom(e.target.value)}
+                placeholder="Ex: consulta sobre base legal do tratamento"
+                maxLength={200}
+                required
+              />
+            </>
+          )}
 
           <label>Descreva seu pedido *</label>
           <textarea value={form.descricao} onChange={e => setForm({ ...form, descricao: e.target.value })} rows={4} placeholder="Descreva com detalhes o que deseja..." required />
