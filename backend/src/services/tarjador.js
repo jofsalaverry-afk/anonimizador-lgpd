@@ -356,24 +356,83 @@ function categorizarTrecho(trecho) {
 function gerarRelatorio(itens, linhas, tarjas) {
   const categorias = { cpf: 0, rg: 0, email: 0, telefone: 0, endereco: 0, nome: 0 };
 
+  // Tarjas vem com start/end relativos ao item, mas um CPF pode estar
+  // quebrado entre itens adjacentes (regex-linha). Reconstruimos o trecho
+  // tarjado no nivel da linha para obter a string completa e categorizavel.
+  const linhaDeItem = {};
+  linhas.forEach((l, li) => l.itensIdx.forEach(idx => { linhaDeItem[idx] = li; }));
+
+  const porLinha = {};
+  const avulsas = [];
+  for (const t of tarjas) {
+    const li = linhaDeItem[t.i];
+    if (li == null) { avulsas.push(t); continue; }
+    (porLinha[li] = porLinha[li] || []).push(t);
+  }
+
   const tarjadosVistos = new Set();
   const tarjados = [];
-  for (const t of tarjas) {
-    const item = itens[t.i];
-    if (!item) continue;
-    const trecho = item.texto.slice(t.start, t.end).trim();
-    console.log('[rel]', t.i, t.start, t.end, JSON.stringify(item.texto.substring(0,50)), JSON.stringify(trecho));
-    if (!trecho) continue;
+  const addTarjado = (trechoRaw) => {
+    const trecho = trechoRaw.trim();
+    if (!trecho) return;
     const cat = categorizarTrecho(trecho);
     if (categorias[cat] !== undefined) categorias[cat]++;
     const chave = `${cat}:${trecho}`;
-    if (tarjadosVistos.has(chave)) continue;
+    if (tarjadosVistos.has(chave)) return;
     tarjadosVistos.add(chave);
     tarjados.push({
       trecho,
       categoria: LABELS_CATEGORIA[cat] || 'Outro',
       motivo: MOTIVOS_TARJA[cat] || MOTIVOS_TARJA.outro
     });
+  };
+
+  for (const liKey of Object.keys(porLinha)) {
+    const linha = linhas[Number(liKey)];
+    if (!linha) continue;
+    // Reconstroi linhaTxt registrando o offset inicial de cada item
+    const itemBase = {};
+    const partes = [];
+    let cursor = 0;
+    linha.itensIdx.forEach((idx, k) => {
+      itemBase[idx] = cursor;
+      const texto = itens[idx].texto;
+      partes.push(texto);
+      cursor += texto.length;
+      if (k < linha.itensIdx.length - 1) { partes.push(' '); cursor += 1; }
+    });
+    const linhaTxt = partes.join('');
+    const marcado = new Array(linhaTxt.length).fill(false);
+    for (const t of porLinha[liKey]) {
+      const base = itemBase[t.i];
+      if (base == null) continue;
+      const len = itens[t.i].texto.length;
+      const s = Math.max(0, t.start ?? 0);
+      const e = Math.min(len, t.end ?? len);
+      for (let c = s; c < e; c++) marcado[base + c] = true;
+    }
+    // Agrupa posicoes contiguas, tolerando o separador (espaco) entre
+    // itens adjacentes quando ambos os lados estao tarjados — assim um
+    // CPF quebrado em "123.456.789" + "-00" volta a ser uma unica string.
+    let i = 0;
+    while (i < marcado.length) {
+      if (!marcado[i]) { i++; continue; }
+      let j = i + 1;
+      while (j < marcado.length) {
+        if (marcado[j]) { j++; continue; }
+        if (linhaTxt[j] === ' ' && j + 1 < marcado.length && marcado[j + 1]) { j += 2; continue; }
+        break;
+      }
+      addTarjado(linhaTxt.slice(i, j));
+      i = j;
+    }
+  }
+
+  // Tarjas cujo item nao pertence a nenhuma linha: fallback per-item.
+  for (const t of avulsas) {
+    const item = itens[t.i];
+    if (!item) continue;
+    addTarjado(item.texto.slice(t.start, t.end));
   }
 
   const naoTarjados = [];
