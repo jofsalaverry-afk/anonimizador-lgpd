@@ -118,6 +118,16 @@ function parecerEndereco(txt) {
   return /(rua|avenida|av\.|alameda|travessa|praca|rodovia|estrada|bairro|cep\s?\d|\bn[ºo°]\s?\d)/.test(t);
 }
 
+// CEP isoladamente NAO e dado pessoal pela LGPD — e informacao publica
+// dos Correios associada a logradouros, nao a pessoas. So tarjamos quando
+// faz parte de um endereco residencial completo; CEP solto deve ser preservado.
+function parecerCEP(txt) {
+  const t = txt.trim();
+  if (/^cep\W*\d[\d\s.\-–—]*$/i.test(t)) return true;
+  if (/^\d{2}\.?\d{3}[-–—\s]?\d{3}$/.test(t)) return true;
+  return false;
+}
+
 // Regex para detectar cargos publicos e funcoes em documentos de camaras
 // municipais. Usado para decidir se um nome e de agente publico (LAI: dado
 // publico, NAO tarjar) ou de pessoa privada (LGPD: dado pessoal, tarjar).
@@ -255,6 +265,7 @@ function construirTarjas(itens, linhas, respostaIA) {
       // Sem cargo: pessoa privada — manter tarja (nao pular)
     }
     if (parecerMetaTexto(t.d)) continue;
+    if (parecerCEP(t.d)) continue; // CEP isolado e dado publico (Correios), nao tarjar
     if (parecerEndereco(t.d)) {
       if (ctx === 'sede') continue;
       if (linha && linhaEhSedeEmpresa(linha.texto)) continue;
@@ -375,7 +386,16 @@ function gerarRelatorio(itens, linhas, tarjas) {
   const addTarjado = (trechoRaw) => {
     const trecho = trechoRaw.trim();
     if (!trecho) return;
+    // CEP nao e dado pessoal — ignora mesmo que algum item tenha sido tarjado
+    if (parecerCEP(trecho)) return;
     const cat = categorizarTrecho(trecho);
+    // Fragmentos numericos curtos ("000,", "-00") que nao casam em nenhuma
+    // categoria sao ruido da reconstrucao por linha — pedacos soltos que
+    // nao foram merged com a tarja vizinha. Nao relatar.
+    if (cat === 'outro') {
+      const digits = (trecho.match(/\d/g) || []).length;
+      if (digits > 0 && digits < 5) return;
+    }
     if (categorias[cat] !== undefined) categorias[cat]++;
     const chave = `${cat}:${trecho}`;
     if (tarjadosVistos.has(chave)) return;
