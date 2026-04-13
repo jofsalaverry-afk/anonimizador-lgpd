@@ -15,7 +15,7 @@ const OPCOES_CORRECAO = [
 // Relatorio simplificado de devolutiva: mostra, em linguagem para leigo,
 // o que foi tarjado (e por que) e o que foi preservado (e por que). Alimentado
 // pela funcao gerarRelatorio do backend (tarjador.js).
-function RelatorioDevolutiva({ relatorio, token }) {
+function RelatorioDevolutiva({ relatorio, token, podeCorrigir }) {
   const { resumo, tarjados, naoTarjados } = relatorio || {};
   const [modalItem, setModalItem] = useState(null); // { trecho, categoria }
   const [salvando, setSalvando] = useState(false);
@@ -81,7 +81,7 @@ function RelatorioDevolutiva({ relatorio, token }) {
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
                   <span className="badge badge-success">{t.categoria}</span>
                   <code style={{ fontSize: 12, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{t.trecho}</code>
-                  {corrigidos[t.trecho] ? (
+                  {podeCorrigir && (corrigidos[t.trecho] ? (
                     <span className="text-sm" style={{ color: '#059669' }}>correcao enviada</span>
                   ) : (
                     <button
@@ -91,7 +91,7 @@ function RelatorioDevolutiva({ relatorio, token }) {
                     >
                       Corrigir classificacao
                     </button>
-                  )}
+                  ))}
                 </div>
                 <div className="text-sm" style={{ color: '#475569' }}>{t.motivo}</div>
               </li>
@@ -176,7 +176,12 @@ function RelatorioDevolutiva({ relatorio, token }) {
   );
 }
 
-export default function Anonimizador({ token, onTokenInvalido }) {
+// Perfis autorizados a corrigir classificacoes no relatorio de devolutiva —
+// so DPO (ENCARREGADO_LGPD) e admins podem treinar o aprendizado global,
+// ja que a correcao afeta todas as organizacoes.
+const PERFIS_CORRIGIR = ['ADMIN', 'SUPER_ADMIN', 'ENCARREGADO_LGPD'];
+
+export default function Anonimizador({ token, usuario, onTokenInvalido }) {
   const [texto, setTexto] = useState('');
   const [arquivo, setArquivo] = useState(null);
   const [nomeArquivo, setNomeArquivo] = useState('');
@@ -346,7 +351,7 @@ export default function Anonimizador({ token, onTokenInvalido }) {
             <p><strong>PDF anonimizado com tarjas gerado e baixado com sucesso!</strong></p>
             <p className="text-sm">O arquivo foi salvo na sua pasta de downloads.</p>
           </div>
-          {resultado.relatorio && <RelatorioDevolutiva relatorio={resultado.relatorio} token={token} />}
+          {resultado.relatorio && <RelatorioDevolutiva relatorio={resultado.relatorio} token={token} podeCorrigir={PERFIS_CORRIGIR.includes(usuario?.perfil)} />}
         </>
       )}
 

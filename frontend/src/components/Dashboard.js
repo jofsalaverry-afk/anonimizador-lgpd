@@ -113,7 +113,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
         </header>
 
         <div className="content-body">
-          {pagina === 'anonimizador' && <Anonimizador token={token} onTokenInvalido={onTokenInvalido} />}
+          {pagina === 'anonimizador' && <Anonimizador token={token} usuario={usuario} onTokenInvalido={onTokenInvalido} />}
           {pagina === 'ropa' && <Ropa token={token} />}
           {pagina === 'dsar' && <Dsar token={token} />}
           {pagina === 'documentos' && <Repositorio token={token} subpagina="documentos" />}
