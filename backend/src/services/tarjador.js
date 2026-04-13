@@ -310,6 +310,139 @@ function construirTarjas(itens, linhas, respostaIA) {
   return tarjasOut;
 }
 
+// Regex usados para categorizar trechos tarjados no relatorio simplificado.
+// Ordem importa: CPF antes de RG (11 digitos colide), email antes de telefone.
+const RE_CPF_CAT = /\d{3}\.?\d{3}\.?\d{3}\s*[-–—]\s*\d{2}/;
+const RE_RG_CAT = /\d{1,2}\.\d{3}\.\d{3}[-]?[\dXx]/;
+const RE_EMAIL_CAT = /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/;
+const RE_TEL_CAT = /\(?\d{2}\)?\s?9?\d{4}[-\s]\d{4}/;
+const RE_CNPJ_CAT = /\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g;
+const RE_EMAIL_INST_CAT = /@[a-z0-9.-]*\.(gov|leg|jus|mp|def|org)\.[a-z]{2,}\b/i;
+
+const LABELS_CATEGORIA = {
+  cpf: 'CPF',
+  rg: 'RG',
+  email: 'Email pessoal',
+  telefone: 'Telefone',
+  endereco: 'Endereco residencial',
+  nome: 'Nome de pessoa'
+};
+
+const MOTIVOS_TARJA = {
+  cpf: 'CPF identifica unicamente uma pessoa. A LGPD (Art. 5, I) trata CPF como dado pessoal e ele e sempre tarjado — mesmo de agente publico.',
+  rg: 'RG e documento de identidade pessoal. A LGPD (Art. 5, I) protege como dado pessoal.',
+  email: 'Email pessoal (Gmail, Hotmail, etc.) identifica a pessoa e e protegido pela LGPD (Art. 5, I).',
+  telefone: 'Telefone/celular pessoal e um dado que identifica a pessoa. Protegido pela LGPD (Art. 5, I).',
+  endereco: 'Endereco residencial mostra onde a pessoa mora. E dado pessoal protegido pela LGPD (Art. 5, I).',
+  nome: 'Nome de pessoa sem cargo ou funcao publica identificada no documento. Tratado como dado pessoal pela LGPD (Art. 5, I).',
+  outro: 'Dado pessoal identificado no documento. Protegido pela LGPD (Art. 5, I).'
+};
+
+function categorizarTrecho(trecho) {
+  if (RE_CPF_CAT.test(trecho)) return 'cpf';
+  if (RE_EMAIL_CAT.test(trecho)) return 'email';
+  if (RE_TEL_CAT.test(trecho)) return 'telefone';
+  if (RE_RG_CAT.test(trecho)) return 'rg';
+  if (parecerEndereco(trecho)) return 'endereco';
+  if (parecerNome(trecho)) return 'nome';
+  return 'outro';
+}
+
+// Gera um relatorio simplificado, em linguagem para leigo, sobre o que foi
+// (e o que nao foi) tarjado no documento. A ideia e dar transparencia ao
+// usuario final do sistema: total por categoria, exemplos do que foi tarjado
+// com o motivo (LGPD), e exemplos do que foi PRESERVADO com o motivo (LAI,
+// CNPJ nao e dado pessoal, etc.).
+function gerarRelatorio(itens, linhas, tarjas) {
+  const categorias = { cpf: 0, rg: 0, email: 0, telefone: 0, endereco: 0, nome: 0 };
+
+  const tarjadosVistos = new Set();
+  const tarjados = [];
+  for (const t of tarjas) {
+    const item = itens[t.i];
+    if (!item) continue;
+    const trecho = item.texto.slice(t.start, t.end).trim();
+    if (!trecho) continue;
+    const cat = categorizarTrecho(trecho);
+    if (categorias[cat] !== undefined) categorias[cat]++;
+    const chave = `${cat}:${trecho}`;
+    if (tarjadosVistos.has(chave)) continue;
+    tarjadosVistos.add(chave);
+    tarjados.push({
+      trecho,
+      categoria: LABELS_CATEGORIA[cat] || 'Outro',
+      motivo: MOTIVOS_TARJA[cat] || MOTIVOS_TARJA.outro
+    });
+  }
+
+  const naoTarjados = [];
+  const naoTarjadosVistos = new Set();
+  const addNaoTarjado = (trecho, categoria, motivo) => {
+    const chave = `${categoria}:${trecho}`;
+    if (naoTarjadosVistos.has(chave)) return;
+    naoTarjadosVistos.add(chave);
+    naoTarjados.push({ trecho, categoria, motivo });
+  };
+
+  // CNPJ — identifica pessoa juridica, nao e dado pessoal pela LGPD.
+  // Email institucional — dado publico pela LAI (transparencia ativa).
+  for (const item of itens) {
+    let m;
+    const cnpjRe = new RegExp(RE_CNPJ_CAT.source, 'g');
+    while ((m = cnpjRe.exec(item.texto)) !== null) {
+      addNaoTarjado(
+        m[0],
+        'CNPJ',
+        'CNPJ identifica uma empresa ou orgao (pessoa juridica), nao uma pessoa fisica. Por isso nao e considerado dado pessoal pela LGPD e deve permanecer publico.'
+      );
+    }
+    const emails = item.texto.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g) || [];
+    for (const email of emails) {
+      if (RE_EMAIL_INST_CAT.test(email)) {
+        addNaoTarjado(
+          email,
+          'Email institucional',
+          'Email institucional (dominio .gov, .leg, .jus, etc.) e um canal oficial de comunicacao do orgao publico. A LAI (Lei 12.527/2011) exige que seja publico — transparencia ativa.'
+        );
+      }
+    }
+  }
+
+  // Nomes de agente publico: linhas que contem cargo/funcao publica.
+  // Extrai nomes proprios em CAPS dessas linhas para sinalizar ao usuario
+  // que foram intencionalmente preservados pela LAI.
+  const nomeRegex = /\b[A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ][A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ\s]{3,}\b/g;
+  const stopWords = /(RUA|AVENIDA|ALAMEDA|TRAVESSA|BAIRRO|SEDE|CEP|CNPJ|CPF|CLAUSULA|OBJETO|VALOR|PRAZO|PREGAO|CONTRATO|CAMARA|MUNICIPIO|PREFEITURA|ESTADO|GOVERNO|REPUBLICA|PROCESSO|PORTARIA|LICITACAO|CONTRATANTE|CONTRATADA|PARTES|TERMO)/i;
+  for (const linha of linhas) {
+    if (!linhaTemCargoPublico(linha.texto)) continue;
+    const nomes = linha.texto.match(nomeRegex) || [];
+    for (const nomeRaw of nomes) {
+      const nome = nomeRaw.trim().replace(/\s+/g, ' ');
+      const palavras = nome.split(/\s+/).filter(Boolean);
+      if (palavras.length < 2) continue;
+      if (stopWords.test(nome)) continue;
+      addNaoTarjado(
+        nome,
+        'Agente publico',
+        'Nome aparece junto a um cargo ou funcao publica (prefeito, vereador, servidor, fiscal, representante legal, etc.). Pela LAI (Lei 12.527/2011), atos de agentes publicos sao dados publicos — transparencia ativa.'
+      );
+    }
+  }
+
+  const totalCategorias = Object.values(categorias).reduce((a, b) => a + b, 0);
+  return {
+    resumo: {
+      total: totalCategorias,
+      categorias,
+      categoriasLegiveis: Object.fromEntries(
+        Object.entries(categorias).map(([k, v]) => [LABELS_CATEGORIA[k], v])
+      )
+    },
+    tarjados,
+    naoTarjados
+  };
+}
+
 function buildPromptItens(itens, linhas) {
   const linhaDeItem = {};
   linhas.forEach((l, li) => l.itensIdx.forEach(idx => { linhaDeItem[idx] = li; }));
@@ -373,6 +506,7 @@ module.exports = {
   construirTarjas,
   aplicarTarjas,
   buildPromptItens,
+  gerarRelatorio,
   PROMPT_INSTRUCOES,
   linhaEhSedeEmpresa,
   linhaEhResidencia,

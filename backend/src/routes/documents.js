@@ -10,6 +10,7 @@ const {
   construirTarjas,
   aplicarTarjas,
   buildPromptItens,
+  gerarRelatorio,
   PROMPT_INSTRUCOES,
 } = require('../services/tarjador');
 const { extrairTextoOCR } = require('../services/ocr');
@@ -161,18 +162,24 @@ async function anonimizarPDF(pdfBuffer) {
   tarjas.forEach(t => { porOrigem[t.origem] = (porOrigem[t.origem] || 0) + 1; });
   console.log('[anonimizarPDF] tarjas finais:', tarjas.length, 'origem:', porOrigem);
 
-  const stats = { nome: 0, cpf: 0, rg: 0, endereco: 0, email: 0, telefone: 0, data_nasc: 0, banco: 0 };
-  for (const t of tarjas) {
-    const it = itens[t.i];
-    if (!it) continue;
-    const trecho = it.texto.slice(t.start, t.end);
-    if (/\d{3}\.?\d{3}\.?\d{3}\s*[-–—]\s*\d{2}/.test(trecho)) stats.cpf++;
-    else if (/@/.test(trecho)) stats.email++;
-    else if (/\d/.test(trecho)) stats.endereco++;
-  }
+  const relatorio = gerarRelatorio(itens, linhas, tarjas);
+  // Stats canonicos baseados no relatorio simplificado. Mantem o schema
+  // antigo (nome, cpf, rg, endereco, email, telefone, data_nasc, banco)
+  // para o Documento no banco, mapeando telefone e demais categorias.
+  const cats = relatorio.resumo.categorias;
+  const stats = {
+    nome: cats.nome || 0,
+    cpf: cats.cpf || 0,
+    rg: cats.rg || 0,
+    endereco: cats.endereco || 0,
+    email: cats.email || 0,
+    telefone: cats.telefone || 0,
+    data_nasc: 0,
+    banco: 0
+  };
 
   const pdfFinal = await aplicarTarjas(pdfBuffer, itens, tarjas);
-  return { pdfBuffer: pdfFinal, stats, tipoDocumento: 'contrato', ocrUsado: false };
+  return { pdfBuffer: pdfFinal, stats, relatorio, tipoDocumento: 'contrato', ocrUsado: false };
 }
 
 // Lista documentos processados pela camara autenticada (filtro multi-tenant
@@ -248,13 +255,19 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
         });
       }
 
-      // PDF normal com texto — retorna PDF com tarjas
+      // PDF normal com texto — retorna JSON com PDF em base64 + relatorio
+      // simplificado para exibir ao usuario. O frontend decodifica o base64
+      // para disparar o download e renderiza o relatorio na tela.
       await prisma.documento.create({
         data: { organizacaoId: req.usuario.organizacaoId, tipoDocumento: resultado.tipoDocumento, qtdDadosMascarados: Object.values(resultado.stats).reduce((a,b)=>a+b,0), dadosJson: resultado.stats }
       });
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
-      return res.send(resultado.pdfBuffer);
+      return res.json({
+        pdfBase64: resultado.pdfBuffer.toString('base64'),
+        relatorio: resultado.relatorio,
+        stats: resultado.stats,
+        tipoDocumento: resultado.tipoDocumento,
+        leisAplicaveis: baseJuridica[resultado.tipoDocumento] || baseJuridica.outro
+      });
     }
 
     let texto = '';

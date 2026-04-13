@@ -2,6 +2,93 @@ import { useState, useRef } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 
+// Relatorio simplificado de devolutiva: mostra, em linguagem para leigo,
+// o que foi tarjado (e por que) e o que foi preservado (e por que). Alimentado
+// pela funcao gerarRelatorio do backend (tarjador.js).
+function RelatorioDevolutiva({ relatorio }) {
+  const { resumo, tarjados, naoTarjados } = relatorio || {};
+  if (!resumo) return null;
+  const categorias = resumo.categoriasLegiveis || {};
+  const temCategoria = Object.values(categorias).some(v => v > 0);
+
+  return (
+    <div className="card mt-16">
+      <h2 className="card-header">Relatorio de devolutiva</h2>
+      <p className="text-sm mb-16" style={{ color: '#64748b' }}>
+        Resumo simples do que o sistema encontrou no documento, o que foi
+        tarjado e o que foi preservado, com o motivo de cada decisao.
+      </p>
+
+      <div className="detail-label mb-8">Total encontrado por categoria</div>
+      {temCategoria ? (
+        <div className="badge-row mb-16">
+          {Object.entries(categorias)
+            .filter(([, v]) => v > 0)
+            .map(([cat, v]) => (
+              <span key={cat} className="badge badge-muted">{cat}: {v}</span>
+            ))}
+          <span className="badge badge-success">Total: {resumo.total}</span>
+        </div>
+      ) : (
+        <div className="alert-info mb-16">Nenhum dado pessoal foi encontrado no documento.</div>
+      )}
+
+      {tarjados && tarjados.length > 0 && (
+        <>
+          <hr className="card-divider" />
+          <div className="detail-label mb-8">O que foi tarjado — e por que</div>
+          <p className="text-sm mb-16" style={{ color: '#64748b' }}>
+            Itens protegidos pela LGPD (Lei Geral de Protecao de Dados).
+          </p>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {tarjados.slice(0, 20).map((t, i) => (
+              <li key={i} style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                  <span className="badge badge-success">{t.categoria}</span>
+                  <code style={{ fontSize: 12, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{t.trecho}</code>
+                </div>
+                <div className="text-sm" style={{ color: '#475569' }}>{t.motivo}</div>
+              </li>
+            ))}
+          </ul>
+          {tarjados.length > 20 && (
+            <div className="text-sm mt-8" style={{ color: '#94a3b8' }}>
+              + {tarjados.length - 20} itens adicionais tarjados no documento.
+            </div>
+          )}
+        </>
+      )}
+
+      {naoTarjados && naoTarjados.length > 0 && (
+        <>
+          <hr className="card-divider" />
+          <div className="detail-label mb-8">O que NAO foi tarjado — e por que</div>
+          <p className="text-sm mb-16" style={{ color: '#64748b' }}>
+            Itens mantidos publicos pela LAI (Lei de Acesso a Informacao) ou
+            que nao sao considerados dados pessoais pela LGPD.
+          </p>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {naoTarjados.slice(0, 20).map((t, i) => (
+              <li key={i} style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                  <span className="badge badge-muted">{t.categoria}</span>
+                  <code style={{ fontSize: 12, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{t.trecho}</code>
+                </div>
+                <div className="text-sm" style={{ color: '#475569' }}>{t.motivo}</div>
+              </li>
+            ))}
+          </ul>
+          {naoTarjados.length > 20 && (
+            <div className="text-sm mt-8" style={{ color: '#94a3b8' }}>
+              + {naoTarjados.length - 20} itens adicionais preservados no documento.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Anonimizador({ token, onTokenInvalido }) {
   const [texto, setTexto] = useState('');
   const [arquivo, setArquivo] = useState(null);
@@ -79,7 +166,18 @@ export default function Anonimizador({ token, onTokenInvalido }) {
         const contentType = res.headers['content-type'] || '';
         if (contentType.includes('application/json')) {
           const text = await res.data.text();
-          setResultado(JSON.parse(text));
+          const json = JSON.parse(text);
+          // Caminho novo: JSON com PDF tarjado em base64 + relatorio simplificado.
+          // Decodifica o base64, dispara o download e guarda o relatorio no state.
+          if (json.pdfBase64) {
+            const bytes = Uint8Array.from(atob(json.pdfBase64), c => c.charCodeAt(0));
+            const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+            const a = document.createElement('a');
+            a.href = url; a.download = 'documento-anonimizado.pdf'; a.click();
+            setResultado({ pdf: true, ...json });
+          } else {
+            setResultado(json);
+          }
         } else {
           const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
           const a = document.createElement('a');
@@ -156,10 +254,13 @@ export default function Anonimizador({ token, onTokenInvalido }) {
       </button>
 
       {resultado && resultado.pdf && (
-        <div className="alert-success">
-          <p><strong>PDF anonimizado com tarjas gerado e baixado com sucesso!</strong></p>
-          <p className="text-sm">O arquivo foi salvo na sua pasta de downloads.</p>
-        </div>
+        <>
+          <div className="alert-success">
+            <p><strong>PDF anonimizado com tarjas gerado e baixado com sucesso!</strong></p>
+            <p className="text-sm">O arquivo foi salvo na sua pasta de downloads.</p>
+          </div>
+          {resultado.relatorio && <RelatorioDevolutiva relatorio={resultado.relatorio} />}
+        </>
       )}
 
       {resultado && !resultado.pdf && (
