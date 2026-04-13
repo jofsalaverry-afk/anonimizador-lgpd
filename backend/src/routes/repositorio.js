@@ -1,9 +1,35 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+// Upload de arquivos do repositorio: PDF/DOCX, max 20MB. Multer mantem
+// o buffer em memoria porque o arquivo sera salvo em bytea no banco.
+const MIMETYPES_ACEITOS = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword'
+]);
+const uploadArquivo = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (MIMETYPES_ACEITOS.has(file.mimetype)) return cb(null, true);
+    cb(new Error('Tipo de arquivo nao suportado. Envie PDF ou DOCX.'));
+  }
+});
+
+// Select padrao que OMITE o campo arquivo (bytea) — usado em listagens.
+// Trazer o bytea na query da lista fica enorme e desnecessario.
+const DOC_SELECT_LISTA = {
+  id: true, organizacaoId: true, tipo: true, titulo: true, descricao: true,
+  conteudoMd: true, versao: true, status: true, autorId: true, tags: true,
+  mimetype: true, nomeArquivo: true, tamanhoBytes: true,
+  criadoEm: true, atualizadoEm: true
+};
 
 const authMiddleware = (req, res, next) => {
   try {
@@ -37,9 +63,12 @@ router.use(authMiddleware, requireModulo);
 
 router.get('/documentos', async (req, res) => {
   try {
+    const where = { organizacaoId: req.usuario.organizacaoId };
+    if (req.query.categoria) where.tipo = String(req.query.categoria);
     const docs = await prisma.documentoRepositorio.findMany({
-      where: { organizacaoId: req.usuario.organizacaoId },
-      orderBy: { atualizadoEm: 'desc' }
+      where,
+      orderBy: { atualizadoEm: 'desc' },
+      select: DOC_SELECT_LISTA
     });
     res.json(docs);
   } catch (err) {
@@ -81,6 +110,62 @@ router.post('/documentos', async (req, res) => {
   } catch (err) {
     console.error('[POST /repositorio/documentos]', err);
     res.status(500).json({ erro: 'Erro ao criar documento' });
+  }
+});
+
+// Upload de arquivo (PDF/DOCX ate 20MB). So ENCARREGADO_LGPD pode subir
+// arquivos no fluxo do modulo. O admin sobe pela rota /admin/repositorio.
+router.post('/upload', uploadArquivo.single('arquivo'), async (req, res) => {
+  try {
+    if (req.usuario.perfil !== 'ENCARREGADO_LGPD') {
+      return res.status(403).json({ erro: 'Apenas o DPO (Encarregado LGPD) pode subir arquivos' });
+    }
+    if (!req.file) return res.status(400).json({ erro: 'Envie um arquivo no campo "arquivo"' });
+    const { titulo, descricao, categoria } = req.body;
+    if (!titulo || !categoria) {
+      return res.status(400).json({ erro: 'titulo e categoria sao obrigatorios' });
+    }
+    const doc = await prisma.documentoRepositorio.create({
+      data: {
+        organizacaoId: req.usuario.organizacaoId,
+        tipo: categoria,
+        titulo: String(titulo).trim(),
+        descricao: descricao ? String(descricao).trim() : null,
+        arquivo: req.file.buffer,
+        mimetype: req.file.mimetype,
+        nomeArquivo: req.file.originalname,
+        tamanhoBytes: req.file.size,
+        status: 'PUBLICADO',
+        autorId: req.usuario.id,
+        conteudoMd: ''
+      },
+      select: DOC_SELECT_LISTA
+    });
+    res.status(201).json(doc);
+  } catch (err) {
+    console.error('[POST /repositorio/upload]', err);
+    const msg = err && err.message && err.message.includes('nao suportado')
+      ? err.message
+      : (err && err.code === 'LIMIT_FILE_SIZE' ? 'Arquivo maior que 20MB' : 'Erro ao subir arquivo');
+    res.status(400).json({ erro: msg });
+  }
+});
+
+// Download binario do arquivo anexado ao documento. Valida org do usuario
+// e devolve o bytea com Content-Type/Disposition corretos.
+router.get('/documentos/:id/download', async (req, res) => {
+  try {
+    const doc = await prisma.documentoRepositorio.findFirst({
+      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId },
+      select: { arquivo: true, mimetype: true, nomeArquivo: true }
+    });
+    if (!doc || !doc.arquivo) return res.status(404).json({ erro: 'Arquivo nao encontrado' });
+    res.setHeader('Content-Type', doc.mimetype || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${doc.nomeArquivo || 'documento'}"`);
+    res.send(Buffer.from(doc.arquivo));
+  } catch (err) {
+    console.error('[GET /repositorio/documentos/:id/download]', err);
+    res.status(500).json({ erro: 'Erro ao baixar arquivo' });
   }
 });
 

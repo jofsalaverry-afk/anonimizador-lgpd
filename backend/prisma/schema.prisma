@@ -47,6 +47,10 @@ enum TipoDocRepo {
   CONTRATO
   MODELO
   OUTRO
+  POLITICA_PRIVACIDADE
+  POLITICA_SEGURANCA
+  MODELO_DSAR
+  TERMO_USO
 }
 
 enum StatusDocRepo {
@@ -292,7 +296,14 @@ model DocumentoRepositorio {
   organizacao    Organizacao   @relation(fields: [organizacaoId], references: [id])
   tipo           TipoDocRepo
   titulo         String
-  conteudoMd     String        @default("")
+  descricao      String?       // texto curto mostrado no card
+  conteudoMd     String        @default("") // conteudo markdown (legado)
+  // Campos de arquivo binario (upload PDF/DOCX). arquivo pode ser null
+  // para docs antigos baseados so em conteudoMd.
+  arquivo        Bytes?
+  mimetype       String?
+  nomeArquivo    String?
+  tamanhoBytes   Int?
   versao         Int           @default(1)
   status         StatusDocRepo @default(RASCUNHO)
   autorId        String?

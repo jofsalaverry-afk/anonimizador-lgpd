@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
 const { body } = require('express-validator');
 const { auditarLogin } = require('../middlewares/auditoria');
@@ -9,6 +10,28 @@ const { getTrilhasComOverrides, TRILHAS_BASE } = require('./treinamento');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+// Multer para upload de arquivos do repositorio pelo painel admin.
+// Mesmos limites da rota do modulo: 20MB, PDF/DOCX.
+const MIMETYPES_REPO = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword'
+]);
+const uploadRepo = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (MIMETYPES_REPO.has(file.mimetype)) return cb(null, true);
+    cb(new Error('Tipo de arquivo nao suportado. Envie PDF ou DOCX.'));
+  }
+});
+
+const REPO_SELECT_LISTA = {
+  id: true, organizacaoId: true, tipo: true, titulo: true, descricao: true,
+  mimetype: true, nomeArquivo: true, tamanhoBytes: true,
+  versao: true, status: true, criadoEm: true, atualizadoEm: true
+};
 
 const validadoresAdminLogin = [
   validarEmail('email'),
@@ -249,6 +272,80 @@ router.put('/treinamento/trilhas/:trilhaId/modulos/:moduloId', adminAuth, async 
   } catch (err) {
     console.error('[PUT /admin/treinamento/trilhas/:trilhaId/modulos/:moduloId]', err);
     res.status(500).json({ erro: 'Erro ao salvar override' });
+  }
+});
+
+// ---------- Repositorio de Documentos (admin cross-org) ----------
+
+// Lista arquivos do repositorio de uma organizacao especifica. Admin
+// pode ver/gerenciar docs de qualquer camara — o id da org vem na query.
+router.get('/repositorio', adminAuth, async (req, res) => {
+  try {
+    const organizacaoId = String(req.query.organizacaoId || '').trim();
+    if (!organizacaoId) return res.status(400).json({ erro: 'organizacaoId e obrigatorio' });
+    const docs = await prisma.documentoRepositorio.findMany({
+      where: { organizacaoId },
+      orderBy: { criadoEm: 'desc' },
+      select: REPO_SELECT_LISTA
+    });
+    res.json(docs);
+  } catch (err) {
+    console.error('[GET /admin/repositorio]', err);
+    res.status(500).json({ erro: 'Erro ao listar documentos' });
+  }
+});
+
+// Upload de arquivo pelo admin em nome de uma organizacao. Espera
+// multipart/form-data com: arquivo, titulo, categoria, descricao, organizacaoId.
+router.post('/repositorio/upload', adminAuth, uploadRepo.single('arquivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ erro: 'Envie um arquivo no campo "arquivo"' });
+    const { titulo, descricao, categoria, organizacaoId } = req.body;
+    if (!titulo || !categoria || !organizacaoId) {
+      return res.status(400).json({ erro: 'titulo, categoria e organizacaoId sao obrigatorios' });
+    }
+    // Valida que a org existe antes de criar
+    const org = await prisma.organizacao.findUnique({ where: { id: organizacaoId }, select: { id: true } });
+    if (!org) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
+
+    const doc = await prisma.documentoRepositorio.create({
+      data: {
+        organizacaoId,
+        tipo: categoria,
+        titulo: String(titulo).trim(),
+        descricao: descricao ? String(descricao).trim() : null,
+        arquivo: req.file.buffer,
+        mimetype: req.file.mimetype,
+        nomeArquivo: req.file.originalname,
+        tamanhoBytes: req.file.size,
+        status: 'PUBLICADO',
+        conteudoMd: ''
+      },
+      select: REPO_SELECT_LISTA
+    });
+    res.status(201).json(doc);
+  } catch (err) {
+    console.error('[POST /admin/repositorio/upload]', err);
+    const msg = err && err.message && err.message.includes('nao suportado')
+      ? err.message
+      : (err && err.code === 'LIMIT_FILE_SIZE' ? 'Arquivo maior que 20MB' : 'Erro ao subir arquivo');
+    res.status(400).json({ erro: msg });
+  }
+});
+
+// Remove um documento do repositorio. So admin.
+router.delete('/repositorio/:id', adminAuth, async (req, res) => {
+  try {
+    const existente = await prisma.documentoRepositorio.findUnique({
+      where: { id: req.params.id },
+      select: { id: true }
+    });
+    if (!existente) return res.status(404).json({ erro: 'Documento nao encontrado' });
+    await prisma.documentoRepositorio.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[DELETE /admin/repositorio/:id]', err);
+    res.status(500).json({ erro: 'Erro ao excluir documento' });
   }
 });
 
