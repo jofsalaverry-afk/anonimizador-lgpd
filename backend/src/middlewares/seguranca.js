@@ -3,7 +3,17 @@
 // Importado e composto em server.js.
 
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 const { validationResult, body, param } = require('express-validator');
+
+// express-rate-limit v7.5+ exige que o keyGenerator bucketize IPv6 por
+// /64 (senao cada endereco IPv6 unico burla o limite). Quando o cliente
+// vem com IP IPv6 e nenhum keyGenerator custom e definido, ele lanca
+// ERR_ERL_KEY_GEN_IPV6. Usar ipKeyGenerator (helper do proprio pacote)
+// resolve isso — ele aplica o bucketing correto e funciona para IPv4/v6.
+// Tambem desabilitamos o validador xForwardedForHeader que dispara warn
+// mesmo quando a gente ja seta "trust proxy" no server.js.
+const VALIDATE_OFF = { xForwardedForHeader: false };
 
 // Resposta padrao de rate limit — mensagem legivel para o titular/usuario
 // com o tempo de espera em minutos.
@@ -20,6 +30,8 @@ const limiterAuth = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: ipKeyGenerator,
+  validate: VALIDATE_OFF,
   message: mensagemExcesso(15)
 });
 
@@ -32,7 +44,8 @@ const limiterDocuments = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
+  validate: VALIDATE_OFF,
+  keyGenerator: (req, res) => {
     // Extrai sub/id do JWT sem verificar assinatura — so para bucketar o
     // limite por usuario. A verificacao real acontece no authMiddleware.
     try {
@@ -45,7 +58,8 @@ const limiterDocuments = rateLimit({
         }
       }
     } catch (e) { /* cai no IP */ }
-    return `ip:${req.ip}`;
+    // Fallback para IP — delega ao helper do pacote pra bucketing IPv6 correto.
+    return ipKeyGenerator(req, res);
   },
   message: mensagemExcesso(60)
 });
@@ -57,6 +71,8 @@ const limiterDsarPublico = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: ipKeyGenerator,
+  validate: VALIDATE_OFF,
   message: mensagemExcesso(15)
 });
 

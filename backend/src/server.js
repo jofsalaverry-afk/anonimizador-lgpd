@@ -70,6 +70,8 @@ app.use((req, res, next) => {
   next();
 });
 
+const { ipKeyGenerator } = require('express-rate-limit');
+
 // Limite moderado para rotas admin autenticadas: 60 req/min (nao-sensivel,
 // so para evitar flood de painel interno). Mantido inline pois e especifico.
 const adminLimiter = rateLimit({
@@ -77,6 +79,8 @@ const adminLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: ipKeyGenerator,
+  validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
 
@@ -88,6 +92,8 @@ const crudLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: ipKeyGenerator,
+  validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
 
