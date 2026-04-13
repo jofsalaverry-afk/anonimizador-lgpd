@@ -114,13 +114,22 @@ const CLASSIFICACOES_VALIDAS = ['cpf', 'rg', 'email', 'telefone', 'endereco', 'n
 // Busca todas as correcoes globais de aprendizado e retorna um Map
 // normalizado (trecho lowercase -> classificacao). Usado pelo
 // gerarRelatorio para sobrescrever a heuristica.
+// Defensivo: se o client Prisma nao foi regenerado apos a migration ou
+// a tabela nao existe, retorna um Map vazio para nao quebrar a
+// anonimizacao inteira — o relatorio simplesmente nao tera aprendizado.
 async function carregarAprendizado() {
-  const rows = await prisma.dsarAprendizado.findMany({
-    select: { trechoNormalizado: true, classificacaoCorreta: true }
-  });
-  const map = new Map();
-  for (const r of rows) map.set(r.trechoNormalizado, r.classificacaoCorreta);
-  return map;
+  try {
+    if (!prisma.dsarAprendizado) return new Map();
+    const rows = await prisma.dsarAprendizado.findMany({
+      select: { trechoNormalizado: true, classificacaoCorreta: true }
+    });
+    const map = new Map();
+    for (const r of rows) map.set(r.trechoNormalizado, r.classificacaoCorreta);
+    return map;
+  } catch (err) {
+    console.error('[carregarAprendizado] fallback para Map vazio:', err.message);
+    return new Map();
+  }
 }
 
 // Pipeline unificado de anonimizacao de PDF — usa tarjador.js com
