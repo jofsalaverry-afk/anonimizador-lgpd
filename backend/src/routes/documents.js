@@ -364,8 +364,17 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
 
     res.json({ textoAnonimizado, stats, tipoDocumento, leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao processar documento' });
+    // Log completo para debug no Railway + retorna detalhes ao frontend
+    // para ficar visivel no DevTools (temporario — remover depois de debug).
+    console.error('[POST /documents/anonymize] erro:', err);
+    console.error('[POST /documents/anonymize] stack:', err && err.stack);
+    res.status(500).json({
+      erro: 'Erro ao processar documento',
+      mensagem: err && err.message,
+      stack: err && err.stack,
+      nome: err && err.name,
+      codigo: err && err.code
+    });
   }
 });
 
