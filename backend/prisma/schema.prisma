@@ -139,6 +139,10 @@ model Usuario {
   nome           String
   perfil         Perfil    @default(OPERADOR)
   ativo          Boolean   @default(true)
+  // MFA TOTP (Google Authenticator). mfaSecret e populado no setup e
+  // mfaAtivo so vira true apos o usuario confirmar o primeiro codigo.
+  mfaSecret      String?
+  mfaAtivo       Boolean   @default(false)
   criadoEm       DateTime  @default(now())
   ultimoAcesso   DateTime?
   organizacaoId  String

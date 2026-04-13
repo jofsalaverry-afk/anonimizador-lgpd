@@ -33,6 +33,8 @@
     "pdfjs-dist": "3.4.120",
     "pdfkit": "^0.18.0",
     "prisma": "^5.22.0",
+    "qrcode": "^1.5.4",
+    "speakeasy": "^2.0.0",
     "tesseract.js": "^7.0.0"
   }
 }

@@ -1,6 +1,7 @@
 // build: 2026-04-12-v4
 import { useState } from 'react';
 import Anonimizador from './Anonimizador';
+import Configuracoes from './Configuracoes';
 import Ropa from './Ropa';
 import Dsar from './Dsar';
 import Repositorio from './Repositorio';
@@ -23,7 +24,8 @@ const PAGE_TITLES = {
   documentos: 'Repositorio de Documentos',
   incidentes: 'Gestao de Incidentes',
   conformidade: 'Checklist de Conformidade',
-  treinamento: 'Treinamentos LGPD'
+  treinamento: 'Treinamentos LGPD',
+  configuracoes: 'Configuracoes e Seguranca'
 };
 
 export default function Dashboard({ usuario, token, onLogout, onTokenInvalido }) {
@@ -83,6 +85,9 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
                 <span className="nav-icon">🎓</span> Treinamentos
               </button>
             )}
+            <button onClick={() => setPagina('configuracoes')} className={`nav-item ${pagina === 'configuracoes' ? 'nav-item-active' : ''}`}>
+              <span className="nav-icon">⚙️</span> Configuracoes
+            </button>
           </nav>
 
           <div className="sidebar-footer">
@@ -120,6 +125,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           {pagina === 'incidentes' && <Repositorio token={token} subpagina="incidentes" />}
           {pagina === 'conformidade' && <ChecklistPage token={token} />}
           {pagina === 'treinamento' && <Treinamento token={token} />}
+          {pagina === 'configuracoes' && <Configuracoes token={token} usuario={usuario} />}
         </div>
       </div>
     </div>
