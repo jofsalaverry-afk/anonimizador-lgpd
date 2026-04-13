@@ -107,6 +107,22 @@ const baseJuridica = {
 // Abaixo disso, trata como PDF escaneado e aciona OCR.
 const LIMIAR_TEXTO_MIN = 50;
 
+// Classificacoes aceitas no aprendizado (alinhadas com LABELS_CATEGORIA
+// do tarjador + "nao_pessoal" para marcar falsos positivos).
+const CLASSIFICACOES_VALIDAS = ['cpf', 'rg', 'email', 'telefone', 'endereco', 'nome', 'nao_pessoal'];
+
+// Busca todas as correcoes globais de aprendizado e retorna um Map
+// normalizado (trecho lowercase -> classificacao). Usado pelo
+// gerarRelatorio para sobrescrever a heuristica.
+async function carregarAprendizado() {
+  const rows = await prisma.dsarAprendizado.findMany({
+    select: { trechoNormalizado: true, classificacaoCorreta: true }
+  });
+  const map = new Map();
+  for (const r of rows) map.set(r.trechoNormalizado, r.classificacaoCorreta);
+  return map;
+}
+
 // Pipeline unificado de anonimizacao de PDF — usa tarjador.js com
 // regex obrigatorio como fallback para CPFs e filtro sede/residencial.
 // Retorna { pdfBuffer, stats, tipoDocumento, ocrUsado }
@@ -162,7 +178,8 @@ async function anonimizarPDF(pdfBuffer) {
   tarjas.forEach(t => { porOrigem[t.origem] = (porOrigem[t.origem] || 0) + 1; });
   console.log('[anonimizarPDF] tarjas finais:', tarjas.length, 'origem:', porOrigem);
 
-  const relatorio = gerarRelatorio(itens, linhas, tarjas);
+  const aprendizado = await carregarAprendizado();
+  const relatorio = gerarRelatorio(itens, linhas, tarjas, aprendizado);
   // Stats canonicos baseados no relatorio simplificado. Mantem o schema
   // antigo (nome, cpf, rg, endereco, email, telefone, data_nasc, banco)
   // para o Documento no banco, mapeando telefone e demais categorias.
@@ -203,6 +220,36 @@ router.get('/', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[GET /documents]', err);
     res.status(500).json({ erro: 'Erro ao listar documentos' });
+  }
+});
+
+// Recebe correcao de classificacao feita no relatorio de devolutiva.
+// Global (nao por organizacao) — todas as camaras se beneficiam do
+// aprendizado. Body: { trecho, classificacaoCorreta, classificacaoErrada?, contexto? }.
+router.post('/aprendizado', authMiddleware, requireModulo('anonimizador'), async (req, res) => {
+  try {
+    const { trecho, classificacaoCorreta, classificacaoErrada, contexto } = req.body || {};
+    if (typeof trecho !== 'string' || !trecho.trim()) {
+      return res.status(400).json({ erro: 'Campo "trecho" e obrigatorio' });
+    }
+    if (!CLASSIFICACOES_VALIDAS.includes(classificacaoCorreta)) {
+      return res.status(400).json({ erro: `classificacaoCorreta deve ser uma de: ${CLASSIFICACOES_VALIDAS.join(', ')}` });
+    }
+    const trechoLimpo = trecho.trim();
+    const normalizado = trechoLimpo.toLowerCase();
+    const row = await prisma.dsarAprendizado.create({
+      data: {
+        trecho: trechoLimpo,
+        trechoNormalizado: normalizado,
+        classificacaoCorreta,
+        classificacaoErrada: typeof classificacaoErrada === 'string' ? classificacaoErrada : null,
+        contexto: typeof contexto === 'string' ? contexto.slice(0, 500) : null
+      }
+    });
+    res.json({ id: row.id });
+  } catch (err) {
+    console.error('[POST /documents/aprendizado]', err);
+    res.status(500).json({ erro: 'Erro ao salvar aprendizado' });
   }
 });
 

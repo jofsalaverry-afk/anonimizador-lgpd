@@ -2,14 +2,49 @@ import { useState, useRef } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 
+// Opcoes de correcao oferecidas no modal. O valor deve bater com
+// CLASSIFICACOES_VALIDAS no backend (documents.js).
+const OPCOES_CORRECAO = [
+  { valor: 'nao_pessoal', rotulo: 'Nao e dado pessoal' },
+  { valor: 'cpf', rotulo: 'E CPF' },
+  { valor: 'endereco', rotulo: 'E endereco' },
+  { valor: 'nome', rotulo: 'E nome' },
+  { valor: 'telefone', rotulo: 'E telefone' }
+];
+
 // Relatorio simplificado de devolutiva: mostra, em linguagem para leigo,
 // o que foi tarjado (e por que) e o que foi preservado (e por que). Alimentado
 // pela funcao gerarRelatorio do backend (tarjador.js).
-function RelatorioDevolutiva({ relatorio }) {
+function RelatorioDevolutiva({ relatorio, token }) {
   const { resumo, tarjados, naoTarjados } = relatorio || {};
+  const [modalItem, setModalItem] = useState(null); // { trecho, categoria }
+  const [salvando, setSalvando] = useState(false);
+  const [corrigidos, setCorrigidos] = useState({}); // trecho -> classificacao escolhida
   if (!resumo) return null;
   const categorias = resumo.categoriasLegiveis || {};
   const temCategoria = Object.values(categorias).some(v => v > 0);
+
+  const enviarCorrecao = async (classificacao) => {
+    if (!modalItem) return;
+    setSalvando(true);
+    try {
+      await axios.post(
+        `${API}/documents/aprendizado`,
+        {
+          trecho: modalItem.trecho,
+          classificacaoErrada: modalItem.classificacaoOriginal || null,
+          classificacaoCorreta: classificacao
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setCorrigidos(prev => ({ ...prev, [modalItem.trecho]: classificacao }));
+      setModalItem(null);
+    } catch (err) {
+      alert('Erro ao salvar correcao: ' + (err.response?.data?.erro || err.message));
+    } finally {
+      setSalvando(false);
+    }
+  };
 
   return (
     <div className="card mt-16">
@@ -43,9 +78,20 @@ function RelatorioDevolutiva({ relatorio }) {
           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
             {tarjados.slice(0, 20).map((t, i) => (
               <li key={i} style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
                   <span className="badge badge-success">{t.categoria}</span>
                   <code style={{ fontSize: 12, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{t.trecho}</code>
+                  {corrigidos[t.trecho] ? (
+                    <span className="text-sm" style={{ color: '#059669' }}>correcao enviada</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setModalItem({ trecho: t.trecho, classificacaoOriginal: t.categoria })}
+                      style={{ fontSize: 11, padding: '2px 8px', background: 'transparent', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer', color: '#475569' }}
+                    >
+                      Corrigir classificacao
+                    </button>
+                  )}
                 </div>
                 <div className="text-sm" style={{ color: '#475569' }}>{t.motivo}</div>
               </li>
@@ -57,6 +103,47 @@ function RelatorioDevolutiva({ relatorio }) {
             </div>
           )}
         </>
+      )}
+
+      {modalItem && (
+        <div
+          onClick={() => !salvando && setModalItem(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 8, padding: 24, maxWidth: 420, width: '90%', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
+          >
+            <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>Corrigir classificacao</h3>
+            <p className="text-sm mb-16" style={{ color: '#64748b' }}>
+              Trecho: <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{modalItem.trecho}</code>
+            </p>
+            <p className="text-sm mb-16" style={{ color: '#64748b' }}>
+              Sua correcao ajuda o sistema a classificar melhor em outros documentos.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {OPCOES_CORRECAO.map(op => (
+                <button
+                  key={op.valor}
+                  type="button"
+                  disabled={salvando}
+                  onClick={() => enviarCorrecao(op.valor)}
+                  style={{ padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc', cursor: salvando ? 'wait' : 'pointer', textAlign: 'left' }}
+                >
+                  {op.rotulo}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              disabled={salvando}
+              onClick={() => setModalItem(null)}
+              style={{ marginTop: 12, padding: '6px 12px', border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer' }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
       )}
 
       {naoTarjados && naoTarjados.length > 0 && (
@@ -259,7 +346,7 @@ export default function Anonimizador({ token, onTokenInvalido }) {
             <p><strong>PDF anonimizado com tarjas gerado e baixado com sucesso!</strong></p>
             <p className="text-sm">O arquivo foi salvo na sua pasta de downloads.</p>
           </div>
-          {resultado.relatorio && <RelatorioDevolutiva relatorio={resultado.relatorio} />}
+          {resultado.relatorio && <RelatorioDevolutiva relatorio={resultado.relatorio} token={token} />}
         </>
       )}
 

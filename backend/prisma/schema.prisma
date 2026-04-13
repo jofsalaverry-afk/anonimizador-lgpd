@@ -391,6 +391,24 @@ model DsarOtp {
   @@index([expiresAt])
 }
 
+// ============ Aprendizado do anonimizador ============
+// Correcoes de classificacao feitas por usuarios no relatorio de devolutiva.
+// Global — aplicadas a todas as organizacoes. Quando o mesmo trecho aparecer
+// de novo, o gerarRelatorio usa a classificacao validada em vez da heuristica.
+// classificacaoCorreta: "cpf" | "rg" | "email" | "telefone" | "endereco" |
+// "nome" | "nao_pessoal".
+model DsarAprendizado {
+  id                    String   @id @default(cuid())
+  trecho                String
+  trechoNormalizado     String   // lowercase, para lookup
+  classificacaoErrada   String?
+  classificacaoCorreta  String
+  contexto              String?
+  criadoEm              DateTime @default(now())
+
+  @@index([trechoNormalizado])
+}
+
 // ============ Treinamento ============
 // Override de youtubeId/titulo de modulos das trilhas hardcoded.
 // Permite admin curar conteudo sem alterar codigo. Global — afeta

@@ -359,12 +359,21 @@ function categorizarTrecho(trecho) {
   return 'outro';
 }
 
+// UFs brasileiras — unicas, nao sao dado pessoal (dado publico geografico).
+// Trechos reconstruidos que sao so uma UF devem ser descartados do relatorio.
+const UFS_BR = new Set([
+  'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB',
+  'PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'
+]);
+
 // Gera um relatorio simplificado, em linguagem para leigo, sobre o que foi
 // (e o que nao foi) tarjado no documento. A ideia e dar transparencia ao
 // usuario final do sistema: total por categoria, exemplos do que foi tarjado
 // com o motivo (LGPD), e exemplos do que foi PRESERVADO com o motivo (LAI,
 // CNPJ nao e dado pessoal, etc.).
-function gerarRelatorio(itens, linhas, tarjas) {
+// aprendizado: Map<trechoNormalizado, classificacaoCorreta> — correcoes
+// globais aplicadas por usuarios previamente (ver rota POST /documents/aprendizado).
+function gerarRelatorio(itens, linhas, tarjas, aprendizado = new Map()) {
   const categorias = { cpf: 0, rg: 0, email: 0, telefone: 0, endereco: 0, nome: 0 };
 
   // Tarjas vem com start/end relativos ao item, mas um CPF pode estar
@@ -388,7 +397,24 @@ function gerarRelatorio(itens, linhas, tarjas) {
     if (!trecho) return;
     // CEP nao e dado pessoal — ignora mesmo que algum item tenha sido tarjado
     if (parecerCEP(trecho)) return;
-    const cat = categorizarTrecho(trecho);
+    // Filtros de ruido — fragmentos muito curtos ou tokens neutros
+    const alfanums = (trecho.match(/[A-Za-zÀ-ÿ0-9]/g) || []).length;
+    if (alfanums < 4) return;
+    if (UFS_BR.has(trecho.toUpperCase())) return;
+    if (/^[^A-Za-zÀ-ÿ0-9]/.test(trecho) && trecho.length < 6) return;
+
+    // Aprendizado global — se o trecho exato ja foi corrigido antes, usa a
+    // classificacao validada pelo usuario em vez da heuristica.
+    const chaveApr = trecho.toLowerCase();
+    const correcao = aprendizado.get(chaveApr);
+    let cat;
+    if (correcao === 'nao_pessoal') return; // usuario marcou como nao sendo dado pessoal
+    if (correcao && LABELS_CATEGORIA[correcao]) {
+      cat = correcao;
+    } else {
+      cat = categorizarTrecho(trecho);
+    }
+
     // Fragmentos numericos curtos ("000,", "-00") que nao casam em nenhuma
     // categoria sao ruido da reconstrucao por linha — pedacos soltos que
     // nao foram merged com a tarja vizinha. Nao relatar.
