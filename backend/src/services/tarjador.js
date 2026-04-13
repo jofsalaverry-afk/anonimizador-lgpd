@@ -312,7 +312,7 @@ function construirTarjas(itens, linhas, respostaIA) {
 
 // Regex usados para categorizar trechos tarjados no relatorio simplificado.
 // Ordem importa: CPF antes de RG (11 digitos colide), email antes de telefone.
-const RE_CPF_CAT = /\d{3}\.?\d{3}\.?\d{3}\s*[-–—]\s*\d{2}/;
+const RE_CPF_CAT = /\d{3}\.?\d{3}\.?\d{3}[-–—.\s]*\d{2}/;
 const RE_RG_CAT = /\d{1,2}\.\d{3}\.\d{3}[-]?[\dXx]/;
 const RE_EMAIL_CAT = /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/;
 const RE_TEL_CAT = /\(?\d{2}\)?\s?9?\d{4}[-\s]\d{4}/;
@@ -512,3 +512,4 @@ module.exports = {
   linhaEhResidencia,
   linhaTemCargoPublico,
 };
+
