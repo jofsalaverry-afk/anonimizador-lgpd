@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const rateLimit = require('express-rate-limit');
+const { body } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
 const {
   gerarProtocolo,
@@ -15,9 +15,28 @@ const {
   enviarConfirmacaoSolicitacao,
   enviarRespostaTitular
 } = require('../services/emailService');
+const { validar, validarEmail, validarCpf, validarCuid, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+const TIPOS_DIREITO = ['ACESSO', 'CORRECAO', 'ELIMINACAO', 'PORTABILIDADE', 'OPOSICAO', 'REVOGACAO', 'INFORMACAO', 'PETICAO'];
+
+const validadoresSolicitarOtp = [
+  validarCuid('organizacaoId', 'body'),
+  sanitizarTexto('titularNome', { min: 2, max: 200 }),
+  validarEmail('titularEmail'),
+  validarCpf('titularCpf', { opcional: true }),
+  validarEnum('tipoDireito', TIPOS_DIREITO),
+  sanitizarTexto('descricao', { min: 5, max: 2000 }),
+  validar
+];
+
+const validadoresConfirmarOtp = [
+  validarEmail('titularEmail'),
+  body('codigo').trim().matches(/^\d{6}$/).withMessage('Codigo deve ter 6 digitos'),
+  validar
+];
 
 // ---------- Middlewares ----------
 
@@ -47,14 +66,9 @@ const requireModulo = async (req, res, next) => {
   }
 };
 
-// Rate limiter especifico para rotas publicas de OTP: protege contra abuso
-const otpLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { erro: 'Muitas tentativas. Aguarde 15 minutos.' }
-});
+// Rate limiter de /dsar/publico vem do server.js (limiterDsarPublico,
+// 5 req/15min/IP) — aplicado via app.use('/dsar/publico', ...) antes
+// deste router. Nao precisa de limiter local.
 
 // ---------- Rotas autenticadas (modulo dsar) ----------
 
@@ -275,7 +289,7 @@ router.get('/publico/org/:slug', async (req, res) => {
 
 // Passo 1: titular envia o formulario. Gera OTP e envia email.
 // NAO cria SolicitacaoTitular ainda — so guarda dados em DsarOtp.
-router.post('/publico/solicitar-otp', otpLimiter, async (req, res) => {
+router.post('/publico/solicitar-otp', validadoresSolicitarOtp, async (req, res) => {
   try {
     const { organizacaoId, titularNome, titularEmail, titularCpf, tipoDireito, descricao } = req.body;
     if (!organizacaoId || !titularNome || !titularEmail || !tipoDireito || !descricao) {
@@ -318,7 +332,7 @@ router.post('/publico/solicitar-otp', otpLimiter, async (req, res) => {
 });
 
 // Passo 2: titular confirma OTP. Cria a solicitacao real.
-router.post('/publico/confirmar-otp', otpLimiter, async (req, res) => {
+router.post('/publico/confirmar-otp', validadoresConfirmarOtp, async (req, res) => {
   try {
     const { titularEmail, codigo } = req.body;
     if (!titularEmail || !codigo) {

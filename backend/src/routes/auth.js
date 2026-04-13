@@ -2,12 +2,20 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
+const { body } = require('express-validator');
 const { auditarLogin } = require('../middlewares/auditoria');
+const { validar, validarEmail } = require('../middlewares/seguranca');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-router.post('/login', async (req, res) => {
+const validadoresLogin = [
+  validarEmail('email'),
+  body('senha').isString().isLength({ min: 1, max: 200 }).withMessage('Senha obrigatoria'),
+  validar
+];
+
+router.post('/login', validadoresLogin, async (req, res) => {
   try {
     const { email, senha } = req.body;
     const usuario = await prisma.usuario.findUnique({

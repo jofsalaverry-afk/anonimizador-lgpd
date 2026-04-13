@@ -14,6 +14,8 @@ const {
   PROMPT_INSTRUCOES,
 } = require('../services/tarjador');
 const { extrairTextoOCR } = require('../services/ocr');
+const { body } = require('express-validator');
+const { validar, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -244,7 +246,15 @@ router.get('/', authMiddleware, async (req, res) => {
 // Recebe correcao de classificacao feita no relatorio de devolutiva.
 // Global (nao por organizacao) — todas as camaras se beneficiam do
 // aprendizado. Body: { trecho, classificacaoCorreta, classificacaoErrada?, contexto? }.
-router.post('/aprendizado', authMiddleware, requireModulo('anonimizador'), async (req, res) => {
+const validadoresAprendizado = [
+  sanitizarTexto('trecho', { min: 1, max: 500 }),
+  validarEnum('classificacaoCorreta', CLASSIFICACOES_VALIDAS),
+  body('classificacaoErrada').optional({ checkFalsy: true }).isString().isLength({ max: 100 }),
+  body('contexto').optional({ checkFalsy: true }).isString().isLength({ max: 500 }),
+  validar
+];
+
+router.post('/aprendizado', authMiddleware, requireModulo('anonimizador'), validadoresAprendizado, async (req, res) => {
   try {
     const { trecho, classificacaoCorreta, classificacaoErrada, contexto } = req.body || {};
     if (typeof trecho !== 'string' || !trecho.trim()) {

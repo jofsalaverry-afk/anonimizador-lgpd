@@ -4,6 +4,12 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const { auditoriaMiddleware } = require('./middlewares/auditoria');
+const {
+  limiterAuth,
+  limiterDocuments,
+  limiterDsarPublico,
+  tentativasSuspeitas
+} = require('./middlewares/seguranca');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -12,15 +18,24 @@ const app = express();
 app.set('trust proxy', 1);
 
 // Helmet — headers de seguranca padrao da industria.
-// HSTS so faz sentido sob HTTPS (Railway sempre serve sob HTTPS na porta exposta),
-// CSP relaxado pois esta API e consumida apenas via XHR de outros dominios
-// (frontend separado), nao serve HTML.
+// - CSP restritivo (API JSON, nao serve HTML, nao precisa liberar nada)
+// - frameguard DENY para evitar clickjacking
+// - referrerPolicy strict-origin para nao vazar paths em requests cross-origin
+// - HSTS 1 ano (Railway expoe sob HTTPS)
 app.use(helmet({
-  contentSecurityPolicy: false, // API JSON, sem HTML — CSP nao se aplica
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'none'"],
+      frameAncestors: ["'none'"]
+    }
+  },
+  frameguard: { action: 'deny' },
+  referrerPolicy: { policy: 'strict-origin' },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
-  crossOriginOpenerPolicy: false, // nao serve HTML
+  crossOriginOpenerPolicy: false,
   hsts: {
-    maxAge: 31536000, // 1 ano
+    maxAge: 31536000,
     includeSubDomains: true,
     preload: false
   }
@@ -55,17 +70,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Limite agressivo para tentativas de login (brute-force): 10 em 15 minutos
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { erro: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
-  skipSuccessfulRequests: true
-});
-
-// Limite moderado para rotas admin autenticadas: 60 req/min
+// Limite moderado para rotas admin autenticadas: 60 req/min (nao-sensivel,
+// so para evitar flood de painel interno). Mantido inline pois e especifico.
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
@@ -74,24 +80,37 @@ const adminLimiter = rateLimit({
   message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
 
-// Limite para rotas de processamento de documentos: 20 req/min por IP
-const documentLimiter = rateLimit({
+// Limite moderado p/ rotas de CRUD autenticadas (ROPA, repositorio, etc.):
+// 60 req/min. Menor que o anterior (20/min em ../documents) pois sao
+// operacoes de painel, nao de processamento pesado.
+const crudLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 20,
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { erro: 'Muitas requisicoes de processamento. Aguarde um momento.' }
+  message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
 
-// O CORS e tratado pelo middleware manual no inicio do arquivo
-// (ORIGENS_PERMITIDAS_CORS), entao nao usamos o pacote cors() aqui.
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+// Body parsers — 50kb por padrao. Rotas que legitimamente sobem JSON
+// grande (logo base64, markdown longo de repositorio) sao atendidas por
+// parsers maiores montados ANTES do global, que roda primeiro e preenche
+// req.body. O global se torna no-op para essas rotas.
+// Upload de PDF/DOCX usa multer (multipart), entao nao passa por aqui.
+app.use('/admin', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
+app.use('/perfil', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
+app.use('/repositorio', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
+app.use(express.json({ limit: '50kb' }));
+app.use(express.urlencoded({ limit: '50kb', extended: true }));
 
 // Auditoria: registrado APOS os parsers (precisa do req.body) e ANTES das
 // rotas. Como escuta res.on('finish'), ele captura req.camara/req.admin
 // que sao populados dentro dos handlers das rotas.
 app.use(auditoriaMiddleware(prisma));
+
+// Deteccao de tentativas suspeitas — loga WARN quando um IP passa de 5
+// respostas 401/403 em 5 minutos. Precisa rodar antes das rotas para
+// poder escutar o res.on('finish') de cada handler.
+app.use(tentativasSuspeitas());
 
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
@@ -102,25 +121,30 @@ const repositorioRoutes = require('./routes/repositorio');
 const conformidadeRoutes = require('./routes/conformidade');
 const treinamentoRoutes = require('./routes/treinamento');
 
-// Limites aplicados antes do router, matchando paths especificos
-app.use('/auth/login', loginLimiter);
-app.use('/admin/login', loginLimiter);
+// Rate limiters padronizados (ver middlewares/seguranca.js):
+// - /auth/* → 10/15min/IP (brute force login)
+// - /admin/login → mesmo limiter (alvo equivalente)
+// - /dsar/publico/* → 5/15min/IP (endpoint publico, anti-flood)
+// - /documents/* → 20/hora/usuario (uso de IA, custo por token)
+// - /admin, /ropa, /repositorio, /conformidade, /treinamento → 60/min (CRUD painel)
+app.use('/auth', limiterAuth);
+app.use('/admin/login', limiterAuth);
 app.use('/admin', adminLimiter);
-app.use('/documents', documentLimiter);
+app.use('/dsar/publico', limiterDsarPublico);
+app.use('/documents', limiterDocuments);
 
 app.use('/auth', authRoutes);
 app.use('/admin', adminRoutes);
 app.use('/perfil', require('./routes/perfil'));
 app.use('/documents', documentRoutes);
-app.use('/ropa', documentLimiter);
+app.use('/ropa', crudLimiter);
 app.use('/ropa', ropaRoutes);
-app.use('/dsar', documentLimiter);
 app.use('/dsar', dsarRoutes);
-app.use('/repositorio', documentLimiter);
+app.use('/repositorio', crudLimiter);
 app.use('/repositorio', repositorioRoutes);
-app.use('/conformidade', documentLimiter);
+app.use('/conformidade', crudLimiter);
 app.use('/conformidade', conformidadeRoutes);
-app.use('/treinamento', documentLimiter);
+app.use('/treinamento', crudLimiter);
 app.use('/treinamento', treinamentoRoutes);
 
 app.get('/health', (req, res) => {

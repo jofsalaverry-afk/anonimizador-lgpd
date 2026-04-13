@@ -2,11 +2,28 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
+const { body } = require('express-validator');
 const { auditarLogin } = require('../middlewares/auditoria');
+const { validar, validarEmail } = require('../middlewares/seguranca');
 const { getTrilhasComOverrides, TRILHAS_BASE } = require('./treinamento');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+const validadoresAdminLogin = [
+  validarEmail('email'),
+  body('senha').isString().isLength({ min: 1, max: 200 }).withMessage('Senha obrigatoria'),
+  validar
+];
+
+const validadoresCriarCamara = [
+  body('nome').trim().isLength({ min: 2, max: 200 }).withMessage('Nome invalido').escape(),
+  body('cnpj').trim().matches(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$|^\d{14}$/).withMessage('CNPJ invalido'),
+  validarEmail('email'),
+  body('senha').isLength({ min: 8, max: 200 }).withMessage('Senha deve ter ao menos 8 caracteres'),
+  body('plano').optional().isIn(['basico', 'intermediario', 'avancado']).withMessage('Plano invalido'),
+  validar
+];
 
 const adminAuth = (req, res, next) => {
   try {
@@ -21,7 +38,7 @@ const adminAuth = (req, res, next) => {
   }
 };
 
-router.post('/login', async (req, res) => {
+router.post('/login', validadoresAdminLogin, async (req, res) => {
   try {
     const { email, senha } = req.body;
     const admin = await prisma.admin.findUnique({ where: { email } });
@@ -60,7 +77,7 @@ router.get('/camaras', adminAuth, async (req, res) => {
   }
 });
 
-router.post('/camaras', adminAuth, async (req, res) => {
+router.post('/camaras', adminAuth, validadoresCriarCamara, async (req, res) => {
   try {
     const { nome, cnpj, email, senha, plano } = req.body;
     const nomeNormalizado = nome ? nome.normalize('NFC') : nome;
