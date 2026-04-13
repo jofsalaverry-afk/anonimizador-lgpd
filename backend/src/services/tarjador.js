@@ -362,6 +362,7 @@ function gerarRelatorio(itens, linhas, tarjas) {
     const item = itens[t.i];
     if (!item) continue;
     const trecho = item.texto.slice(t.start, t.end).trim();
+    console.log('[rel]', t.i, t.start, t.end, JSON.stringify(item.texto.substring(0,50)), JSON.stringify(trecho));
     if (!trecho) continue;
     const cat = categorizarTrecho(trecho);
     if (categorias[cat] !== undefined) categorias[cat]++;
