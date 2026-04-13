@@ -165,22 +165,31 @@ async function anonimizarPDF(pdfBuffer) {
   console.log('[anonimizarPDF] itens com possivel CPF (regex tolerante):', itensComCPF.length);
 
   const itensParaIA = buildPromptItens(itens, linhas);
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 8000,
-    messages: [{
-      role: 'user',
-      content: `${PROMPT_INSTRUCOES}\n\nItens (JSON):\n${JSON.stringify(itensParaIA)}`
-    }]
-  });
-
   let respostaIA = { tarjas: [] };
+  let iaFalhou = false;
   try {
-    respostaIA = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
-  } catch (e) {
-    console.log('[anonimizarPDF] falha ao parsear resposta da IA:', e.message);
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 8000,
+      messages: [{
+        role: 'user',
+        content: `${PROMPT_INSTRUCOES}\n\nItens (JSON):\n${JSON.stringify(itensParaIA)}`
+      }]
+    });
+    try {
+      respostaIA = JSON.parse(message.content[0].text.match(/\{[\s\S]*\}/)[0]);
+    } catch (e) {
+      console.log('[anonimizarPDF] falha ao parsear resposta da IA:', e.message);
+    }
+  } catch (err) {
+    // API da Anthropic indisponivel (529, timeout, 5xx, rede). Continua
+    // em "modo basico" — so as tarjas de construirTarjas (regex CPF/RG/
+    // email/telefone por item e por linha) entram no PDF. Cobertura
+    // menor (sem nomes/enderecos via IA) mas documento ainda e entregue.
+    console.error('[anonimizarPDF] IA indisponivel, modo basico:', err.status || '', err.message);
+    iaFalhou = true;
   }
-  console.log('[anonimizarPDF] tarjas da IA:', (respostaIA.tarjas || []).length);
+  console.log('[anonimizarPDF] tarjas da IA:', (respostaIA.tarjas || []).length, 'iaFalhou:', iaFalhou);
 
   const tarjas = construirTarjas(itens, linhas, respostaIA);
   const porOrigem = {};
@@ -205,7 +214,7 @@ async function anonimizarPDF(pdfBuffer) {
   };
 
   const pdfFinal = await aplicarTarjas(pdfBuffer, itens, tarjas);
-  return { pdfBuffer: pdfFinal, stats, relatorio, tipoDocumento: 'contrato', ocrUsado: false };
+  return { pdfBuffer: pdfFinal, stats, relatorio, tipoDocumento: 'contrato', ocrUsado: false, modoBasico: iaFalhou };
 }
 
 // Lista documentos processados pela camara autenticada (filtro multi-tenant
@@ -322,7 +331,9 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
         relatorio: resultado.relatorio,
         stats: resultado.stats,
         tipoDocumento: resultado.tipoDocumento,
-        leisAplicaveis: baseJuridica[resultado.tipoDocumento] || baseJuridica.outro
+        leisAplicaveis: baseJuridica[resultado.tipoDocumento] || baseJuridica.outro,
+        modoBasico: resultado.modoBasico || false,
+        avisoIA: resultado.modoBasico ? 'Processado em modo basico (IA indisponivel). Apenas CPF, RG, email e telefone detectados por regex foram tarjados.' : undefined
       });
     }
 
