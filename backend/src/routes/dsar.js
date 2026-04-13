@@ -245,6 +245,34 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
 
 // ---------- Rotas publicas (sem auth, com OTP) ----------
 
+// Passo 0: titular abre a pagina publica /solicitar/:slug. O frontend
+// resolve o slug da camara para pegar nome, municipio e id real, que
+// sera usado no POST /publico/solicitar-otp. Retorna somente dados
+// nao sensiveis — nao expoe CNPJ nem lista de usuarios.
+router.get('/publico/org/:slug', async (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').trim().toLowerCase();
+    if (!slug) return res.status(400).json({ erro: 'Slug invalido' });
+    const org = await prisma.organizacao.findUnique({
+      where: { slug },
+      select: { id: true, nome: true, municipio: true, logoBase64: true, ativo: true, modulosAtivos: true }
+    });
+    if (!org || !org.ativo) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
+    if (!org.modulosAtivos.includes('dsar')) {
+      return res.status(403).json({ erro: 'Este servico nao esta disponivel para esta organizacao' });
+    }
+    res.json({
+      id: org.id,
+      nome: org.nome,
+      municipio: org.municipio,
+      logoBase64: org.logoBase64
+    });
+  } catch (err) {
+    console.error('[GET /dsar/publico/org/:slug]', err);
+    res.status(500).json({ erro: 'Erro ao buscar organizacao' });
+  }
+});
+
 // Passo 1: titular envia o formulario. Gera OTP e envia email.
 // NAO cria SolicitacaoTitular ainda — so guarda dados em DsarOtp.
 router.post('/publico/solicitar-otp', otpLimiter, async (req, res) => {

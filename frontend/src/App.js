@@ -70,6 +70,12 @@ function App() {
   };
 
   if (rota === '#admin') return <Admin />;
+  // Rota publica nova: #solicitar/:slug (slug da organizacao)
+  if (rota.startsWith('#solicitar/')) {
+    const slug = rota.split('/')[1] || '';
+    return <SolicitarDireitos slug={slug} />;
+  }
+  // Rota publica legada: #solicitar-direitos/:organizacaoId (compat)
   if (rota.startsWith('#solicitar-direitos')) {
     const orgId = rota.split('/')[1] || '';
     return <SolicitarDireitos organizacaoId={orgId} />;

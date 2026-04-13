@@ -106,6 +106,7 @@ model Organizacao {
   id           String      @id @default(cuid())
   nome         String
   cnpj         String      @unique
+  slug         String?     @unique // usado na URL publica /solicitar/:slug
   ativo        Boolean     @default(true)
   plano        String      @default("basico")
   criadoEm     DateTime    @default(now())
