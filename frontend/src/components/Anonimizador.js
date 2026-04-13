@@ -351,6 +351,31 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
             <p><strong>PDF anonimizado com tarjas gerado e baixado com sucesso!</strong></p>
             <p className="text-sm">O arquivo foi salvo na sua pasta de downloads.</p>
           </div>
+          {resultado.modoBasico && (
+            <div
+              role="alert"
+              style={{
+                background: '#fef3c7',
+                border: '1px solid #f59e0b',
+                color: '#78350f',
+                borderRadius: 6,
+                padding: '12px 16px',
+                marginTop: 12,
+                marginBottom: 12,
+                display: 'flex',
+                gap: 10,
+                alignItems: 'flex-start'
+              }}
+            >
+              <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
+              <div>
+                <strong>Modo basico ativado</strong>
+                <div className="text-sm" style={{ marginTop: 4 }}>
+                  {resultado.avisoIA || 'Processado em modo basico (IA indisponivel).'}
+                </div>
+              </div>
+            </div>
+          )}
           {resultado.relatorio && <RelatorioDevolutiva relatorio={resultado.relatorio} token={token} podeCorrigir={PERFIS_CORRIGIR.includes(usuario?.perfil)} />}
         </>
       )}
