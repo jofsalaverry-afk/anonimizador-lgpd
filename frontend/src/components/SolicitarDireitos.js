@@ -18,7 +18,127 @@ const TIPO_OPTIONS = [
   { value: 'OUTRO', label: 'Outro (descrever)' }
 ];
 
-export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdProp }) {
+const SETORES_PESQUISA = ['Protocolo', 'RH', 'Financeiro', 'Juridico', 'Presidencia', 'Outro'];
+
+// Render interno do formulario de pesquisa de satisfacao — usa o slug
+// ja resolvido (org + OrgHeader) do componente pai e trata o proprio
+// estado e submissao. Nao passa pelo fluxo de OTP.
+function PesquisaSatisfacao({ slug, org, OrgHeader }) {
+  const [nome, setNome] = useState('');
+  const [email, setEmail] = useState('');
+  const [avaliacao, setAvaliacao] = useState(0);
+  const [setor, setSetor] = useState('');
+  const [comentario, setComentario] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState('');
+  const [enviada, setEnviada] = useState(false);
+
+  const enviar = async (e) => {
+    e.preventDefault();
+    if (!avaliacao) return setErro('Selecione uma avaliacao de 1 a 5 estrelas');
+    if (!setor) return setErro('Selecione o setor atendido');
+    if (!comentario.trim()) return setErro('O comentario e obrigatorio');
+    setLoading(true);
+    setErro('');
+    try {
+      await axios.post(`${API}/dsar/publico/pesquisa`, {
+        slug,
+        titularNome: nome,
+        titularEmail: email,
+        avaliacao,
+        setor,
+        comentario
+      });
+      setEnviada(true);
+    } catch (err) {
+      setErro(err.response?.data?.erro || 'Erro ao enviar pesquisa. Tente novamente.');
+    }
+    setLoading(false);
+  };
+
+  if (enviada) {
+    return (
+      <div className="page-center">
+        <div className="login-card">
+          <OrgHeader />
+          <div className="login-header">
+            <div className="login-icon">💜</div>
+            <h1 className="login-title">Obrigado!</h1>
+            <p className="login-subtitle">Sua avaliacao foi registrada com sucesso.</p>
+          </div>
+          <div className="alert-info">
+            Sua opiniao ajuda a {org?.nome || 'camara'} a melhorar o atendimento ao cidadao. Obrigado por dedicar seu tempo.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-center">
+      <div className="login-card">
+        <OrgHeader />
+        <div className="login-header">
+          <div className="login-icon">⭐</div>
+          <h1 className="login-title">Sua opiniao importa</h1>
+          <p className="login-subtitle">Ajude a melhorar os servicos da camara</p>
+        </div>
+
+        {erro && <div className="alert-error">{erro}</div>}
+
+        <form onSubmit={enviar}>
+          <label>Nome (opcional)</label>
+          <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Seu nome" maxLength={200} />
+
+          <label>E-mail (opcional)</label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" />
+
+          <label>Avaliacao geral *</label>
+          <div style={{ display: 'flex', gap: 8, fontSize: 32, marginBottom: 16, userSelect: 'none' }}>
+            {[1, 2, 3, 4, 5].map(n => (
+              <span
+                key={n}
+                onClick={() => setAvaliacao(n)}
+                style={{ cursor: 'pointer', color: n <= avaliacao ? '#f59e0b' : '#cbd5e1', transition: 'color 0.15s' }}
+                role="button"
+                aria-label={`${n} estrelas`}
+              >
+                ★
+              </span>
+            ))}
+            {avaliacao > 0 && <span className="text-muted text-sm" style={{ alignSelf: 'center', marginLeft: 8 }}>{avaliacao}/5</span>}
+          </div>
+
+          <label>Setor atendido *</label>
+          <select value={setor} onChange={e => setSetor(e.target.value)} required>
+            <option value="">Selecione...</option>
+            {SETORES_PESQUISA.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+
+          <label>Comentario *</label>
+          <textarea
+            value={comentario}
+            onChange={e => setComentario(e.target.value)}
+            rows={5}
+            placeholder="Conte sua experiencia, sugestoes de melhoria, elogios..."
+            required
+            maxLength={2000}
+          />
+
+          <button className="btn-primary mt-16" type="submit" disabled={loading}>
+            {loading ? 'Enviando...' : 'Enviar avaliacao'}
+          </button>
+        </form>
+
+        <p className="text-muted text-xs text-center mt-16">
+          Esta pesquisa nao coleta dados sensiveis. Nome e email sao opcionais e usados apenas para eventual retorno, caso voce preencha.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdProp, modo = 'dsar' }) {
   const [etapa, setEtapa] = useState('form'); // 'form' | 'otp' | 'sucesso'
   const [form, setForm] = useState({ titularNome: '', titularEmail: '', titularCpf: '', tipoDireito: '', descricao: '' });
   // Texto livre so usado quando tipoDireito === 'OUTRO'. Concatenado na
@@ -141,6 +261,12 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
         </div>
       </div>
     );
+  }
+
+  // Modo pesquisa de satisfacao — renderiza um formulario totalmente
+  // diferente, sem OTP e sem CPF. Ja temos o slug resolvido acima.
+  if (modo === 'pesquisa') {
+    return <PesquisaSatisfacao slug={slug} org={org} OrgHeader={OrgHeader} />;
   }
 
   // ========== Tela 3: sucesso ==========

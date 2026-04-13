@@ -75,6 +75,11 @@ function App() {
     const slug = rota.split('/')[1] || '';
     return <SolicitarDireitos slug={slug} />;
   }
+  // Pesquisa de satisfacao publica: #pesquisa/:slug
+  if (rota.startsWith('#pesquisa/')) {
+    const slug = rota.split('/')[1] || '';
+    return <SolicitarDireitos slug={slug} modo="pesquisa" />;
+  }
   // Rota publica legada: #solicitar-direitos/:organizacaoId (compat)
   if (rota.startsWith('#solicitar-direitos')) {
     const orgId = rota.split('/')[1] || '';

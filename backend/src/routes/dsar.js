@@ -11,6 +11,7 @@ const {
   criarSolicitacaoApartirDeOtp
 } = require('../services/dsarService');
 const {
+  enviar,
   enviarOTP,
   enviarConfirmacaoSolicitacao,
   enviarRespostaTitular
@@ -35,6 +36,18 @@ const validadoresSolicitarOtp = [
 const validadoresConfirmarOtp = [
   validarEmail('titularEmail'),
   body('codigo').trim().matches(/^\d{6}$/).withMessage('Codigo deve ter 6 digitos'),
+  validar
+];
+
+const SETORES_PESQUISA = ['Protocolo', 'RH', 'Financeiro', 'Juridico', 'Presidencia', 'Outro'];
+
+const validadoresPesquisa = [
+  body('slug').trim().isLength({ min: 2, max: 100 }).matches(/^[a-z0-9-]+$/i).withMessage('Slug invalido'),
+  body('titularNome').optional({ checkFalsy: true }).trim().isLength({ max: 200 }).escape(),
+  body('titularEmail').optional({ checkFalsy: true }).isEmail().normalizeEmail(),
+  body('avaliacao').isInt({ min: 1, max: 5 }).withMessage('Avaliacao deve ser de 1 a 5'),
+  validarEnum('setor', SETORES_PESQUISA),
+  sanitizarTexto('comentario', { min: 5, max: 2000 }),
   validar
 ];
 
@@ -365,6 +378,98 @@ router.post('/publico/confirmar-otp', validadoresConfirmarOtp, async (req, res) 
   } catch (err) {
     console.error('[POST /dsar/publico/confirmar-otp]', err);
     res.status(500).json({ erro: 'Erro ao confirmar codigo' });
+  }
+});
+
+// Pesquisa de satisfacao publica — reaproveita SolicitacaoTitular com
+// tipoDireito OUTRO. Sem OTP (nao coleta dado sensivel), sem prazo de
+// 15 dias (dataLimite fica +1 ano so para satisfazer o NOT NULL do schema).
+// Notifica gestores da organizacao por email com os dados da pesquisa.
+router.post('/publico/pesquisa', validadoresPesquisa, async (req, res) => {
+  try {
+    const { slug, titularNome, titularEmail, avaliacao, setor, comentario } = req.body;
+    const org = await prisma.organizacao.findUnique({
+      where: { slug: String(slug).toLowerCase() },
+      select: { id: true, nome: true, ativo: true, modulosAtivos: true }
+    });
+    if (!org || !org.ativo) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
+    if (!org.modulosAtivos.includes('dsar')) {
+      return res.status(403).json({ erro: 'Este servico nao esta disponivel para esta organizacao' });
+    }
+
+    const nomeSeguro = titularNome && titularNome.trim() ? titularNome.trim() : 'Cidadao anonimo';
+    const emailSeguro = titularEmail && titularEmail.trim() ? titularEmail.trim() : 'anonimo@pesquisa.local';
+
+    // Descricao formatada com tudo que importa para o gestor. Prefixo
+    // [PESQUISA DE SATISFACAO] ajuda a filtrar no painel DSAR.
+    const estrelas = '*'.repeat(avaliacao) + '-'.repeat(5 - avaliacao);
+    const descricaoFormatada =
+      `[PESQUISA DE SATISFACAO]\n` +
+      `Avaliacao: ${avaliacao}/5  ${estrelas}\n` +
+      `Setor atendido: ${setor}\n` +
+      `Nome: ${nomeSeguro}\n` +
+      `Email de contato: ${emailSeguro}\n\n` +
+      `Comentario:\n${comentario}`;
+
+    const protocolo = await gerarProtocolo(org.id);
+    const dataRecebimento = new Date();
+    const dataLimite = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // +1 ano (sem SLA legal)
+
+    const sol = await prisma.solicitacaoTitular.create({
+      data: {
+        organizacaoId: org.id,
+        protocolo,
+        titularNome: nomeSeguro,
+        titularEmail: emailSeguro,
+        titularCpf: null,
+        tipoDireito: 'OUTRO',
+        descricao: descricaoFormatada,
+        dataRecebimento,
+        dataLimite
+      }
+    });
+
+    // Notifica gestores da organizacao em background (best-effort).
+    (async () => {
+      try {
+        const gestores = await prisma.usuario.findMany({
+          where: { organizacaoId: org.id, ativo: true, perfil: { in: ['GESTOR', 'ENCARREGADO_LGPD'] } },
+          select: { email: true }
+        });
+        const destinatarios = gestores.map(g => g.email).filter(Boolean);
+        if (!destinatarios.length) return;
+        const assunto = `Nova pesquisa de satisfacao — ${avaliacao}/5 estrelas`;
+        const texto =
+          `Nova pesquisa de satisfacao recebida\n\n` +
+          `Organizacao: ${org.nome}\n` +
+          `Protocolo: ${protocolo}\n` +
+          `Avaliacao: ${avaliacao}/5\n` +
+          `Setor: ${setor}\n` +
+          `Nome: ${nomeSeguro}\n` +
+          `Email: ${emailSeguro}\n\n` +
+          `Comentario:\n${comentario}\n`;
+        const html = `<p><strong>Nova pesquisa de satisfacao recebida</strong></p>
+<p><strong>Organizacao:</strong> ${org.nome}<br>
+<strong>Protocolo:</strong> ${protocolo}<br>
+<strong>Avaliacao:</strong> ${avaliacao}/5<br>
+<strong>Setor:</strong> ${setor}<br>
+<strong>Nome:</strong> ${nomeSeguro}<br>
+<strong>Email:</strong> ${emailSeguro}</p>
+<p><strong>Comentario:</strong></p>
+<p>${String(comentario).replace(/\n/g, '<br>')}</p>`;
+        await enviar({ to: destinatarios.join(','), subject: assunto, text: texto, html });
+      } catch (e) {
+        console.error('[dsar/pesquisa] falha ao notificar gestores:', e.message);
+      }
+    })();
+
+    res.status(201).json({
+      protocolo: sol.protocolo,
+      mensagem: 'Obrigado por compartilhar sua opiniao. Sua avaliacao foi registrada e ajudara a melhorar os servicos.'
+    });
+  } catch (err) {
+    console.error('[POST /dsar/publico/pesquisa]', err);
+    res.status(500).json({ erro: 'Erro ao enviar pesquisa' });
   }
 });
 
