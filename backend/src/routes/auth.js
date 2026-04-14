@@ -73,7 +73,7 @@ router.post('/login', validadoresLogin, async (req, res) => {
       where: { email },
       include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true } } }
     });
-    if (!usuario) {
+    if (!usuario || usuario.deletedAt) {
       auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', motivo: 'email_nao_encontrado' });
       return res.status(401).json({ erro: 'Email ou senha invalidos' });
     }
@@ -129,12 +129,13 @@ router.get('/me', async (req, res) => {
     const usuario = await prisma.usuario.findUnique({
       where: { id: decoded.id },
       select: {
-        id: true, nome: true, email: true, perfil: true, ativo: true, mfaAtivo: true,
+        id: true, nome: true, email: true, perfil: true, ativo: true, mfaAtivo: true, deletedAt: true,
         organizacaoId: true,
         organizacao: { select: { nome: true, plano: true, modulosAtivos: true } }
       }
     });
-    if (!usuario) return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    if (!usuario || usuario.deletedAt) return res.status(401).json({ erro: 'Sessao invalida' });
+    delete usuario.deletedAt;
     const { organizacao, ...rest } = usuario;
     res.json({ ...rest, orgNome: organizacao.nome, plano: organizacao.plano, modulosAtivos: organizacao.modulosAtivos });
   } catch (err) {
@@ -219,7 +220,7 @@ router.post('/mfa/verificar', validadorCodigoMfa, validar, async (req, res) => {
       where: { id: payload.userId },
       include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true } } }
     });
-    if (!usuario || !usuario.mfaSecret || !usuario.mfaAtivo) {
+    if (!usuario || usuario.deletedAt || !usuario.mfaSecret || !usuario.mfaAtivo) {
       return res.status(400).json({ erro: 'MFA nao configurado' });
     }
     const ok = speakeasy.totp.verify({

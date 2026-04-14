@@ -90,7 +90,11 @@ router.get('/camaras', adminAuth, async (req, res) => {
       select: {
         id: true, nome: true, cnpj: true, ativo: true, plano: true, criadoEm: true, modulosAtivos: true,
         _count: { select: { documentos: true, usuarios: true } },
-        usuarios: { select: { id: true, email: true, perfil: true, ativo: true, ultimoAcesso: true }, orderBy: { criadoEm: 'asc' } }
+        usuarios: {
+          where: { deletedAt: null },
+          select: { id: true, email: true, perfil: true, ativo: true, ultimoAcesso: true },
+          orderBy: { criadoEm: 'asc' }
+        }
       },
       orderBy: { criadoEm: 'desc' }
     });
@@ -181,7 +185,7 @@ router.post('/camaras/:id/usuarios', adminAuth, async (req, res) => {
 router.patch('/usuarios/:id/toggle', adminAuth, async (req, res) => {
   try {
     const usuario = await prisma.usuario.findUnique({ where: { id: req.params.id } });
-    if (!usuario) return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuario nao encontrado' });
     const atualizado = await prisma.usuario.update({ where: { id: req.params.id }, data: { ativo: !usuario.ativo } });
     res.json({ id: atualizado.id, ativo: atualizado.ativo });
   } catch (err) {
@@ -200,6 +204,25 @@ router.patch('/usuarios/:id/perfil', adminAuth, async (req, res) => {
       select: { id: true, email: true, perfil: true }
     });
     res.json(atualizado);
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+// Soft delete: mantem a linha no banco com deletedAt preenchido para
+// preservar rastreabilidade (logs, DSAR respondidos, etc.) — requisito
+// de compliance LGPD. Usuario soft-deletado some da listagem mas referencias
+// historicas continuam validas.
+router.delete('/usuarios/:id', adminAuth, async (req, res) => {
+  try {
+    const usuario = await prisma.usuario.findUnique({ where: { id: req.params.id } });
+    if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    await prisma.usuario.update({
+      where: { id: req.params.id },
+      data: { deletedAt: new Date(), ativo: false }
+    });
+    res.json({ ok: true });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ erro: 'Usuario nao encontrado' });
     res.status(500).json({ erro: 'Erro interno' });

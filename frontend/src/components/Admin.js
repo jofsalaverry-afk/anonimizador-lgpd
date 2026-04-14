@@ -149,6 +149,25 @@ export default function Admin() {
     }
   };
 
+  const toggleUsuario = async (id) => {
+    try {
+      await axios.patch(`${API}/admin/usuarios/${id}/toggle`, {}, { headers });
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao atualizar usuario');
+    }
+  };
+
+  const excluirUsuario = async (email, id) => {
+    if (!window.confirm(`Excluir o usuario ${email}? Esta acao preserva o historico mas remove o acesso permanentemente.`)) return;
+    try {
+      await axios.delete(`${API}/admin/usuarios/${id}`, { headers });
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao excluir usuario');
+    }
+  };
+
   useEffect(() => { carregar(); }, [carregar]);
 
   const handleLogin = async (e) => {
@@ -366,8 +385,26 @@ export default function Admin() {
                         <div className="flex-center gap-8">
                           <span className="text-sm">{u.email}</span>
                           <span className="badge badge-purple">{PERFIL_LABEL[u.perfil] || u.perfil}</span>
+                          <span className={u.ativo ? 'text-success text-sm' : 'text-error text-sm'}>{u.ativo ? 'ativo' : 'inativo'}</span>
                         </div>
-                        <span className={u.ativo ? 'text-success text-sm' : 'text-error text-sm'}>{u.ativo ? 'ativo' : 'inativo'}</span>
+                        <div className="flex-center gap-8">
+                          <button
+                            type="button"
+                            onClick={() => toggleUsuario(u.id)}
+                            className="btn-ghost"
+                            title={u.ativo ? 'Desativar acesso' : 'Reativar acesso'}
+                          >
+                            {u.ativo ? 'Desativar' : 'Reativar'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => excluirUsuario(u.email, u.id)}
+                            className="btn-danger btn-sm"
+                            title="Remover acesso permanentemente (mantem historico)"
+                          >
+                            Excluir
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
