@@ -41,7 +41,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
       {showSidebar && (
         <aside className="sidebar">
           <div className="sidebar-brand">
-            <div className="sidebar-logo">🏛️</div>
+            <div className="sidebar-logo"><img src="/submark-complidata.png" alt="Complidata" width="32" height="32" /></div>
             <div>
               <div className="sidebar-brand-name">Complidata</div>
               <div className="sidebar-brand-sub">LGPD · Poder Público</div>

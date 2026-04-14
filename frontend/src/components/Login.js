@@ -94,7 +94,7 @@ export default function Login({ onLogin }) {
     <div className="page-center">
       <div className="login-card">
         <div className="login-header">
-          <div className="login-icon">🏛️</div>
+          <img src="/logo-complidata.png" alt="Complidata" width="180" className="login-logo" />
           <h1 className="login-title">Complidata</h1>
           <p className="login-subtitle">LGPD · Poder Público</p>
         </div>
