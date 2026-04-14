@@ -99,6 +99,70 @@ async function jobSlaDSAR() {
   }
 }
 
+// ==================== Job: Retencao LogAuditoria (body redact 90d) ====================
+//
+// Roda todo dia as 02:00 UTC. Sobrescreve o campo `body` de LogAuditoria
+// criados ha mais de 90 dias com um sentinel de redacao. Metadata
+// (userId, ip, rota, statusCode, etc.) continua preservada para
+// rastreabilidade. O body pode conter dados pessoais (nome/email de
+// titular, payloads de DSAR, etc.) e por isso precisa ter retencao
+// limitada para evitar acumulo indefinido de PII no log de auditoria.
+//
+// Idempotente: se rodar 2x no mesmo dia, o segundo run re-sobrescreve o
+// mesmo sentinel (no-op semantico). Escala O(n) na primeira execucao e
+// O(volume-diario) nas seguintes.
+const LOG_BODY_SENTINEL = '<redacted após 90 dias>';
+
+async function jobRetencaoLogAuditoria() {
+  console.log('[cron:retencaoLog] inicio');
+  try {
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const resultado = await prisma.logAuditoria.updateMany({
+      where: { criadoEm: { lt: cutoff } },
+      data: { body: LOG_BODY_SENTINEL }
+    });
+    console.log(`[cron:retencaoLog] ${resultado.count} log(s) com body redactado (cutoff ${cutoff.toISOString()})`);
+  } catch (err) {
+    console.error('[cron:retencaoLog] falha:', err.message);
+  }
+}
+
+// ==================== Job: Anonimizacao SolicitacaoTitular 5 anos ====================
+//
+// Roda todo dia as 02:05 UTC. Anonimiza SolicitacaoTitular em estados
+// terminais (RESPONDIDA, ENCERRADA, CANCELADA) cuja ultima atualizacao
+// foi ha mais de 5 anos. Preserva protocolo, tipoDireito, status e
+// datas — o historico de "existiu um DSAR desse tipo" fica para
+// demonstracao de compliance; o dado pessoal do titular some.
+//
+// Filtra por titularNome != sentinel para nao reprocessar linhas ja
+// anonimizadas.
+const DSAR_ANON_SENTINEL = '[ANONIMIZADO]';
+const DSAR_STATUS_TERMINAIS = ['RESPONDIDA', 'ENCERRADA', 'CANCELADA'];
+const CINCO_ANOS_EM_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+
+async function jobAnonimizacaoDsarAntigo() {
+  console.log('[cron:anonimizaDsar] inicio');
+  try {
+    const cutoff = new Date(Date.now() - CINCO_ANOS_EM_MS);
+    const resultado = await prisma.solicitacaoTitular.updateMany({
+      where: {
+        status: { in: DSAR_STATUS_TERMINAIS },
+        atualizadoEm: { lt: cutoff },
+        titularNome: { not: DSAR_ANON_SENTINEL }
+      },
+      data: {
+        titularNome: DSAR_ANON_SENTINEL,
+        titularEmail: DSAR_ANON_SENTINEL,
+        titularCpf: DSAR_ANON_SENTINEL
+      }
+    });
+    console.log(`[cron:anonimizaDsar] ${resultado.count} solicitacao(oes) anonimizada(s) (cutoff ${cutoff.toISOString()})`);
+  } catch (err) {
+    console.error('[cron:anonimizaDsar] falha:', err.message);
+  }
+}
+
 // ==================== Registro ====================
 
 function iniciarCron() {
@@ -113,13 +177,25 @@ function iniciarCron() {
     timezone: 'UTC'
   });
 
-  console.log('[cron] agendado: slaDSAR diario as 09:00 UTC');
+  // Retencao: LogAuditoria body redact (02:00 UTC)
+  cron.schedule('0 2 * * *', jobRetencaoLogAuditoria, {
+    timezone: 'UTC'
+  });
+
+  // Retencao: SolicitacaoTitular anonimizacao 5 anos (02:05 UTC)
+  cron.schedule('5 2 * * *', jobAnonimizacaoDsarAntigo, {
+    timezone: 'UTC'
+  });
+
+  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC');
 
   // Em dev, permite forcar execucao imediata via env var
   if (process.env.RUN_CRON_ON_BOOT === 'true') {
-    console.log('[cron] executando slaDSAR na inicializacao (RUN_CRON_ON_BOOT=true)');
+    console.log('[cron] executando jobs na inicializacao (RUN_CRON_ON_BOOT=true)');
     jobSlaDSAR().catch(err => console.error(err));
+    jobRetencaoLogAuditoria().catch(err => console.error(err));
+    jobAnonimizacaoDsarAntigo().catch(err => console.error(err));
   }
 }
 
-module.exports = { iniciarCron, jobSlaDSAR };
+module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo };

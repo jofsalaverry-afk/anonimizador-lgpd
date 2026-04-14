@@ -153,6 +153,12 @@ app.use('/conformidade', conformidadeRoutes);
 app.use('/treinamento', crudLimiter);
 app.use('/treinamento', treinamentoRoutes);
 
+// Healthcheck. Deve ser monitorado externamente por um uptime monitor
+// gratuito (UptimeRobot, BetterStack, Healthchecks.io) apontando para
+// https://<URL-RAILWAY-BACKEND>/health com check a cada 5 min e alerta
+// por email para o DPO quando retornar status != 200 ou timeout. A
+// infra Railway nao tem alerta nativo de processo caido; esse monitor
+// externo eh o que dispara a notificacao quando o backend some.
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Anonimizador LGPD API rodando!' });
 });

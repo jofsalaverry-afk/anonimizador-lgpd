@@ -32,6 +32,26 @@ function getTransporter() {
 
 const FROM = process.env.SMTP_FROM || 'Anonimizador LGPD <nao-responda@anonimizador.local>';
 
+// Notifica o admin sobre falha de SMTP. Usa trans.sendMail direto (nao
+// a funcao enviar() desta mesma lib) para garantir que nunca ha
+// recursao — se o alerta tambem falhar, so loga e desiste.
+async function notificarFalhaSmtp(trans, { to, subject, err }) {
+  const adminEmail = process.env.ADMIN_ALERT_EMAIL;
+  if (!adminEmail) return;
+  if (to === adminEmail) return; // nao alerta sobre falha de envio para o proprio admin
+  try {
+    await trans.sendMail({
+      from: FROM,
+      to: adminEmail,
+      subject: '[Complidata] Falha SMTP detectada',
+      text: `Falha ao enviar email pelo servico de envio.\n\nDestinatario original: ${to}\nAssunto: ${subject}\nErro: ${err.message}\n\nVerifique credenciais SMTP, cota do provedor e conectividade do backend.`
+    });
+    console.log('[emailService] alerta de falha SMTP enviado para', adminEmail);
+  } catch (alertErr) {
+    console.error('[emailService] falha ao alertar admin sobre erro SMTP:', alertErr.message);
+  }
+}
+
 async function enviar({ to, subject, text, html }) {
   const trans = getTransporter();
   if (!trans) {
@@ -44,6 +64,7 @@ async function enviar({ to, subject, text, html }) {
     return info;
   } catch (err) {
     console.error('[emailService] falha ao enviar para', to, err.message);
+    notificarFalhaSmtp(trans, { to, subject, err }); // fire-and-forget
     throw err;
   }
 }

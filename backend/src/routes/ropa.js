@@ -38,10 +38,14 @@ router.use(authMiddleware, requireModulo);
 
 // ---------- Helpers ----------
 
-// Grava snapshot do estado atual do tratamento no historico
-async function gravarHistorico(tratamentoId, alteradoPor) {
-  const tratamento = await prisma.tratamento.findUnique({
-    where: { id: tratamentoId },
+// Grava snapshot do estado atual do tratamento no historico.
+// Exige organizacaoId como argumento e usa findFirst escopado para
+// defesa em profundidade: se algum caller futuro esquecer de verificar
+// ownership antes de chamar este helper, o findFirst ainda protege
+// contra IDOR retornando undefined silenciosamente.
+async function gravarHistorico(tratamentoId, organizacaoId, alteradoPor) {
+  const tratamento = await prisma.tratamento.findFirst({
+    where: { id: tratamentoId, organizacaoId },
     include: { compartilhamentos: true }
   });
   if (!tratamento) return;
@@ -137,7 +141,7 @@ router.put('/tratamentos/:id', async (req, res) => {
     if (!existente) return res.status(404).json({ erro: 'Tratamento nao encontrado' });
 
     // Grava snapshot do estado ANTES da alteracao
-    await gravarHistorico(req.params.id, req.usuario.id);
+    await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
 
     const {
       nome, finalidade, baseLegal, categoriasDados, categoriasTitulares,
@@ -197,7 +201,7 @@ router.delete('/tratamentos/:id', async (req, res) => {
     });
     if (!existente) return res.status(404).json({ erro: 'Tratamento nao encontrado' });
 
-    await gravarHistorico(req.params.id, req.usuario.id);
+    await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
 
     await prisma.tratamento.update({
       where: { id: req.params.id },
