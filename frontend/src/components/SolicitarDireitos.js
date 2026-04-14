@@ -7,14 +7,14 @@ import { API } from '../config';
 // pelos itens padrao — o texto e concatenado no inicio da descricao
 // para o responsavel da camara ter contexto claro.
 const TIPO_OPTIONS = [
-  { value: 'CONFIRMACAO', label: 'Confirmacao de existencia de tratamento' },
+  { value: 'CONFIRMACAO', label: 'Confirmação de existência de tratamento' },
   { value: 'ACESSO', label: 'Acesso aos dados' },
-  { value: 'CORRECAO', label: 'Correcao de dados incompletos, inexatos ou desatualizados' },
-  { value: 'ANONIMIZACAO', label: 'Anonimizacao, bloqueio ou eliminacao de dados desnecessarios' },
+  { value: 'CORRECAO', label: 'Correção de dados incompletos, inexatos ou desatualizados' },
+  { value: 'ANONIMIZACAO', label: 'Anonimização, bloqueio ou eliminação de dados desnecessários' },
   { value: 'PORTABILIDADE', label: 'Portabilidade dos dados' },
-  { value: 'ELIMINACAO', label: 'Eliminacao dos dados tratados com consentimento' },
-  { value: 'INFORMACAO', label: 'Informacao sobre compartilhamento com terceiros' },
-  { value: 'REVOGACAO', label: 'Revogacao do consentimento' },
+  { value: 'ELIMINACAO', label: 'Eliminação dos dados tratados com consentimento' },
+  { value: 'INFORMACAO', label: 'Informação sobre compartilhamento com terceiros' },
+  { value: 'REVOGACAO', label: 'Revogação do consentimento' },
   { value: 'OUTRO', label: 'Outro (descrever)' }
 ];
 
@@ -35,9 +35,9 @@ function PesquisaSatisfacao({ slug, org, OrgHeader }) {
 
   const enviar = async (e) => {
     e.preventDefault();
-    if (!avaliacao) return setErro('Selecione uma avaliacao de 1 a 5 estrelas');
+    if (!avaliacao) return setErro('Selecione uma avaliação de 1 a 5 estrelas');
     if (!setor) return setErro('Selecione o setor atendido');
-    if (!comentario.trim()) return setErro('O comentario e obrigatorio');
+    if (!comentario.trim()) return setErro('O comentário é obrigatório');
     setLoading(true);
     setErro('');
     try {
@@ -64,10 +64,10 @@ function PesquisaSatisfacao({ slug, org, OrgHeader }) {
           <div className="login-header">
             <div className="login-icon">💜</div>
             <h1 className="login-title">Obrigado!</h1>
-            <p className="login-subtitle">Sua avaliacao foi registrada com sucesso.</p>
+            <p className="login-subtitle">Sua avaliação foi registrada com sucesso.</p>
           </div>
           <div className="alert-info">
-            Sua opiniao ajuda a {org?.nome || 'camara'} a melhorar o atendimento ao cidadao. Obrigado por dedicar seu tempo.
+            Sua opinião ajuda a {org?.nome || 'câmara'} a melhorar o atendimento ao cidadão. Obrigado por dedicar seu tempo.
           </div>
         </div>
       </div>
@@ -80,8 +80,8 @@ function PesquisaSatisfacao({ slug, org, OrgHeader }) {
         <OrgHeader />
         <div className="login-header">
           <div className="login-icon">⭐</div>
-          <h1 className="login-title">Sua opiniao importa</h1>
-          <p className="login-subtitle">Ajude a melhorar os servicos da camara</p>
+          <h1 className="login-title">Sua opinião importa</h1>
+          <p className="login-subtitle">Ajude a melhorar os serviços da câmara</p>
         </div>
 
         {erro && <div className="alert-error">{erro}</div>}
@@ -93,7 +93,7 @@ function PesquisaSatisfacao({ slug, org, OrgHeader }) {
           <label>E-mail (opcional)</label>
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" />
 
-          <label>Avaliacao geral *</label>
+          <label>Avaliação geral *</label>
           <div style={{ display: 'flex', gap: 8, fontSize: 32, marginBottom: 16, userSelect: 'none' }}>
             {[1, 2, 3, 4, 5].map(n => (
               <span
@@ -115,23 +115,23 @@ function PesquisaSatisfacao({ slug, org, OrgHeader }) {
             {SETORES_PESQUISA.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
 
-          <label>Comentario *</label>
+          <label>Comentário *</label>
           <textarea
             value={comentario}
             onChange={e => setComentario(e.target.value)}
             rows={5}
-            placeholder="Conte sua experiencia, sugestoes de melhoria, elogios..."
+            placeholder="Conte sua experiência, sugestões de melhoria, elogios..."
             required
             maxLength={2000}
           />
 
           <button className="btn-primary mt-16" type="submit" disabled={loading}>
-            {loading ? 'Enviando...' : 'Enviar avaliacao'}
+            {loading ? 'Enviando...' : 'Enviar avaliação'}
           </button>
         </form>
 
         <p className="text-muted text-xs text-center mt-16">
-          Esta pesquisa nao coleta dados sensiveis. Nome e email sao opcionais e usados apenas para eventual retorno, caso voce preencha.
+          Esta pesquisa não coleta dados sensíveis. Nome e email são opcionais e usados apenas para eventual retorno, caso você preencha.
         </p>
       </div>
     </div>
@@ -165,7 +165,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
         const res = await axios.get(`${API}/dsar/publico/org/${encodeURIComponent(slug)}`);
         if (!cancelado) setOrg(res.data);
       } catch (err) {
-        if (!cancelado) setOrgErro(err.response?.data?.erro || 'Organizacao nao encontrada');
+        if (!cancelado) setOrgErro(err.response?.data?.erro || 'Organização não encontrada');
       } finally {
         if (!cancelado) setCarregandoOrg(false);
       }
@@ -176,16 +176,16 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
   const solicitarOTP = async (e) => {
     e.preventDefault();
     if (!form.titularNome || !form.titularEmail || !form.tipoDireito || !form.descricao) {
-      return setErro('Preencha todos os campos obrigatorios');
+      return setErro('Preencha todos os campos obrigatórios');
     }
     if (form.tipoDireito === 'OUTRO' && !direitoCustom.trim()) {
-      return setErro('Descreva qual direito voce deseja exercer');
+      return setErro('Descreva qual direito você deseja exercer');
     }
     if (!consentimento) {
-      return setErro('Voce precisa confirmar o consentimento LGPD para continuar');
+      return setErro('Você precisa confirmar o consentimento LGPD para continuar');
     }
     if (!org?.id) {
-      return setErro('Organizacao nao identificada');
+      return setErro('Organização não identificada');
     }
     setLoading(true);
     setErro('');
@@ -201,7 +201,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
       setOtpInfo(res.data);
       setEtapa('otp');
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao solicitar codigo. Tente novamente.');
+      setErro(err.response?.data?.erro || 'Erro ao solicitar código. Tente novamente.');
     }
     setLoading(false);
   };
@@ -209,7 +209,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
   const confirmarOTP = async (e) => {
     e.preventDefault();
     if (!codigo || codigo.length < 6) {
-      return setErro('Informe o codigo de 6 digitos recebido por email');
+      return setErro('Informe o código de 6 dígitos recebido por email');
     }
     setLoading(true);
     setErro('');
@@ -221,7 +221,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
       setResultado(res.data);
       setEtapa('sucesso');
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Codigo invalido ou expirado.');
+      setErro(err.response?.data?.erro || 'Código inválido ou expirado.');
     }
     setLoading(false);
   };
@@ -277,8 +277,8 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
           <OrgHeader />
           <div className="login-header">
             <div className="login-icon">✓</div>
-            <h1 className="login-title">Solicitacao enviada</h1>
-            <p className="login-subtitle">Sua solicitacao foi registrada com sucesso</p>
+            <h1 className="login-title">Solicitação enviada</h1>
+            <p className="login-subtitle">Sua solicitação foi registrada com sucesso</p>
           </div>
           <div className="card mb-16">
             <div className="detail-label">Protocolo</div>
@@ -287,7 +287,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
             <div className="detail-value">{new Date(resultado.dataLimite).toLocaleDateString('pt-BR')}</div>
           </div>
           <div className="alert-info">{resultado.mensagem}</div>
-          <p className="text-muted text-center">Guarde o numero de protocolo para acompanhamento. Uma copia foi enviada ao seu email.</p>
+          <p className="text-muted text-center">Guarde o número de protocolo para acompanhamento. Uma cópia foi enviada ao seu email.</p>
         </div>
       </div>
     );
@@ -301,14 +301,14 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
           <OrgHeader />
           <div className="login-header">
             <div className="login-icon">📧</div>
-            <h1 className="login-title">Verificacao por email</h1>
-            <p className="login-subtitle">Enviamos um codigo de 6 digitos para {form.titularEmail}</p>
+            <h1 className="login-title">Verificação por email</h1>
+            <p className="login-subtitle">Enviamos um código de 6 dígitos para {form.titularEmail}</p>
           </div>
 
           {erro && <div className="alert-error">{erro}</div>}
 
           <form onSubmit={confirmarOTP}>
-            <label>Codigo de verificacao</label>
+            <label>Código de verificação</label>
             <input
               type="text"
               inputMode="numeric"
@@ -318,17 +318,17 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
               placeholder="000000"
               autoFocus
               required
-              style={{ fontSize: 24, letterSpacing: 8, textAlign: 'center', fontWeight: 700 }}
+              style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 26, letterSpacing: 10, textAlign: 'center', fontWeight: 600 }}
             />
 
             {otpInfo?.expiraEm && (
               <p className="text-muted text-xs text-center mb-16">
-                O codigo expira em 10 minutos (ate {new Date(otpInfo.expiraEm).toLocaleTimeString('pt-BR')})
+                O código expira em 10 minutos (até {new Date(otpInfo.expiraEm).toLocaleTimeString('pt-BR')})
               </p>
             )}
 
             <button className="btn-primary" type="submit" disabled={loading}>
-              {loading ? 'Verificando...' : 'Confirmar e enviar solicitacao'}
+              {loading ? 'Verificando...' : 'Confirmar e enviar solicitação'}
             </button>
           </form>
 
@@ -354,7 +354,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
         <div className="login-header">
           <div className="login-icon">🔒</div>
           <h1 className="login-title">Exercer seus direitos</h1>
-          <p className="login-subtitle">Lei Geral de Protecao de Dados — Art. 18</p>
+          <p className="login-subtitle">Lei Geral de Proteção de Dados — Art. 18</p>
         </div>
 
         {erro && <div className="alert-error">{erro}</div>}
@@ -399,17 +399,17 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
               style={{ marginTop: 4 }}
             />
             <span className="text-sm">
-              Autorizo o tratamento dos meus dados pessoais (nome, CPF e email) exclusivamente para analise e resposta a esta solicitacao, nos termos da LGPD (Lei 13.709/2018, Art. 7, I e IX). *
+              Autorizo o tratamento dos meus dados pessoais (nome, CPF e email) exclusivamente para análise e resposta a esta solicitação, nos termos da LGPD (Lei 13.709/2018, Art. 7, I e IX). *
             </span>
           </label>
 
           <button className="btn-primary mt-16" type="submit" disabled={loading || !consentimento}>
-            {loading ? 'Enviando...' : 'Receber codigo de verificacao'}
+            {loading ? 'Enviando...' : 'Receber código de verificação'}
           </button>
         </form>
 
         <p className="text-muted text-xs text-center mt-16">
-          Para sua seguranca, enviaremos um codigo de 6 digitos ao seu email antes de registrar a solicitacao.
+          Para sua segurança, enviaremos um código de 6 dígitos ao seu email antes de registrar a solicitação.
         </p>
       </div>
     </div>
