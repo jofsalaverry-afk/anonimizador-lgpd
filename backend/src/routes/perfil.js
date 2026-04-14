@@ -7,10 +7,10 @@ const prisma = new PrismaClient();
 const auth = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token nao fornecido' });
+    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     req.usuario = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch { res.status(401).json({ erro: 'Token invalido' }); }
+  } catch { res.status(401).json({ erro: 'Token inválido' }); }
 };
 
 router.get('/perfil', auth, async (req, res) => {
@@ -31,7 +31,7 @@ router.put('/perfil', auth, async (req, res) => {
   try {
     // Apenas GESTOR e ENCARREGADO_LGPD podem alterar perfil da organizacao
     if (!['GESTOR', 'ENCARREGADO_LGPD'].includes(req.usuario.perfil)) {
-      return res.status(403).json({ erro: 'Sem permissao para alterar perfil da organizacao' });
+      return res.status(403).json({ erro: 'Sem permissão para alterar perfil da organização' });
     }
     const { municipio, cabecalho, logoBase64 } = req.body;
     const org = await prisma.organizacao.update({

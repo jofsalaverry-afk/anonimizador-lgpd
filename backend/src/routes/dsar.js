@@ -35,17 +35,17 @@ const validadoresSolicitarOtp = [
 
 const validadoresConfirmarOtp = [
   validarEmail('titularEmail'),
-  body('codigo').trim().matches(/^\d{6}$/).withMessage('Codigo deve ter 6 digitos'),
+  body('codigo').trim().matches(/^\d{6}$/).withMessage('Código deve ter 6 dígitos'),
   validar
 ];
 
 const SETORES_PESQUISA = ['Protocolo', 'RH', 'Financeiro', 'Juridico', 'Presidencia', 'Outro'];
 
 const validadoresPesquisa = [
-  body('slug').trim().isLength({ min: 2, max: 100 }).matches(/^[a-z0-9-]+$/i).withMessage('Slug invalido'),
+  body('slug').trim().isLength({ min: 2, max: 100 }).matches(/^[a-z0-9-]+$/i).withMessage('Slug inválido'),
   body('titularNome').optional({ checkFalsy: true }).trim().isLength({ max: 200 }).escape(),
   body('titularEmail').optional({ checkFalsy: true }).isEmail().normalizeEmail(),
-  body('avaliacao').isInt({ min: 1, max: 5 }).withMessage('Avaliacao deve ser de 1 a 5'),
+  body('avaliacao').isInt({ min: 1, max: 5 }).withMessage('Avaliação deve ser de 1 a 5'),
   validarEnum('setor', SETORES_PESQUISA),
   sanitizarTexto('comentario', { min: 5, max: 2000 }),
   validar
@@ -56,11 +56,11 @@ const validadoresPesquisa = [
 const authMiddleware = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token nao fornecido' });
+    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     req.usuario = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) {
-    res.status(401).json({ erro: 'Token invalido' });
+    res.status(401).json({ erro: 'Token inválido' });
   }
 };
 
@@ -71,11 +71,11 @@ const requireModulo = async (req, res, next) => {
       select: { modulosAtivos: true }
     });
     if (!org || !org.modulosAtivos.includes('dsar')) {
-      return res.status(403).json({ erro: 'Modulo "dsar" nao esta ativo para sua organizacao.' });
+      return res.status(403).json({ erro: 'Módulo "dsar" não está ativo para sua organização.' });
     }
     next();
   } catch (err) {
-    res.status(500).json({ erro: 'Erro ao verificar modulos' });
+    res.status(500).json({ erro: 'Erro ao verificar módulos' });
   }
 };
 
@@ -95,7 +95,7 @@ router.get('/solicitacoes', authMiddleware, requireModulo, async (req, res) => {
     res.json(solicitacoes.map(enriquecerSolicitacao));
   } catch (err) {
     console.error('[GET /dsar/solicitacoes]', err);
-    res.status(500).json({ erro: 'Erro ao listar solicitacoes' });
+    res.status(500).json({ erro: 'Erro ao listar solicitações' });
   }
 });
 
@@ -105,23 +105,23 @@ router.get('/solicitacoes/:id', authMiddleware, requireModulo, async (req, res) 
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId },
       include: { evidencias: true }
     });
-    if (!sol) return res.status(404).json({ erro: 'Solicitacao nao encontrada' });
+    if (!sol) return res.status(404).json({ erro: 'Solicitação não encontrada' });
     res.json(enriquecerSolicitacao(sol));
   } catch (err) {
     console.error('[GET /dsar/solicitacoes/:id]', err);
-    res.status(500).json({ erro: 'Erro ao buscar solicitacao' });
+    res.status(500).json({ erro: 'Erro ao buscar solicitação' });
   }
 });
 
 router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => {
   try {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
-      return res.status(403).json({ erro: 'Sem permissao para criar solicitacoes' });
+      return res.status(403).json({ erro: 'Sem permissão para criar solicitações' });
     }
 
     const { titularNome, titularEmail, titularCpf, tipoDireito, descricao } = req.body;
     if (!titularNome || !titularEmail || !tipoDireito || !descricao) {
-      return res.status(400).json({ erro: 'titularNome, titularEmail, tipoDireito e descricao sao obrigatorios' });
+      return res.status(400).json({ erro: 'titularNome, titularEmail, tipoDireito e descricao são obrigatórios' });
     }
 
     const protocolo = await gerarProtocolo(req.usuario.organizacaoId);
@@ -151,26 +151,26 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
       titularNome,
       protocolo: sol.protocolo,
       dataLimite: sol.dataLimite,
-      orgNome: org?.nome || 'Organizacao'
+      orgNome: org?.nome || 'Organização'
     }).catch(e => console.error('[dsar] falha email confirmacao:', e.message));
 
     res.status(201).json(enriquecerSolicitacao(sol));
   } catch (err) {
     console.error('[POST /dsar/solicitacoes]', err);
-    res.status(500).json({ erro: 'Erro ao criar solicitacao' });
+    res.status(500).json({ erro: 'Erro ao criar solicitação' });
   }
 });
 
 router.put('/solicitacoes/:id', authMiddleware, requireModulo, async (req, res) => {
   try {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
-      return res.status(403).json({ erro: 'Sem permissao para editar solicitacoes' });
+      return res.status(403).json({ erro: 'Sem permissão para editar solicitações' });
     }
 
     const existente = await prisma.solicitacaoTitular.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Solicitacao nao encontrada' });
+    if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
 
     const { status, responsavelId, descricao } = req.body;
     const sol = await prisma.solicitacaoTitular.update({
@@ -186,7 +186,7 @@ router.put('/solicitacoes/:id', authMiddleware, requireModulo, async (req, res) 
     res.json(enriquecerSolicitacao(sol));
   } catch (err) {
     console.error('[PUT /dsar/solicitacoes/:id]', err);
-    res.status(500).json({ erro: 'Erro ao atualizar solicitacao' });
+    res.status(500).json({ erro: 'Erro ao atualizar solicitação' });
   }
 });
 
@@ -196,11 +196,11 @@ router.post('/solicitacoes/:id/evidencias', authMiddleware, requireModulo, async
     const existente = await prisma.solicitacaoTitular.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Solicitacao nao encontrada' });
+    if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
 
     const { tipo, descricao, arquivoUrl } = req.body;
     if (!tipo || !descricao) {
-      return res.status(400).json({ erro: 'tipo e descricao sao obrigatorios' });
+      return res.status(400).json({ erro: 'tipo e descricao são obrigatórios' });
     }
 
     // Hash SHA-256 do conteudo para integridade
@@ -220,7 +220,7 @@ router.post('/solicitacoes/:id/evidencias', authMiddleware, requireModulo, async
     res.status(201).json(evidencia);
   } catch (err) {
     console.error('[POST /dsar/solicitacoes/:id/evidencias]', err);
-    res.status(500).json({ erro: 'Erro ao adicionar evidencia' });
+    res.status(500).json({ erro: 'Erro ao adicionar evidência' });
   }
 });
 
@@ -228,16 +228,16 @@ router.post('/solicitacoes/:id/evidencias', authMiddleware, requireModulo, async
 router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async (req, res) => {
   try {
     if (!['GESTOR', 'ENCARREGADO_LGPD'].includes(req.usuario.perfil)) {
-      return res.status(403).json({ erro: 'Apenas Gestor ou DPO podem responder solicitacoes' });
+      return res.status(403).json({ erro: 'Apenas Gestor ou DPO podem responder solicitações' });
     }
 
     const existente = await prisma.solicitacaoTitular.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Solicitacao nao encontrada' });
+    if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
 
     const { respostaTexto } = req.body;
-    if (!respostaTexto) return res.status(400).json({ erro: 'respostaTexto e obrigatorio' });
+    if (!respostaTexto) return res.status(400).json({ erro: 'respostaTexto é obrigatório' });
 
     const sol = await prisma.solicitacaoTitular.update({
       where: { id: req.params.id },
@@ -260,13 +260,13 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
       titularNome: sol.titularNome,
       protocolo: sol.protocolo,
       respostaTexto,
-      orgNome: org?.nome || 'Organizacao'
+      orgNome: org?.nome || 'Organização'
     }).catch(e => console.error('[dsar] falha email resposta:', e.message));
 
     res.json(enriquecerSolicitacao(sol));
   } catch (err) {
     console.error('[POST /dsar/solicitacoes/:id/responder]', err);
-    res.status(500).json({ erro: 'Erro ao responder solicitacao' });
+    res.status(500).json({ erro: 'Erro ao responder solicitação' });
   }
 });
 
@@ -279,14 +279,14 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
 router.get('/publico/org/:slug', async (req, res) => {
   try {
     const slug = String(req.params.slug || '').trim().toLowerCase();
-    if (!slug) return res.status(400).json({ erro: 'Slug invalido' });
+    if (!slug) return res.status(400).json({ erro: 'Slug inválido' });
     const org = await prisma.organizacao.findUnique({
       where: { slug },
       select: { id: true, nome: true, municipio: true, logoBase64: true, ativo: true, modulosAtivos: true }
     });
-    if (!org || !org.ativo) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
+    if (!org || !org.ativo) return res.status(404).json({ erro: 'Organização não encontrada' });
     if (!org.modulosAtivos.includes('dsar')) {
-      return res.status(403).json({ erro: 'Este servico nao esta disponivel para esta organizacao' });
+      return res.status(403).json({ erro: 'Este serviço não está disponível para esta organização' });
     }
     res.json({
       id: org.id,
@@ -296,7 +296,7 @@ router.get('/publico/org/:slug', async (req, res) => {
     });
   } catch (err) {
     console.error('[GET /dsar/publico/org/:slug]', err);
-    res.status(500).json({ erro: 'Erro ao buscar organizacao' });
+    res.status(500).json({ erro: 'Erro ao buscar organização' });
   }
 });
 
@@ -306,15 +306,15 @@ router.post('/publico/solicitar-otp', validadoresSolicitarOtp, async (req, res) 
   try {
     const { organizacaoId, titularNome, titularEmail, titularCpf, tipoDireito, descricao } = req.body;
     if (!organizacaoId || !titularNome || !titularEmail || !tipoDireito || !descricao) {
-      return res.status(400).json({ erro: 'organizacaoId, titularNome, titularEmail, tipoDireito e descricao sao obrigatorios' });
+      return res.status(400).json({ erro: 'organizacaoId, titularNome, titularEmail, tipoDireito e descricao são obrigatórios' });
     }
 
     const org = await prisma.organizacao.findUnique({
       where: { id: organizacaoId },
       select: { id: true, nome: true, ativo: true, modulosAtivos: true }
     });
-    if (!org || !org.ativo) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
-    if (!org.modulosAtivos.includes('dsar')) return res.status(403).json({ erro: 'Este servico nao esta disponivel para esta organizacao' });
+    if (!org || !org.ativo) return res.status(404).json({ erro: 'Organização não encontrada' });
+    if (!org.modulosAtivos.includes('dsar')) return res.status(403).json({ erro: 'Este serviço não está disponível para esta organização' });
 
     const otp = await criarOtpDSAR({
       organizacaoId, email: titularEmail, titularNome, titularCpf, tipoDireito, descricao
@@ -335,12 +335,12 @@ router.post('/publico/solicitar-otp', validadoresSolicitarOtp, async (req, res) 
 
     res.status(200).json({
       ok: true,
-      mensagem: `Um codigo de verificacao foi enviado para ${titularEmail}. O codigo expira em 10 minutos.`,
+      mensagem: `Um código de verificação foi enviado para ${titularEmail}. O código expira em 10 minutos.`,
       expiraEm: otp.expiresAt
     });
   } catch (err) {
     console.error('[POST /dsar/publico/solicitar-otp]', err);
-    res.status(500).json({ erro: 'Erro ao solicitar codigo de verificacao' });
+    res.status(500).json({ erro: 'Erro ao solicitar código de verificação' });
   }
 });
 
@@ -349,11 +349,11 @@ router.post('/publico/confirmar-otp', validadoresConfirmarOtp, async (req, res) 
   try {
     const { titularEmail, codigo } = req.body;
     if (!titularEmail || !codigo) {
-      return res.status(400).json({ erro: 'titularEmail e codigo sao obrigatorios' });
+      return res.status(400).json({ erro: 'titularEmail e codigo são obrigatórios' });
     }
 
     const otp = await validarOtpDSAR({ email: titularEmail, codigo: String(codigo).trim() });
-    if (!otp) return res.status(400).json({ erro: 'Codigo invalido ou expirado' });
+    if (!otp) return res.status(400).json({ erro: 'Código inválido ou expirado' });
 
     const sol = await criarSolicitacaoApartirDeOtp(otp);
 
@@ -367,17 +367,17 @@ router.post('/publico/confirmar-otp', validadoresConfirmarOtp, async (req, res) 
       titularNome: otp.titularNome,
       protocolo: sol.protocolo,
       dataLimite: sol.dataLimite,
-      orgNome: org?.nome || 'Organizacao'
+      orgNome: org?.nome || 'Organização'
     }).catch(e => console.error('[dsar] falha email confirmacao:', e.message));
 
     res.status(201).json({
       protocolo: sol.protocolo,
       dataLimite: sol.dataLimite,
-      mensagem: `Sua solicitacao foi registrada com o protocolo ${sol.protocolo}. O prazo para resposta e de 15 dias corridos.`
+      mensagem: `Sua solicitação foi registrada com o protocolo ${sol.protocolo}. O prazo para resposta é de 15 dias corridos.`
     });
   } catch (err) {
     console.error('[POST /dsar/publico/confirmar-otp]', err);
-    res.status(500).json({ erro: 'Erro ao confirmar codigo' });
+    res.status(500).json({ erro: 'Erro ao confirmar código' });
   }
 });
 
@@ -392,24 +392,24 @@ router.post('/publico/pesquisa', validadoresPesquisa, async (req, res) => {
       where: { slug: String(slug).toLowerCase() },
       select: { id: true, nome: true, ativo: true, modulosAtivos: true }
     });
-    if (!org || !org.ativo) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
+    if (!org || !org.ativo) return res.status(404).json({ erro: 'Organização não encontrada' });
     if (!org.modulosAtivos.includes('dsar')) {
-      return res.status(403).json({ erro: 'Este servico nao esta disponivel para esta organizacao' });
+      return res.status(403).json({ erro: 'Este serviço não está disponível para esta organização' });
     }
 
-    const nomeSeguro = titularNome && titularNome.trim() ? titularNome.trim() : 'Cidadao anonimo';
+    const nomeSeguro = titularNome && titularNome.trim() ? titularNome.trim() : 'Cidadão anônimo';
     const emailSeguro = titularEmail && titularEmail.trim() ? titularEmail.trim() : 'anonimo@pesquisa.local';
 
     // Descricao formatada com tudo que importa para o gestor. Prefixo
     // [PESQUISA DE SATISFACAO] ajuda a filtrar no painel DSAR.
     const estrelas = '*'.repeat(avaliacao) + '-'.repeat(5 - avaliacao);
     const descricaoFormatada =
-      `[PESQUISA DE SATISFACAO]\n` +
-      `Avaliacao: ${avaliacao}/5  ${estrelas}\n` +
+      `[PESQUISA DE SATISFAÇÃO]\n` +
+      `Avaliação: ${avaliacao}/5  ${estrelas}\n` +
       `Setor atendido: ${setor}\n` +
       `Nome: ${nomeSeguro}\n` +
       `Email de contato: ${emailSeguro}\n\n` +
-      `Comentario:\n${comentario}`;
+      `Comentário:\n${comentario}`;
 
     const protocolo = await gerarProtocolo(org.id);
     const dataRecebimento = new Date();
@@ -438,24 +438,24 @@ router.post('/publico/pesquisa', validadoresPesquisa, async (req, res) => {
         });
         const destinatarios = gestores.map(g => g.email).filter(Boolean);
         if (!destinatarios.length) return;
-        const assunto = `Nova pesquisa de satisfacao — ${avaliacao}/5 estrelas`;
+        const assunto = `Nova pesquisa de satisfação — ${avaliacao}/5 estrelas`;
         const texto =
-          `Nova pesquisa de satisfacao recebida\n\n` +
-          `Organizacao: ${org.nome}\n` +
+          `Nova pesquisa de satisfação recebida\n\n` +
+          `Organização: ${org.nome}\n` +
           `Protocolo: ${protocolo}\n` +
-          `Avaliacao: ${avaliacao}/5\n` +
+          `Avaliação: ${avaliacao}/5\n` +
           `Setor: ${setor}\n` +
           `Nome: ${nomeSeguro}\n` +
           `Email: ${emailSeguro}\n\n` +
-          `Comentario:\n${comentario}\n`;
-        const html = `<p><strong>Nova pesquisa de satisfacao recebida</strong></p>
-<p><strong>Organizacao:</strong> ${org.nome}<br>
+          `Comentário:\n${comentario}\n`;
+        const html = `<p><strong>Nova pesquisa de satisfação recebida</strong></p>
+<p><strong>Organização:</strong> ${org.nome}<br>
 <strong>Protocolo:</strong> ${protocolo}<br>
-<strong>Avaliacao:</strong> ${avaliacao}/5<br>
+<strong>Avaliação:</strong> ${avaliacao}/5<br>
 <strong>Setor:</strong> ${setor}<br>
 <strong>Nome:</strong> ${nomeSeguro}<br>
 <strong>Email:</strong> ${emailSeguro}</p>
-<p><strong>Comentario:</strong></p>
+<p><strong>Comentário:</strong></p>
 <p>${String(comentario).replace(/\n/g, '<br>')}</p>`;
         await enviar({ to: destinatarios.join(','), subject: assunto, text: texto, html });
       } catch (e) {
@@ -465,7 +465,7 @@ router.post('/publico/pesquisa', validadoresPesquisa, async (req, res) => {
 
     res.status(201).json({
       protocolo: sol.protocolo,
-      mensagem: 'Obrigado por compartilhar sua opiniao. Sua avaliacao foi registrada e ajudara a melhorar os servicos.'
+      mensagem: 'Obrigado por compartilhar sua opinião. Sua avaliação foi registrada e ajudará a melhorar os serviços.'
     });
   } catch (err) {
     console.error('[POST /dsar/publico/pesquisa]', err);
@@ -476,7 +476,7 @@ router.post('/publico/pesquisa', validadoresPesquisa, async (req, res) => {
 // Rota legado — redireciona para o novo fluxo OTP
 router.post('/publico/nova-solicitacao', async (req, res) => {
   res.status(410).json({
-    erro: 'Este endpoint foi substituido. Use POST /dsar/publico/solicitar-otp e depois POST /dsar/publico/confirmar-otp.'
+    erro: 'Este endpoint foi substituído. Use POST /dsar/publico/solicitar-otp e depois POST /dsar/publico/confirmar-otp.'
   });
 });
 

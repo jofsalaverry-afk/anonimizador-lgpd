@@ -10,11 +10,11 @@ const prisma = new PrismaClient();
 const authMiddleware = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token nao fornecido' });
+    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     req.usuario = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) {
-    res.status(401).json({ erro: 'Token invalido' });
+    res.status(401).json({ erro: 'Token inválido' });
   }
 };
 
@@ -25,11 +25,11 @@ const requireModulo = async (req, res, next) => {
       select: { modulosAtivos: true }
     });
     if (!org || !org.modulosAtivos.includes('ropa')) {
-      return res.status(403).json({ erro: 'Modulo "ropa" nao esta ativo para sua organizacao.' });
+      return res.status(403).json({ erro: 'Módulo "ropa" não está ativo para sua organização.' });
     }
     next();
   } catch (err) {
-    res.status(500).json({ erro: 'Erro ao verificar modulos' });
+    res.status(500).json({ erro: 'Erro ao verificar módulos' });
   }
 };
 
@@ -82,7 +82,7 @@ router.post('/tratamentos', async (req, res) => {
   try {
     // Apenas GESTOR, ENCARREGADO_LGPD e OPERADOR podem criar
     if (req.usuario.perfil === 'AUDITOR' || req.usuario.perfil === 'TREINANDO') {
-      return res.status(403).json({ erro: 'Sem permissao para criar tratamentos' });
+      return res.status(403).json({ erro: 'Sem permissão para criar tratamentos' });
     }
 
     const {
@@ -92,7 +92,7 @@ router.post('/tratamentos', async (req, res) => {
     } = req.body;
 
     if (!nome || !finalidade || !baseLegal) {
-      return res.status(400).json({ erro: 'nome, finalidade e baseLegal sao obrigatorios' });
+      return res.status(400).json({ erro: 'nome, finalidade e baseLegal são obrigatórios' });
     }
 
     const tratamento = await prisma.tratamento.create({
@@ -132,13 +132,13 @@ router.post('/tratamentos', async (req, res) => {
 router.put('/tratamentos/:id', async (req, res) => {
   try {
     if (req.usuario.perfil === 'AUDITOR' || req.usuario.perfil === 'TREINANDO') {
-      return res.status(403).json({ erro: 'Sem permissao para editar tratamentos' });
+      return res.status(403).json({ erro: 'Sem permissão para editar tratamentos' });
     }
 
     const existente = await prisma.tratamento.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Tratamento nao encontrado' });
+    if (!existente) return res.status(404).json({ erro: 'Tratamento não encontrado' });
 
     // Grava snapshot do estado ANTES da alteracao
     await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
@@ -199,7 +199,7 @@ router.delete('/tratamentos/:id', async (req, res) => {
     const existente = await prisma.tratamento.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Tratamento nao encontrado' });
+    if (!existente) return res.status(404).json({ erro: 'Tratamento não encontrado' });
 
     await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
 
@@ -221,7 +221,7 @@ router.get('/tratamentos/:id/historico', async (req, res) => {
     const existente = await prisma.tratamento.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Tratamento nao encontrado' });
+    if (!existente) return res.status(404).json({ erro: 'Tratamento não encontrado' });
 
     const historico = await prisma.tratamentoHistorico.findMany({
       where: { tratamentoId: req.params.id },
@@ -230,7 +230,7 @@ router.get('/tratamentos/:id/historico', async (req, res) => {
     res.json(historico);
   } catch (err) {
     console.error('[GET /ropa/tratamentos/:id/historico]', err);
-    res.status(500).json({ erro: 'Erro ao buscar historico' });
+    res.status(500).json({ erro: 'Erro ao buscar histórico' });
   }
 });
 

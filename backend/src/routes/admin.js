@@ -23,7 +23,7 @@ const uploadRepo = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (MIMETYPES_REPO.has(file.mimetype)) return cb(null, true);
-    cb(new Error('Tipo de arquivo nao suportado. Envie PDF ou DOCX.'));
+    cb(new Error('Tipo de arquivo não suportado. Envie PDF ou DOCX.'));
   }
 });
 
@@ -35,29 +35,29 @@ const REPO_SELECT_LISTA = {
 
 const validadoresAdminLogin = [
   validarEmail('email'),
-  body('senha').isString().isLength({ min: 1, max: 200 }).withMessage('Senha obrigatoria'),
+  body('senha').isString().isLength({ min: 1, max: 200 }).withMessage('Senha obrigatória'),
   validar
 ];
 
 const validadoresCriarCamara = [
-  body('nome').trim().isLength({ min: 2, max: 200 }).withMessage('Nome invalido').escape(),
-  body('cnpj').trim().matches(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$|^\d{14}$/).withMessage('CNPJ invalido'),
+  body('nome').trim().isLength({ min: 2, max: 200 }).withMessage('Nome inválido').escape(),
+  body('cnpj').trim().matches(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$|^\d{14}$/).withMessage('CNPJ inválido'),
   validarEmail('email'),
   body('senha').isLength({ min: 8, max: 200 }).withMessage('Senha deve ter ao menos 8 caracteres'),
-  body('plano').optional().isIn(['basico', 'intermediario', 'avancado']).withMessage('Plano invalido'),
+  body('plano').optional().isIn(['basico', 'intermediario', 'avancado']).withMessage('Plano inválido'),
   validar
 ];
 
 const adminAuth = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token nao fornecido' });
+    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (!decoded.isAdmin) return res.status(403).json({ erro: 'Acesso negado' });
     req.admin = decoded;
     next();
   } catch (err) {
-    res.status(401).json({ erro: 'Token invalido' });
+    res.status(401).json({ erro: 'Token inválido' });
   }
 };
 
@@ -67,12 +67,12 @@ router.post('/login', validadoresAdminLogin, async (req, res) => {
     const admin = await prisma.admin.findUnique({ where: { email } });
     if (!admin) {
       auditarLogin(prisma, { req, sucesso: false, userType: 'admin', motivo: 'email_nao_encontrado' });
-      return res.status(401).json({ erro: 'Credenciais invalidas' });
+      return res.status(401).json({ erro: 'Credenciais inválidas' });
     }
     const senhaValida = await bcrypt.compare(senha, admin.senhaHash);
     if (!senhaValida) {
       auditarLogin(prisma, { req, sucesso: false, userType: 'admin', userId: admin.id, motivo: 'senha_invalida' });
-      return res.status(401).json({ erro: 'Credenciais invalidas' });
+      return res.status(401).json({ erro: 'Credenciais inválidas' });
     }
     const token = jwt.sign({ id: admin.id, email: admin.email, isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '8h' });
     auditarLogin(prisma, { req, sucesso: true, userType: 'admin', userId: admin.id });
@@ -122,7 +122,7 @@ router.post('/camaras', adminAuth, validadoresCriarCamara, async (req, res) => {
     res.status(201).json({ id: result.org.id, nome: result.org.nome, email: result.usuario.email });
   } catch (err) {
     if (err.code === 'P2002') {
-      return res.status(409).json({ erro: 'CNPJ ou email ja cadastrado' });
+      return res.status(409).json({ erro: 'CNPJ ou email já cadastrado' });
     }
     res.status(500).json({ erro: 'Erro interno' });
   }
@@ -131,7 +131,7 @@ router.post('/camaras', adminAuth, validadoresCriarCamara, async (req, res) => {
 router.patch('/camaras/:id/toggle', adminAuth, async (req, res) => {
   try {
     const org = await prisma.organizacao.findUnique({ where: { id: req.params.id } });
-    if (!org) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
+    if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
     const atualizada = await prisma.organizacao.update({ where: { id: req.params.id }, data: { ativo: !org.ativo } });
     res.json({ id: atualizada.id, ativo: atualizada.ativo });
   } catch (err) {
@@ -153,7 +153,7 @@ router.patch('/camaras/:id/modulos', adminAuth, async (req, res) => {
     });
     res.json(org);
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ erro: 'Organizacao nao encontrada' });
+    if (err.code === 'P2025') return res.status(404).json({ erro: 'Organização não encontrada' });
     res.status(500).json({ erro: 'Erro interno' });
   }
 });
@@ -164,7 +164,7 @@ router.post('/camaras/:id/usuarios', adminAuth, async (req, res) => {
   try {
     const { email, nome, senha, perfil } = req.body;
     const org = await prisma.organizacao.findUnique({ where: { id: req.params.id } });
-    if (!org) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
+    if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
     const senhaHash = await bcrypt.hash(senha, 10);
     const usuario = await prisma.usuario.create({
       data: {
@@ -177,7 +177,7 @@ router.post('/camaras/:id/usuarios', adminAuth, async (req, res) => {
     });
     res.status(201).json(usuario);
   } catch (err) {
-    if (err.code === 'P2002') return res.status(409).json({ erro: 'Email ja cadastrado' });
+    if (err.code === 'P2002') return res.status(409).json({ erro: 'Email já cadastrado' });
     res.status(500).json({ erro: 'Erro interno' });
   }
 });
@@ -185,7 +185,7 @@ router.post('/camaras/:id/usuarios', adminAuth, async (req, res) => {
 router.patch('/usuarios/:id/toggle', adminAuth, async (req, res) => {
   try {
     const usuario = await prisma.usuario.findUnique({ where: { id: req.params.id } });
-    if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuário não encontrado' });
     const atualizado = await prisma.usuario.update({ where: { id: req.params.id }, data: { ativo: !usuario.ativo } });
     res.json({ id: atualizado.id, ativo: atualizado.ativo });
   } catch (err) {
@@ -197,7 +197,7 @@ router.patch('/usuarios/:id/perfil', adminAuth, async (req, res) => {
   try {
     const { perfil } = req.body;
     const PERFIS_VALIDOS = ['ENCARREGADO_LGPD', 'GESTOR', 'OPERADOR', 'AUDITOR', 'TREINANDO'];
-    if (!PERFIS_VALIDOS.includes(perfil)) return res.status(400).json({ erro: 'Perfil invalido' });
+    if (!PERFIS_VALIDOS.includes(perfil)) return res.status(400).json({ erro: 'Perfil inválido' });
     const atualizado = await prisma.usuario.update({
       where: { id: req.params.id },
       data: { perfil },
@@ -205,7 +205,7 @@ router.patch('/usuarios/:id/perfil', adminAuth, async (req, res) => {
     });
     res.json(atualizado);
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    if (err.code === 'P2025') return res.status(404).json({ erro: 'Usuário não encontrado' });
     res.status(500).json({ erro: 'Erro interno' });
   }
 });
@@ -217,14 +217,14 @@ router.patch('/usuarios/:id/perfil', adminAuth, async (req, res) => {
 router.delete('/usuarios/:id', adminAuth, async (req, res) => {
   try {
     const usuario = await prisma.usuario.findUnique({ where: { id: req.params.id } });
-    if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuário não encontrado' });
     await prisma.usuario.update({
       where: { id: req.params.id },
       data: { deletedAt: new Date(), ativo: false }
     });
     res.json({ ok: true });
   } catch (err) {
-    if (err.code === 'P2025') return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    if (err.code === 'P2025') return res.status(404).json({ erro: 'Usuário não encontrado' });
     res.status(500).json({ erro: 'Erro interno' });
   }
 });
@@ -276,13 +276,13 @@ router.put('/treinamento/trilhas/:trilhaId/modulos/:moduloId', adminAuth, async 
 
     // Valida que a trilha e modulo existem no hardcoded base
     const trilhaBase = TRILHAS_BASE.find(t => t.id === trilhaId);
-    if (!trilhaBase) return res.status(404).json({ erro: 'Trilha nao encontrada' });
+    if (!trilhaBase) return res.status(404).json({ erro: 'Trilha não encontrada' });
     const moduloBase = trilhaBase.modulos.find(m => m.moduloId === moduloId);
-    if (!moduloBase) return res.status(404).json({ erro: 'Modulo nao encontrado' });
+    if (!moduloBase) return res.status(404).json({ erro: 'Módulo não encontrado' });
 
     // Extrai/valida o youtubeId (aceita URL completa)
     const youtubeId = extrairYoutubeId(entradaRaw);
-    if (!youtubeId) return res.status(400).json({ erro: 'youtubeId invalido (informe o ID de 11 chars ou a URL do YouTube)' });
+    if (!youtubeId) return res.status(400).json({ erro: 'youtubeId inválido (informe o ID de 11 chars ou a URL do YouTube)' });
 
     // Upsert no override
     const override = await prisma.trilhaOverride.upsert({
@@ -305,7 +305,7 @@ router.put('/treinamento/trilhas/:trilhaId/modulos/:moduloId', adminAuth, async 
 router.get('/repositorio', adminAuth, async (req, res) => {
   try {
     const organizacaoId = String(req.query.organizacaoId || '').trim();
-    if (!organizacaoId) return res.status(400).json({ erro: 'organizacaoId e obrigatorio' });
+    if (!organizacaoId) return res.status(400).json({ erro: 'organizacaoId é obrigatório' });
     const docs = await prisma.documentoRepositorio.findMany({
       where: { organizacaoId },
       orderBy: { criadoEm: 'desc' },
@@ -325,11 +325,11 @@ router.post('/repositorio/upload', adminAuth, uploadRepo.single('arquivo'), asyn
     if (!req.file) return res.status(400).json({ erro: 'Envie um arquivo no campo "arquivo"' });
     const { titulo, descricao, categoria, organizacaoId } = req.body;
     if (!titulo || !categoria || !organizacaoId) {
-      return res.status(400).json({ erro: 'titulo, categoria e organizacaoId sao obrigatorios' });
+      return res.status(400).json({ erro: 'titulo, categoria e organizacaoId são obrigatórios' });
     }
     // Valida que a org existe antes de criar
     const org = await prisma.organizacao.findUnique({ where: { id: organizacaoId }, select: { id: true } });
-    if (!org) return res.status(404).json({ erro: 'Organizacao nao encontrada' });
+    if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
 
     const doc = await prisma.documentoRepositorio.create({
       data: {
@@ -349,7 +349,7 @@ router.post('/repositorio/upload', adminAuth, uploadRepo.single('arquivo'), asyn
     res.status(201).json(doc);
   } catch (err) {
     console.error('[POST /admin/repositorio/upload]', err);
-    const msg = err && err.message && err.message.includes('nao suportado')
+    const msg = err && err.message && err.message.includes('não suportado')
       ? err.message
       : (err && err.code === 'LIMIT_FILE_SIZE' ? 'Arquivo maior que 20MB' : 'Erro ao subir arquivo');
     res.status(400).json({ erro: msg });
@@ -363,7 +363,7 @@ router.delete('/repositorio/:id', adminAuth, async (req, res) => {
       where: { id: req.params.id },
       select: { id: true }
     });
-    if (!existente) return res.status(404).json({ erro: 'Documento nao encontrado' });
+    if (!existente) return res.status(404).json({ erro: 'Documento não encontrado' });
     await prisma.documentoRepositorio.delete({ where: { id: req.params.id } });
     res.json({ ok: true });
   } catch (err) {

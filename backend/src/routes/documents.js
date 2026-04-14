@@ -67,12 +67,12 @@ ${texto}`;
 const authMiddleware = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token nao fornecido' });
+    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.usuario = decoded;
     next();
   } catch (err) {
-    res.status(401).json({ erro: 'Token invalido' });
+    res.status(401).json({ erro: 'Token inválido' });
   }
 };
 
@@ -86,11 +86,11 @@ function requireModulo(modulo) {
         select: { modulosAtivos: true }
       });
       if (!org || !org.modulosAtivos.includes(modulo)) {
-        return res.status(403).json({ erro: `Modulo "${modulo}" nao esta ativo para sua organizacao.` });
+        return res.status(403).json({ erro: `Módulo "${modulo}" não está ativo para sua organização.` });
       }
       next();
     } catch (err) {
-      res.status(500).json({ erro: 'Erro ao verificar modulos' });
+      res.status(500).json({ erro: 'Erro ao verificar módulos' });
     }
   };
 }
@@ -258,7 +258,7 @@ router.post('/aprendizado', authMiddleware, requireModulo('anonimizador'), valid
   try {
     const { trecho, classificacaoCorreta, classificacaoErrada, contexto } = req.body || {};
     if (typeof trecho !== 'string' || !trecho.trim()) {
-      return res.status(400).json({ erro: 'Campo "trecho" e obrigatorio' });
+      return res.status(400).json({ erro: 'Campo "trecho" é obrigatório' });
     }
     if (!CLASSIFICACOES_VALIDAS.includes(classificacaoCorreta)) {
       return res.status(400).json({ erro: `classificacaoCorreta deve ser uma de: ${CLASSIFICACOES_VALIDAS.join(', ')}` });
@@ -289,7 +289,7 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
       // PDF escaneado — OCR nao conseguiu extrair texto
       if (resultado.textoVazio) {
         return res.status(422).json({
-          erro: 'Nao foi possivel ler o documento. Verifique se o arquivo esta legivel e tente novamente.',
+          erro: 'Não foi possível ler o documento. Verifique se o arquivo está legível e tente novamente.',
           ocrUsado: true
         });
       }
@@ -343,7 +343,7 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
         tipoDocumento: resultado.tipoDocumento,
         leisAplicaveis: baseJuridica[resultado.tipoDocumento] || baseJuridica.outro,
         modoBasico: resultado.modoBasico || false,
-        avisoIA: resultado.modoBasico ? 'Processado em modo basico (IA indisponivel). Apenas CPF, RG, email e telefone detectados por regex foram tarjados.' : undefined
+        avisoIA: resultado.modoBasico ? 'Processado em modo básico (IA indisponível). Apenas CPF, RG, email e telefone detectados por regex foram tarjados.' : undefined
       });
     }
 

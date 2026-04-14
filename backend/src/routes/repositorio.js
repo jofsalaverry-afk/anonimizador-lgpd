@@ -18,7 +18,7 @@ const uploadArquivo = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (MIMETYPES_ACEITOS.has(file.mimetype)) return cb(null, true);
-    cb(new Error('Tipo de arquivo nao suportado. Envie PDF ou DOCX.'));
+    cb(new Error('Tipo de arquivo não suportado. Envie PDF ou DOCX.'));
   }
 });
 
@@ -34,11 +34,11 @@ const DOC_SELECT_LISTA = {
 const authMiddleware = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token nao fornecido' });
+    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     req.usuario = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) {
-    res.status(401).json({ erro: 'Token invalido' });
+    res.status(401).json({ erro: 'Token inválido' });
   }
 };
 
@@ -49,11 +49,11 @@ const requireModulo = async (req, res, next) => {
       select: { modulosAtivos: true }
     });
     if (!org || !org.modulosAtivos.includes('repositorio')) {
-      return res.status(403).json({ erro: 'Modulo "repositorio" nao esta ativo para sua organizacao.' });
+      return res.status(403).json({ erro: 'Módulo "repositorio" não está ativo para sua organização.' });
     }
     next();
   } catch (err) {
-    res.status(500).json({ erro: 'Erro ao verificar modulos' });
+    res.status(500).json({ erro: 'Erro ao verificar módulos' });
   }
 };
 
@@ -82,7 +82,7 @@ router.get('/documentos/:id', async (req, res) => {
     const doc = await prisma.documentoRepositorio.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!doc) return res.status(404).json({ erro: 'Documento nao encontrado' });
+    if (!doc) return res.status(404).json({ erro: 'Documento não encontrado' });
     res.json(doc);
   } catch (err) {
     res.status(500).json({ erro: 'Erro ao buscar documento' });
@@ -92,10 +92,10 @@ router.get('/documentos/:id', async (req, res) => {
 router.post('/documentos', async (req, res) => {
   try {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
-      return res.status(403).json({ erro: 'Sem permissao' });
+      return res.status(403).json({ erro: 'Sem permissão' });
     }
     const { titulo, tipo, conteudoMd, status, tags } = req.body;
-    if (!titulo || !tipo) return res.status(400).json({ erro: 'titulo e tipo sao obrigatorios' });
+    if (!titulo || !tipo) return res.status(400).json({ erro: 'titulo e tipo são obrigatórios' });
     const doc = await prisma.documentoRepositorio.create({
       data: {
         organizacaoId: req.usuario.organizacaoId,
@@ -123,7 +123,7 @@ router.post('/upload', uploadArquivo.single('arquivo'), async (req, res) => {
     if (!req.file) return res.status(400).json({ erro: 'Envie um arquivo no campo "arquivo"' });
     const { titulo, descricao, categoria } = req.body;
     if (!titulo || !categoria) {
-      return res.status(400).json({ erro: 'titulo e categoria sao obrigatorios' });
+      return res.status(400).json({ erro: 'titulo e categoria são obrigatórios' });
     }
     const doc = await prisma.documentoRepositorio.create({
       data: {
@@ -144,7 +144,7 @@ router.post('/upload', uploadArquivo.single('arquivo'), async (req, res) => {
     res.status(201).json(doc);
   } catch (err) {
     console.error('[POST /repositorio/upload]', err);
-    const msg = err && err.message && err.message.includes('nao suportado')
+    const msg = err && err.message && err.message.includes('não suportado')
       ? err.message
       : (err && err.code === 'LIMIT_FILE_SIZE' ? 'Arquivo maior que 20MB' : 'Erro ao subir arquivo');
     res.status(400).json({ erro: msg });
@@ -159,7 +159,7 @@ router.get('/documentos/:id/download', async (req, res) => {
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId },
       select: { arquivo: true, mimetype: true, nomeArquivo: true }
     });
-    if (!doc || !doc.arquivo) return res.status(404).json({ erro: 'Arquivo nao encontrado' });
+    if (!doc || !doc.arquivo) return res.status(404).json({ erro: 'Arquivo não encontrado' });
     res.setHeader('Content-Type', doc.mimetype || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${doc.nomeArquivo || 'documento'}"`);
     res.send(Buffer.from(doc.arquivo));
@@ -172,12 +172,12 @@ router.get('/documentos/:id/download', async (req, res) => {
 router.put('/documentos/:id', async (req, res) => {
   try {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
-      return res.status(403).json({ erro: 'Sem permissao' });
+      return res.status(403).json({ erro: 'Sem permissão' });
     }
     const existente = await prisma.documentoRepositorio.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Documento nao encontrado' });
+    if (!existente) return res.status(404).json({ erro: 'Documento não encontrado' });
 
     const { titulo, tipo, conteudoMd, status, tags } = req.body;
     // Incrementa versao se conteudo mudou
@@ -210,7 +210,7 @@ router.delete('/documentos/:id', async (req, res) => {
     const existente = await prisma.documentoRepositorio.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Documento nao encontrado' });
+    if (!existente) return res.status(404).json({ erro: 'Documento não encontrado' });
     await prisma.documentoRepositorio.delete({ where: { id: req.params.id } });
     res.json({ ok: true });
   } catch (err) {
@@ -238,7 +238,7 @@ router.get('/incidentes/:id', async (req, res) => {
     const inc = await prisma.incidente.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!inc) return res.status(404).json({ erro: 'Incidente nao encontrado' });
+    if (!inc) return res.status(404).json({ erro: 'Incidente não encontrado' });
     res.json(inc);
   } catch (err) {
     res.status(500).json({ erro: 'Erro ao buscar incidente' });
@@ -248,11 +248,11 @@ router.get('/incidentes/:id', async (req, res) => {
 router.post('/incidentes', async (req, res) => {
   try {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
-      return res.status(403).json({ erro: 'Sem permissao' });
+      return res.status(403).json({ erro: 'Sem permissão' });
     }
     const { titulo, dataOcorrencia, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao } = req.body;
     if (!titulo || !dataOcorrencia || !tipoIncidente || !descricao) {
-      return res.status(400).json({ erro: 'titulo, dataOcorrencia, tipoIncidente e descricao sao obrigatorios' });
+      return res.status(400).json({ erro: 'titulo, dataOcorrencia, tipoIncidente e descricao são obrigatórios' });
     }
     const inc = await prisma.incidente.create({
       data: {
@@ -275,12 +275,12 @@ router.post('/incidentes', async (req, res) => {
 router.put('/incidentes/:id', async (req, res) => {
   try {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
-      return res.status(403).json({ erro: 'Sem permissao' });
+      return res.status(403).json({ erro: 'Sem permissão' });
     }
     const existente = await prisma.incidente.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Incidente nao encontrado' });
+    if (!existente) return res.status(404).json({ erro: 'Incidente não encontrado' });
 
     const { titulo, status, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, notificadoANPD } = req.body;
     const inc = await prisma.incidente.update({

@@ -11,11 +11,11 @@ const prisma = new PrismaClient();
 const authMiddleware = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token nao fornecido' });
+    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     req.usuario = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) {
-    res.status(401).json({ erro: 'Token invalido' });
+    res.status(401).json({ erro: 'Token inválido' });
   }
 };
 
@@ -28,11 +28,11 @@ const requireChecklistModulo = async (req, res, next) => {
       select: { modulosAtivos: true }
     });
     if (!org || !org.modulosAtivos.includes('checklist')) {
-      return res.status(403).json({ erro: 'Modulo "checklist" nao esta ativo para sua organizacao.' });
+      return res.status(403).json({ erro: 'Módulo "checklist" não está ativo para sua organização.' });
     }
     next();
   } catch (err) {
-    res.status(500).json({ erro: 'Erro ao verificar modulos' });
+    res.status(500).json({ erro: 'Erro ao verificar módulos' });
   }
 };
 
@@ -62,17 +62,17 @@ router.get('/checklist', requireChecklistModulo, async (req, res) => {
 router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, res) => {
   try {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
-      return res.status(403).json({ erro: 'Sem permissao para responder checklist' });
+      return res.status(403).json({ erro: 'Sem permissão para responder checklist' });
     }
 
     const { status, observacao, evidenciaUrl, proximaRevisao } = req.body;
     const STATUS_VALIDOS = ['CONFORME', 'PARCIAL', 'NAO_CONFORME', 'NAO_APLICAVEL'];
     if (!STATUS_VALIDOS.includes(status)) {
-      return res.status(400).json({ erro: 'status invalido' });
+      return res.status(400).json({ erro: 'status inválido' });
     }
 
     const item = await prisma.itemChecklist.findUnique({ where: { id: req.params.itemId } });
-    if (!item) return res.status(404).json({ erro: 'Item nao encontrado' });
+    if (!item) return res.status(404).json({ erro: 'Item não encontrado' });
 
     // Hash de integridade da evidencia (se houver URL ou observacao)
     const conteudoHash = (evidenciaUrl || '') + (observacao || '') + new Date().toISOString();
@@ -201,15 +201,15 @@ router.get('/alertas', async (req, res) => {
             tipo: 'DSAR_PRAZO',
             criticidade: dias < 0 ? 'ALTA' : 'ALTA',
             mensagem: dias < 0
-              ? `Solicitacao ${s.protocolo} vencida ha ${Math.abs(dias)} dia(s)`
-              : `Solicitacao ${s.protocolo} vence em ${dias} dia(s)`,
+              ? `Solicitação ${s.protocolo} vencida há ${Math.abs(dias)} dia(s)`
+              : `Solicitação ${s.protocolo} vence em ${dias} dia(s)`,
             referenciaId: s.id
           });
         } else if (dias <= 5) {
           alertasGerados.push({
             tipo: 'DSAR_PRAZO',
             criticidade: 'MEDIA',
-            mensagem: `Solicitacao ${s.protocolo} vence em ${dias} dias`,
+            mensagem: `Solicitação ${s.protocolo} vence em ${dias} dias`,
             referenciaId: s.id
           });
         }
@@ -229,7 +229,7 @@ router.get('/alertas', async (req, res) => {
         alertasGerados.push({
           tipo: 'INCIDENTE_ABERTO',
           criticidade: i.status === 'ABERTO' ? 'ALTA' : 'MEDIA',
-          mensagem: `Incidente "${i.titulo}" em ${i.status === 'ABERTO' ? 'aberto' : 'investigacao'}`,
+          mensagem: `Incidente "${i.titulo}" em ${i.status === 'ABERTO' ? 'aberto' : 'investigação'}`,
           referenciaId: i.id
         });
       }
@@ -250,8 +250,8 @@ router.get('/alertas', async (req, res) => {
           tipo: 'CHECKLIST_REVISAO',
           criticidade: dias < 0 ? 'ALTA' : 'MEDIA',
           mensagem: dias < 0
-            ? `Item ${r.item.codigo} precisa de revisao (vencido ha ${Math.abs(dias)} dia(s))`
-            : `Item ${r.item.codigo} precisa de revisao em ${dias} dia(s)`,
+            ? `Item ${r.item.codigo} precisa de revisão (vencido há ${Math.abs(dias)} dia(s))`
+            : `Item ${r.item.codigo} precisa de revisão em ${dias} dia(s)`,
           referenciaId: r.id
         });
       }
@@ -272,7 +272,7 @@ router.get('/alertas', async (req, res) => {
         alertasGerados.push({
           tipo: 'ROPA_DESATUALIZADO',
           criticidade: 'MEDIA',
-          mensagem: `Tratamento "${t.nome}" nao e atualizado ha mais de 1 ano`,
+          mensagem: `Tratamento "${t.nome}" não é atualizado há mais de 1 ano`,
           referenciaId: t.id
         });
       }
@@ -313,7 +313,7 @@ router.patch('/alertas/:id/ler', async (req, res) => {
     const existente = await prisma.alertaConformidade.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
-    if (!existente) return res.status(404).json({ erro: 'Alerta nao encontrado' });
+    if (!existente) return res.status(404).json({ erro: 'Alerta não encontrado' });
 
     const atualizado = await prisma.alertaConformidade.update({
       where: { id: req.params.id },
