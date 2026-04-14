@@ -94,7 +94,7 @@ export default function Login({ onLogin }) {
     <div className="page-center">
       <div className="login-card">
         <div className="login-header">
-          <img src="/logo-complidata.png" alt="Complidata" width="180" className="login-logo" />
+          <img src="/logo-complidata.png" alt="Complidata" width="240" className="login-logo" />
           <p className="login-subtitle">LGPD · Poder Público</p>
         </div>
         <form onSubmit={handleSubmit}>
