@@ -69,7 +69,7 @@ export default function Login({ onLogin }) {
               placeholder="000000"
               autoFocus
               required
-              style={{ fontSize: 24, letterSpacing: 8, textAlign: 'center', fontWeight: 700 }}
+              style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 26, letterSpacing: 10, textAlign: 'center', fontWeight: 600 }}
             />
             {erro && <p className="text-error">{erro}</p>}
             <button className="btn-primary" type="submit" disabled={loading}>
