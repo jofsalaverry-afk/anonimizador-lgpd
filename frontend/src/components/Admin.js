@@ -215,7 +215,7 @@ export default function Admin() {
         <div className="card login-card">
           <div className="login-header">
             <div className="login-icon">🛡️</div>
-            <h1 className="login-title">Admin — Anonimizador LGPD</h1>
+            <h1 className="login-title">Admin — Complidata</h1>
             <p className="login-subtitle">Acesso restrito</p>
           </div>
           <form onSubmit={handleLogin}>
@@ -245,7 +245,7 @@ export default function Admin() {
       <header className="header">
         <div className="header-brand">
           <span className="header-brand-icon">🛡️</span>
-          <span className="header-brand-text">Admin — Anonimizador LGPD</span>
+          <span className="header-brand-text">Admin — Complidata</span>
         </div>
         <button onClick={handleLogout} className="btn-logout">Sair</button>
       </header>

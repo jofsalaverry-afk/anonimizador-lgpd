@@ -95,8 +95,8 @@ export default function Login({ onLogin }) {
       <div className="login-card">
         <div className="login-header">
           <div className="login-icon">🏛️</div>
-          <h1 className="login-title">Anonimizador LGPD</h1>
-          <p className="login-subtitle">Plataforma de conformidade para camaras municipais</p>
+          <h1 className="login-title">Complidata</h1>
+          <p className="login-subtitle">LGPD · Poder Público</p>
         </div>
         <form onSubmit={handleSubmit}>
           <label>E-mail</label>

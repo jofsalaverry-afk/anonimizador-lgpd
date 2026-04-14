@@ -43,8 +43,8 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           <div className="sidebar-brand">
             <div className="sidebar-logo">🏛️</div>
             <div>
-              <div className="sidebar-brand-name">Anonimizador</div>
-              <div className="sidebar-brand-sub">LGPD Compliance</div>
+              <div className="sidebar-brand-name">Complidata</div>
+              <div className="sidebar-brand-sub">LGPD · Poder Público</div>
             </div>
           </div>
 
@@ -103,7 +103,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
       <div className="content-area">
         <header className="content-header">
           <h1 className="content-header-title">
-            {showSidebar ? PAGE_TITLES[pagina] || pagina : 'Anonimizador LGPD'}
+            {showSidebar ? PAGE_TITLES[pagina] || pagina : 'Complidata'}
           </h1>
           <div className="content-header-right">
             <AlertasCenter token={token} />
