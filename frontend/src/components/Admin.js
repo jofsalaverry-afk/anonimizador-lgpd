@@ -14,14 +14,14 @@ const MODULOS_DISPONIVEIS = [
   { id: 'anonimizador', nome: 'Anonimizador' },
   { id: 'ropa', nome: 'ROPA' },
   { id: 'dsar', nome: 'DSAR' },
-  { id: 'repositorio', nome: 'Repositorio' },
+  { id: 'repositorio', nome: 'Repositório' },
   { id: 'treinamento', nome: 'Treinamento' },
   { id: 'checklist', nome: 'Checklist' }
 ];
 
 const CATEGORIAS_REPO = [
-  { value: 'POLITICA_PRIVACIDADE', label: 'Politica de privacidade' },
-  { value: 'POLITICA_SEGURANCA', label: 'Politica de seguranca' },
+  { value: 'POLITICA_PRIVACIDADE', label: 'Política de privacidade' },
+  { value: 'POLITICA_SEGURANCA', label: 'Política de segurança' },
   { value: 'MODELO_DSAR', label: 'Modelo DSAR' },
   { value: 'CONTRATO', label: 'Contrato' },
   { value: 'TERMO_USO', label: 'Termo de uso' },
@@ -93,7 +93,7 @@ export default function Admin() {
       });
       carregar();
     } catch (err) {
-      alert(err.response?.data?.erro || 'Erro ao salvar modulo');
+      alert(err.response?.data?.erro || 'Erro ao salvar módulo');
     }
   };
 
@@ -116,7 +116,7 @@ export default function Admin() {
     setRepoMsg('');
     setRepoErro('');
     if (!repoOrg || !repoArquivo || !repoForm.titulo || !repoForm.categoria) {
-      return setRepoErro('Preencha camara, titulo, categoria e selecione um arquivo');
+      return setRepoErro('Preencha câmara, título, categoria e selecione um arquivo');
     }
     setRepoLoading(true);
     try {
@@ -154,17 +154,17 @@ export default function Admin() {
       await axios.patch(`${API}/admin/usuarios/${id}/toggle`, {}, { headers });
       carregar();
     } catch (err) {
-      alert(err.response?.data?.erro || 'Erro ao atualizar usuario');
+      alert(err.response?.data?.erro || 'Erro ao atualizar usuário');
     }
   };
 
   const excluirUsuario = async (email, id) => {
-    if (!window.confirm(`Excluir o usuario ${email}? Esta acao preserva o historico mas remove o acesso permanentemente.`)) return;
+    if (!window.confirm(`Excluir o usuário ${email}? Esta ação preserva o histórico mas remove o acesso permanentemente.`)) return;
     try {
       await axios.delete(`${API}/admin/usuarios/${id}`, { headers });
       carregar();
     } catch (err) {
-      alert(err.response?.data?.erro || 'Erro ao excluir usuario');
+      alert(err.response?.data?.erro || 'Erro ao excluir usuário');
     }
   };
 
@@ -200,10 +200,10 @@ export default function Admin() {
     try {
       await axios.post(`${API}/admin/camaras`, form, { headers });
       setForm({ nome: '', cnpj: '', email: '', senha: '', plano: 'basico' });
-      setMsg('Organizacao criada com sucesso');
+      setMsg('Organização criada com sucesso');
       carregar();
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao criar organizacao');
+      setErro(err.response?.data?.erro || 'Erro ao criar organização');
     }
   };
 
@@ -224,7 +224,7 @@ export default function Admin() {
       await axios.patch(`${API}/admin/camaras/${orgId}/modulos`, { modulosAtivos: novos }, { headers });
       carregar();
     } catch (err) {
-      setErro('Erro ao alterar modulos');
+      setErro('Erro ao alterar módulos');
     }
   };
 
@@ -278,7 +278,7 @@ export default function Admin() {
                 <div className="stat-card-icon stat-card-icon-blue">🏛️</div>
                 <div>
                   <div className="stat-value">{stats.totalCamaras}</div>
-                  <div className="stat-label">Organizacoes</div>
+                  <div className="stat-label">Organizações</div>
                 </div>
               </div>
             </div>
@@ -298,7 +298,7 @@ export default function Admin() {
                 <div className="stat-card-icon stat-card-icon-purple">👤</div>
                 <div>
                   <div className="stat-value">{stats.totalUsuarios}</div>
-                  <div className="stat-label">Usuarios</div>
+                  <div className="stat-label">Usuários</div>
                 </div>
               </div>
             </div>
@@ -316,37 +316,37 @@ export default function Admin() {
         )}
 
         <div className="card mb-24">
-          <h2 className="card-header">Criar nova organizacao</h2>
+          <h2 className="card-header">Criar nova organização</h2>
           <form onSubmit={criarOrg}>
             <label>Nome</label>
-            <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Camara Municipal de ..." required />
+            <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Câmara Municipal de ..." required />
             <label>CNPJ</label>
             <input value={form.cnpj} onChange={e => setForm({ ...form, cnpj: e.target.value })} placeholder="00.000.000/0001-00" required />
-            <label>E-mail do primeiro usuario (Gestor)</label>
+            <label>E-mail do primeiro usuário (Gestor)</label>
             <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="contato@camara.gov.br" required />
             <label>Senha inicial</label>
             <input type="text" value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} placeholder="senha inicial" required />
             <label>Plano</label>
             <select value={form.plano} onChange={e => setForm({ ...form, plano: e.target.value })}>
-              <option value="basico">Basico</option>
-              <option value="intermediario">Intermediario</option>
+              <option value="basico">Básico</option>
+              <option value="intermediario">Intermediário</option>
               <option value="premium">Premium</option>
             </select>
             {msg && <p className="text-success mb-12">{msg}</p>}
             {erro && <p className="text-error mb-12">{erro}</p>}
-            <button className="btn-primary" type="submit">Criar organizacao</button>
+            <button className="btn-primary" type="submit">Criar organização</button>
           </form>
         </div>
 
         <div className="card">
-          <h2 className="card-header">Organizacoes ({orgs.length})</h2>
-          {orgs.length === 0 && <p className="text-muted text-sm">Nenhuma organizacao cadastrada.</p>}
+          <h2 className="card-header">Organizações ({orgs.length})</h2>
+          {orgs.length === 0 && <p className="text-muted text-sm">Nenhuma organização cadastrada.</p>}
           {orgs.map(o => (
             <div key={o.id} className="org-row">
               <div className="flex-between">
                 <div>
                   <div className="comp-name text-sm">{o.nome}</div>
-                  <div className="text-muted text-sm">{o.cnpj} · {o.plano} · {o._count?.usuarios || 0} usuarios · {o._count?.documentos || 0} docs</div>
+                  <div className="text-muted text-sm">{o.cnpj} · {o.plano} · {o._count?.usuarios || 0} usuários · {o._count?.documentos || 0} docs</div>
                 </div>
                 <div className="flex-center gap-8">
                   <span className={o.ativo ? 'badge badge-success' : 'badge badge-danger'}>
@@ -364,7 +364,7 @@ export default function Admin() {
               {expandida === o.id && (
                 <div className="org-expand">
                   <div className="mb-12">
-                    <div className="detail-label mb-8">Modulos</div>
+                    <div className="detail-label mb-8">Módulos</div>
                     <div className="chip-row">
                       {MODULOS_DISPONIVEIS.map(m => {
                         const ativo = (o.modulosAtivos || []).includes(m.id);
@@ -379,7 +379,7 @@ export default function Admin() {
                   </div>
 
                   <div>
-                    <div className="detail-label mb-8">Usuarios</div>
+                    <div className="detail-label mb-8">Usuários</div>
                     {(o.usuarios || []).map(u => (
                       <div key={u.id} className="user-row">
                         <div className="flex-center gap-8">
@@ -400,7 +400,7 @@ export default function Admin() {
                             type="button"
                             onClick={() => excluirUsuario(u.email, u.id)}
                             className="btn-danger btn-sm"
-                            title="Remover acesso permanentemente (mantem historico)"
+                            title="Remover acesso permanentemente (mantém histórico)"
                           >
                             Excluir
                           </button>
@@ -416,8 +416,8 @@ export default function Admin() {
 
         {/* ========== Treinamento ========== */}
         <div className="card mt-20">
-          <h2 className="card-header">Treinamentos — curadoria de videos</h2>
-          <p className="text-muted mb-16">Cole o ID ou a URL completa do YouTube para cada modulo. Os videos sao compartilhados entre todas as organizacoes com o modulo treinamento ativo.</p>
+          <h2 className="card-header">Treinamentos — curadoria de vídeos</h2>
+          <p className="text-muted mb-16">Cole o ID ou a URL completa do YouTube para cada módulo. Os vídeos são compartilhados entre todas as organizações com o módulo treinamento ativo.</p>
 
           {trilhas.length === 0 && <p className="text-muted">Carregando trilhas...</p>}
 
@@ -473,14 +473,14 @@ export default function Admin() {
 
         {/* ========== Repositorio de Documentos (admin cross-org) ========== */}
         <div className="card mt-16">
-          <h2 className="card-header">Repositorio de Documentos</h2>
+          <h2 className="card-header">Repositório de Documentos</h2>
           <p className="text-sm mb-16" style={{ color: '#64748b' }}>
-            Suba arquivos (PDF ou DOCX ate 20MB) que ficarao disponiveis para download pelos usuarios da camara selecionada.
+            Suba arquivos (PDF ou DOCX até 20MB) que ficarão disponíveis para download pelos usuários da câmara selecionada.
           </p>
 
-          <label>Camara</label>
+          <label>Câmara</label>
           <select value={repoOrg} onChange={e => setRepoOrg(e.target.value)}>
-            <option value="">Selecione uma camara...</option>
+            <option value="">Selecione uma câmara...</option>
             {orgs.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
           </select>
 
@@ -489,7 +489,7 @@ export default function Admin() {
               <form onSubmit={uploadRepoDoc} className="mt-16">
                 <div className="grid-2">
                   <div>
-                    <label>Titulo *</label>
+                    <label>Título *</label>
                     <input
                       value={repoForm.titulo}
                       onChange={e => setRepoForm({ ...repoForm, titulo: e.target.value })}
@@ -509,13 +509,13 @@ export default function Admin() {
                     </select>
                   </div>
                 </div>
-                <label>Descricao</label>
+                <label>Descrição</label>
                 <textarea
                   value={repoForm.descricao}
                   onChange={e => setRepoForm({ ...repoForm, descricao: e.target.value })}
                   rows={2}
                   maxLength={500}
-                  placeholder="Descricao curta mostrada no card"
+                  placeholder="Descrição curta mostrada no card"
                 />
                 <label>Arquivo (PDF ou DOCX) *</label>
                 <input
@@ -532,7 +532,7 @@ export default function Admin() {
               </form>
 
               <div className="mt-16">
-                <div className="detail-label mb-8">Documentos desta camara ({repoDocs.length})</div>
+                <div className="detail-label mb-8">Documentos desta câmara ({repoDocs.length})</div>
                 {repoDocs.length === 0 ? (
                   <div className="text-muted text-sm">Nenhum documento enviado ainda.</div>
                 ) : (

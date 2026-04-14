@@ -8,14 +8,14 @@ import IncidenteForm from './IncidenteForm';
 // valores legados (POLITICA, TERMO, ADITIVO, MODELO) para nao quebrar
 // documentos antigos ja cadastrados.
 const CATEGORIA_LABEL = {
-  POLITICA_PRIVACIDADE: 'Politica de Privacidade',
-  POLITICA_SEGURANCA: 'Politica de Seguranca',
+  POLITICA_PRIVACIDADE: 'Política de Privacidade',
+  POLITICA_SEGURANCA: 'Política de Segurança',
   MODELO_DSAR: 'Modelo DSAR',
   CONTRATO: 'Contrato',
   TERMO_USO: 'Termo de Uso',
   OUTRO: 'Outros',
   // legado
-  POLITICA: 'Politica (legado)',
+  POLITICA: 'Política (legado)',
   TERMO: 'Termo (legado)',
   ADITIVO: 'Aditivo (legado)',
   MODELO: 'Modelo (legado)'
@@ -78,8 +78,8 @@ function RepositorioArquivos({ token }) {
   if (!docs.length) {
     return (
       <div className="card">
-        <h2 className="card-header">Repositorio de Documentos</h2>
-        <p className="text-muted">Nenhum documento disponivel ainda. Os documentos sao publicados pelo administrador do sistema.</p>
+        <h2 className="card-header">Repositório de Documentos</h2>
+        <p className="text-muted">Nenhum documento disponível ainda. Os documentos são publicados pelo administrador do sistema.</p>
       </div>
     );
   }
@@ -94,9 +94,9 @@ function RepositorioArquivos({ token }) {
   return (
     <div>
       <div className="card mb-16">
-        <h2 className="card-header">Repositorio de Documentos</h2>
+        <h2 className="card-header">Repositório de Documentos</h2>
         <p className="text-sm" style={{ color: '#64748b' }}>
-          Documentos institucionais e modelos disponibilizados pela sua organizacao. Clique em qualquer card para baixar.
+          Documentos institucionais e modelos disponibilizados pela sua organização. Clique em qualquer card para baixar.
         </p>
       </div>
 
@@ -178,5 +178,5 @@ export default function Repositorio({ token, subpagina }) {
     );
   }
 
-  return <p className="text-muted">Selecione uma subpagina do repositorio.</p>;
+  return <p className="text-muted">Selecione uma subpágina do repositório.</p>;
 }

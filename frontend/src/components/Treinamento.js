@@ -57,7 +57,7 @@ export default function Treinamento({ token }) {
         <div className="card mb-16">
           <div className="flex-between mb-16">
             <div>
-              <div className="detail-label">Modulo {moduloIdx + 1} de {totalModulos}</div>
+              <div className="detail-label">Módulo {moduloIdx + 1} de {totalModulos}</div>
               <h3 className="card-header mb-8">{modulo.titulo}</h3>
             </div>
             <span className="badge badge-info">{modulo.duracaoMin} min</span>
@@ -81,11 +81,11 @@ export default function Treinamento({ token }) {
               disabled={moduloIdx === 0}
               className="btn-secondary btn-sm"
             >
-              ← Modulo anterior
+              ← Módulo anterior
             </button>
             {moduloIdx < totalModulos - 1 ? (
               <button onClick={() => setModuloIdx(i => i + 1)} className="btn-primary btn-sm">
-                Proximo modulo →
+                Próximo módulo →
               </button>
             ) : (
               <button onClick={voltarParaLista} className="btn-primary btn-sm">
@@ -96,7 +96,7 @@ export default function Treinamento({ token }) {
         </div>
 
         <div className="card">
-          <div className="card-header">Modulos desta trilha</div>
+          <div className="card-header">Módulos desta trilha</div>
           {trilhaAberta.modulos.map((m, i) => (
             <button
               key={i}
@@ -126,13 +126,13 @@ export default function Treinamento({ token }) {
       {erro && <div className="alert-error">{erro}</div>}
 
       <div className="alert-info mb-24">
-        Conteudo curado em conformidade com a LGPD Art. 50, I, g —
-        capacitacao periodica obrigatoria de colaboradores que tratam dados pessoais.
+        Conteúdo curado em conformidade com a LGPD Art. 50, I, g —
+        capacitação periódica obrigatória de colaboradores que tratam dados pessoais.
       </div>
 
       {trilhas.length === 0 && !erro && (
         <div className="card empty-state">
-          <p>Nenhuma trilha disponivel no momento.</p>
+          <p>Nenhuma trilha disponível no momento.</p>
         </div>
       )}
 
@@ -148,7 +148,7 @@ export default function Treinamento({ token }) {
               <h3 className="trilha-titulo">{trilha.titulo}</h3>
               <p className="trilha-desc">{trilha.descricao}</p>
               <div className="trilha-footer">
-                <span className="text-muted text-sm">{trilha.modulos.length} modulos · {totalMin} min</span>
+                <span className="text-muted text-sm">{trilha.modulos.length} módulos · {totalMin} min</span>
                 <span className="btn-ghost btn-sm">Iniciar →</span>
               </div>
             </div>

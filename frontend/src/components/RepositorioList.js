@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 
-const TIPO_LABEL = { POLITICA: 'Politica', TERMO: 'Termo', ADITIVO: 'Aditivo', CONTRATO: 'Contrato', MODELO: 'Modelo', OUTRO: 'Outro' };
+const TIPO_LABEL = { POLITICA: 'Política', TERMO: 'Termo', ADITIVO: 'Aditivo', CONTRATO: 'Contrato', MODELO: 'Modelo', OUTRO: 'Outro' };
 const STATUS_LABEL = { RASCUNHO: 'Rascunho', APROVADO: 'Aprovado', PUBLICADO: 'Publicado' };
 const STATUS_BADGE = { RASCUNHO: 'badge badge-warning', APROVADO: 'badge badge-info', PUBLICADO: 'badge badge-success' };
 
@@ -50,7 +50,7 @@ export default function RepositorioList({ token, onNovo, onVer, onEditar }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Repositorio de Documentos</h2>
+        <h2 className="page-title">Repositório de Documentos</h2>
         <div className="btn-row">
           <button onClick={onNovo} className="btn-primary btn-sm">+ Novo documento</button>
         </div>
@@ -79,12 +79,12 @@ export default function RepositorioList({ token, onNovo, onVer, onEditar }) {
           <table className="table">
             <thead>
               <tr>
-                <th>Titulo</th>
+                <th>Título</th>
                 <th>Tipo</th>
                 <th>Status</th>
-                <th>Versao</th>
+                <th>Versão</th>
                 <th>Tags</th>
-                <th>Acoes</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>

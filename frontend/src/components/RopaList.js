@@ -4,13 +4,13 @@ import { API } from '../config';
 
 const BASE_LEGAL_LABEL = {
   CONSENTIMENTO: 'Consentimento',
-  OBRIGACAO_LEGAL: 'Obrigacao Legal',
-  EXECUCAO_CONTRATO: 'Execucao de Contrato',
-  INTERESSE_LEGITIMO: 'Interesse Legitimo',
-  PROTECAO_VIDA: 'Protecao a Vida',
-  TUTELA_SAUDE: 'Tutela da Saude',
-  INTERESSE_PUBLICO: 'Interesse Publico',
-  EXERCICIO_DIREITOS: 'Exercicio de Direitos'
+  OBRIGACAO_LEGAL: 'Obrigação Legal',
+  EXECUCAO_CONTRATO: 'Execução de Contrato',
+  INTERESSE_LEGITIMO: 'Interesse Legítimo',
+  PROTECAO_VIDA: 'Proteção à Vida',
+  TUTELA_SAUDE: 'Tutela da Saúde',
+  INTERESSE_PUBLICO: 'Interesse Público',
+  EXERCICIO_DIREITOS: 'Exercício de Direitos'
 };
 
 export default function RopaList({ token, onNovo, onVer, onEditar }) {
@@ -116,7 +116,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
                 <th>Base Legal</th>
                 <th>Titulares</th>
                 <th>Status</th>
-                <th>Acoes</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>

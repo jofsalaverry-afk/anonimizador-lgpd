@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 
-const TIPO_INC_LABEL = { VAZAMENTO: 'Vazamento', ACESSO_INDEVIDO: 'Acesso indevido', PERDA: 'Perda', ALTERACAO: 'Alteracao', OUTRO: 'Outro' };
-const STATUS_INC_LABEL = { ABERTO: 'Aberto', EM_INVESTIGACAO: 'Em investigacao', RESOLVIDO: 'Resolvido', ENCERRADO: 'Encerrado' };
+const TIPO_INC_LABEL = { VAZAMENTO: 'Vazamento', ACESSO_INDEVIDO: 'Acesso indevido', PERDA: 'Perda', ALTERACAO: 'Alteração', OUTRO: 'Outro' };
+const STATUS_INC_LABEL = { ABERTO: 'Aberto', EM_INVESTIGACAO: 'Em investigação', RESOLVIDO: 'Resolvido', ENCERRADO: 'Encerrado' };
 const STATUS_INC_BADGE = { ABERTO: 'badge badge-danger', EM_INVESTIGACAO: 'badge badge-warning', RESOLVIDO: 'badge badge-success', ENCERRADO: 'badge badge-muted' };
 
 export default function IncidenteList({ token, onNovo, onVer }) {
@@ -36,7 +36,7 @@ export default function IncidenteList({ token, onNovo, onVer }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Incidentes de Seguranca</h2>
+        <h2 className="page-title">Incidentes de Segurança</h2>
         <div className="btn-row">
           <button onClick={onNovo} className="btn-primary btn-sm">+ Novo incidente</button>
         </div>
@@ -61,13 +61,13 @@ export default function IncidenteList({ token, onNovo, onVer }) {
           <table className="table">
             <thead>
               <tr>
-                <th>Titulo</th>
+                <th>Título</th>
                 <th>Tipo</th>
-                <th>Data Ocorrencia</th>
+                <th>Data Ocorrência</th>
                 <th>Titulares Afetados</th>
                 <th>ANPD</th>
                 <th>Status</th>
-                <th>Acoes</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -79,7 +79,7 @@ export default function IncidenteList({ token, onNovo, onVer }) {
                   <td>{i.qtdTitulares || 0}</td>
                   <td>
                     <span className={i.notificadoANPD ? 'badge badge-success' : 'badge badge-danger'}>
-                      {i.notificadoANPD ? 'Sim' : 'Nao'}
+                      {i.notificadoANPD ? 'Sim' : 'Não'}
                     </span>
                   </td>
                   <td>

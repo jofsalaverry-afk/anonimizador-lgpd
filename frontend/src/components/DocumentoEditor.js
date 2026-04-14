@@ -3,7 +3,7 @@ import axios from 'axios';
 import { API } from '../config';
 
 const TIPO_OPTIONS = [
-  { value: 'POLITICA', label: 'Politica' },
+  { value: 'POLITICA', label: 'Política' },
   { value: 'TERMO', label: 'Termo' },
   { value: 'ADITIVO', label: 'Aditivo' },
   { value: 'CONTRATO', label: 'Contrato' },
@@ -44,7 +44,7 @@ export default function DocumentoEditor({ token, documentoId, onVoltar }) {
           conteudoMd: doc.conteudoMd || ''
         });
       } else {
-        setErro('Documento nao encontrado');
+        setErro('Documento não encontrado');
       }
     } catch (err) {
       setErro(err.response?.data?.erro || 'Erro ao carregar documento');
@@ -65,7 +65,7 @@ export default function DocumentoEditor({ token, documentoId, onVoltar }) {
 
   const salvar = async () => {
     if (!form.titulo || !form.tipo) {
-      return setErro('Preencha titulo e tipo');
+      return setErro('Preencha título e tipo');
     }
     setLoading(true);
     setErro('');
@@ -103,11 +103,11 @@ export default function DocumentoEditor({ token, documentoId, onVoltar }) {
 
         <div className="form-grid mb-16">
           <div className="form-group">
-            <label>Titulo</label>
+            <label>Título</label>
             <input
               value={form.titulo}
               onChange={e => setForm({ ...form, titulo: e.target.value })}
-              placeholder="Titulo do documento"
+              placeholder="Título do documento"
             />
           </div>
           <div className="form-group">
@@ -145,12 +145,12 @@ export default function DocumentoEditor({ token, documentoId, onVoltar }) {
         </div>
 
         <div className="form-group mb-16">
-          <label>Conteudo (Markdown)</label>
+          <label>Conteúdo (Markdown)</label>
           <textarea
             value={form.conteudoMd}
             onChange={e => setForm({ ...form, conteudoMd: e.target.value })}
             rows={15}
-            placeholder="Escreva o conteudo do documento em Markdown..."
+            placeholder="Escreva o conteúdo do documento em Markdown..."
             style={{ fontFamily: 'monospace' }}
           />
         </div>

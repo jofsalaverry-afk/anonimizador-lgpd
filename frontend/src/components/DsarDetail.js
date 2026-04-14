@@ -3,13 +3,13 @@ import axios from 'axios';
 import { API } from '../config';
 
 const TIPO_LABEL = {
-  ACESSO: 'Acesso aos dados', CORRECAO: 'Correcao', ELIMINACAO: 'Eliminacao',
-  PORTABILIDADE: 'Portabilidade', OPOSICAO: 'Oposicao', REVOGACAO: 'Revogacao',
-  INFORMACAO: 'Informacao', PETICAO: 'Peticao a ANPD'
+  ACESSO: 'Acesso aos dados', CORRECAO: 'Correção', ELIMINACAO: 'Eliminação',
+  PORTABILIDADE: 'Portabilidade', OPOSICAO: 'Oposição', REVOGACAO: 'Revogação',
+  INFORMACAO: 'Informação', PETICAO: 'Petição à ANPD'
 };
 
 const STATUS_LABEL = {
-  RECEBIDA: 'Recebida', EM_ANALISE: 'Em analise', RESPONDIDA: 'Respondida',
+  RECEBIDA: 'Recebida', EM_ANALISE: 'Em análise', RESPONDIDA: 'Respondida',
   ENCERRADA: 'Encerrada', CANCELADA: 'Cancelada'
 };
 
@@ -42,7 +42,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
       const res = await axios.get(`${API}/dsar/solicitacoes/${solicitacaoId}`, { headers });
       setSol(res.data);
     } catch (err) {
-      setErro('Erro ao carregar solicitacao');
+      setErro('Erro ao carregar solicitação');
     }
     setLoading(false);
   };
@@ -75,7 +75,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
       setEvidForm({ tipo: '', descricao: '' });
       carregar();
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao adicionar evidencia');
+      setErro(err.response?.data?.erro || 'Erro ao adicionar evidência');
     }
     setSalvandoEvid(false);
   };
@@ -90,7 +90,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   };
 
   if (loading) return <p className="text-muted">Carregando...</p>;
-  if (!sol) return <div className="alert-error">Solicitacao nao encontrada.</div>;
+  if (!sol) return <div className="alert-error">Solicitação não encontrada.</div>;
 
   const encerrada = ['ENCERRADA', 'CANCELADA', 'RESPONDIDA'].includes(sol.status);
 
@@ -127,7 +127,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
             <div className="detail-value">{new Date(sol.dataLimite).toLocaleDateString('pt-BR')}</div>
           </div>
         </div>
-        <div className="detail-label">Descricao</div>
+        <div className="detail-label">Descrição</div>
         <div className="detail-value">{sol.descricao}</div>
 
         {sol.respostaTexto && (
@@ -144,10 +144,10 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
         {!encerrada && (
           <div className="btn-row mt-20">
             {sol.status === 'RECEBIDA' && (
-              <button onClick={() => mudarStatus('EM_ANALISE')} className="btn-secondary btn-sm">Iniciar analise</button>
+              <button onClick={() => mudarStatus('EM_ANALISE')} className="btn-secondary btn-sm">Iniciar análise</button>
             )}
             <button onClick={() => setShowEvidForm(!showEvidForm)} className="btn-secondary btn-sm">
-              {showEvidForm ? 'Cancelar' : '+ Evidencia'}
+              {showEvidForm ? 'Cancelar' : '+ Evidência'}
             </button>
             <button onClick={() => setShowRespForm(!showRespForm)} className="btn-primary btn-sm">
               {showRespForm ? 'Cancelar' : 'Responder'}
@@ -158,7 +158,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
 
       {showRespForm && (
         <div className="card mb-16">
-          <div className="card-header">Responder solicitacao</div>
+          <div className="card-header">Responder solicitação</div>
           <label>Texto da resposta</label>
           <textarea value={resposta} onChange={e => setResposta(e.target.value)} rows={5} placeholder="Digite a resposta ao titular..." />
           <div className="btn-row mt-16">
@@ -171,15 +171,15 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
 
       {showEvidForm && (
         <div className="card mb-16">
-          <div className="card-header">Adicionar evidencia</div>
+          <div className="card-header">Adicionar evidência</div>
           <div className="form-grid">
             <div className="form-group">
               <label>Tipo</label>
               <input value={evidForm.tipo} onChange={e => setEvidForm({ ...evidForm, tipo: e.target.value })} placeholder="Ex: E-mail, Documento, Captura de tela" />
             </div>
             <div className="form-group">
-              <label>Descricao</label>
-              <input value={evidForm.descricao} onChange={e => setEvidForm({ ...evidForm, descricao: e.target.value })} placeholder="Descreva a evidencia" />
+              <label>Descrição</label>
+              <input value={evidForm.descricao} onChange={e => setEvidForm({ ...evidForm, descricao: e.target.value })} placeholder="Descreva a evidência" />
             </div>
           </div>
           <div className="btn-row mt-16">
@@ -192,7 +192,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
 
       {(sol.evidencias || []).length > 0 && (
         <div className="card">
-          <div className="card-header">Evidencias ({sol.evidencias.length})</div>
+          <div className="card-header">Evidências ({sol.evidencias.length})</div>
           <div className="timeline">
             {sol.evidencias.map((ev, i) => (
               <div key={ev.id} className="timeline-item">

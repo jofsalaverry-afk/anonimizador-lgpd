@@ -5,11 +5,11 @@ import { API } from '../config';
 // Opcoes de correcao oferecidas no modal. O valor deve bater com
 // CLASSIFICACOES_VALIDAS no backend (documents.js).
 const OPCOES_CORRECAO = [
-  { valor: 'nao_pessoal', rotulo: 'Nao e dado pessoal' },
-  { valor: 'cpf', rotulo: 'E CPF' },
-  { valor: 'endereco', rotulo: 'E endereco' },
-  { valor: 'nome', rotulo: 'E nome' },
-  { valor: 'telefone', rotulo: 'E telefone' }
+  { valor: 'nao_pessoal', rotulo: 'Não é dado pessoal' },
+  { valor: 'cpf', rotulo: 'É CPF' },
+  { valor: 'endereco', rotulo: 'É endereço' },
+  { valor: 'nome', rotulo: 'É nome' },
+  { valor: 'telefone', rotulo: 'É telefone' }
 ];
 
 // Relatorio simplificado de devolutiva: mostra, em linguagem para leigo,
@@ -40,7 +40,7 @@ function RelatorioDevolutiva({ relatorio, token, podeCorrigir }) {
       setCorrigidos(prev => ({ ...prev, [modalItem.trecho]: classificacao }));
       setModalItem(null);
     } catch (err) {
-      alert('Erro ao salvar correcao: ' + (err.response?.data?.erro || err.message));
+      alert('Erro ao salvar correção: ' + (err.response?.data?.erro || err.message));
     } finally {
       setSalvando(false);
     }
@@ -48,10 +48,10 @@ function RelatorioDevolutiva({ relatorio, token, podeCorrigir }) {
 
   return (
     <div className="card mt-16">
-      <h2 className="card-header">Relatorio de devolutiva</h2>
+      <h2 className="card-header">Relatório de devolutiva</h2>
       <p className="text-sm mb-16" style={{ color: '#64748b' }}>
         Resumo simples do que o sistema encontrou no documento, o que foi
-        tarjado e o que foi preservado, com o motivo de cada decisao.
+        tarjado e o que foi preservado, com o motivo de cada decisão.
       </p>
 
       <div className="detail-label mb-8">Total encontrado por categoria</div>
@@ -73,7 +73,7 @@ function RelatorioDevolutiva({ relatorio, token, podeCorrigir }) {
           <hr className="card-divider" />
           <div className="detail-label mb-8">O que foi tarjado — e por que</div>
           <p className="text-sm mb-16" style={{ color: '#64748b' }}>
-            Itens protegidos pela LGPD (Lei Geral de Protecao de Dados).
+            Itens protegidos pela LGPD (Lei Geral de Proteção de Dados).
           </p>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
             {tarjados.slice(0, 20).map((t, i) => (
@@ -82,14 +82,14 @@ function RelatorioDevolutiva({ relatorio, token, podeCorrigir }) {
                   <span className="badge badge-success">{t.categoria}</span>
                   <code style={{ fontSize: 12, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{t.trecho}</code>
                   {podeCorrigir && (corrigidos[t.trecho] ? (
-                    <span className="text-sm" style={{ color: '#059669' }}>correcao enviada</span>
+                    <span className="text-sm" style={{ color: '#059669' }}>correção enviada</span>
                   ) : (
                     <button
                       type="button"
                       onClick={() => setModalItem({ trecho: t.trecho, classificacaoOriginal: t.categoria })}
                       style={{ fontSize: 11, padding: '2px 8px', background: 'transparent', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer', color: '#475569' }}
                     >
-                      Corrigir classificacao
+                      Corrigir classificação
                     </button>
                   ))}
                 </div>
@@ -114,12 +114,12 @@ function RelatorioDevolutiva({ relatorio, token, podeCorrigir }) {
             onClick={e => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: 8, padding: 24, maxWidth: 420, width: '90%', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
           >
-            <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>Corrigir classificacao</h3>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>Corrigir classificação</h3>
             <p className="text-sm mb-16" style={{ color: '#64748b' }}>
               Trecho: <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{modalItem.trecho}</code>
             </p>
             <p className="text-sm mb-16" style={{ color: '#64748b' }}>
-              Sua correcao ajuda o sistema a classificar melhor em outros documentos.
+              Sua correção ajuda o sistema a classificar melhor em outros documentos.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {OPCOES_CORRECAO.map(op => (
@@ -149,10 +149,10 @@ function RelatorioDevolutiva({ relatorio, token, podeCorrigir }) {
       {naoTarjados && naoTarjados.length > 0 && (
         <>
           <hr className="card-divider" />
-          <div className="detail-label mb-8">O que NAO foi tarjado — e por que</div>
+          <div className="detail-label mb-8">O que NÃO foi tarjado — e por que</div>
           <p className="text-sm mb-16" style={{ color: '#64748b' }}>
-            Itens mantidos publicos pela LAI (Lei de Acesso a Informacao) ou
-            que nao sao considerados dados pessoais pela LGPD.
+            Itens mantidos públicos pela LAI (Lei de Acesso à Informação) ou
+            que não são considerados dados pessoais pela LGPD.
           </p>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
             {naoTarjados.slice(0, 20).map((t, i) => (
@@ -225,7 +225,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
   const tratarErro = async (err) => {
     const status = err.response?.status;
     if (status === 401) {
-      setErro('Sessao expirada. Faca login novamente.');
+      setErro('Sessão expirada. Faça login novamente.');
       if (onTokenInvalido) onTokenInvalido();
       return;
     }
@@ -328,7 +328,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
         >
           <span className="upload-zone-icon">📁</span>
           <div className="upload-zone-text">Clique ou arraste um arquivo aqui</div>
-          <div className="upload-zone-hint">PDF, DOCX — ate 10 MB</div>
+          <div className="upload-zone-hint">PDF, DOCX — até 10 MB</div>
         </div>
         <input ref={fileRef} type="file" accept=".pdf,.docx,.doc" onChange={handleArquivo} hidden />
 
@@ -342,7 +342,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
 
       {erro && <div className="alert-error">{erro}</div>}
       <button className="btn-primary mb-24" onClick={handleSubmit} disabled={loading}>
-        {loading ? '⏳ Processando... (pode levar ate 1 minuto)' : 'Anonimizar documento'}
+        {loading ? '⏳ Processando... (pode levar até 1 minuto)' : 'Anonimizar documento'}
       </button>
 
       {resultado && resultado.pdf && (
@@ -369,9 +369,9 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
             >
               <span style={{ fontSize: 18, lineHeight: 1 }}>⚠️</span>
               <div>
-                <strong>Modo basico ativado</strong>
+                <strong>Modo básico ativado</strong>
                 <div className="text-sm" style={{ marginTop: 4 }}>
-                  {resultado.avisoIA || 'Processado em modo basico (IA indisponivel).'}
+                  {resultado.avisoIA || 'Processado em modo básico (IA indisponível).'}
                 </div>
               </div>
             </div>
@@ -386,7 +386,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
           <div className="badge-row mb-16">
             <span className="badge badge-success">Tipo: {resultado.tipoDocumento}</span>
             <span className="badge badge-muted">{Object.values(resultado.stats).reduce((a, b) => a + b, 0)} dados mascarados</span>
-            {resultado.ocrUsado && <span className="badge badge-warning">Lido via digitalizacao</span>}
+            {resultado.ocrUsado && <span className="badge badge-warning">Lido via digitalização</span>}
           </div>
           {resultado.stats && Object.values(resultado.stats).reduce((a, b) => a + b, 0) === 0 ? (
             <div className="alert-info mb-16">Documento processado. Nenhum dado pessoal identificado.</div>
@@ -400,7 +400,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
             <button className="btn-secondary btn-sm" onClick={baixarTXT}>⬇ Baixar TXT</button>
           </div>
           <hr className="card-divider" />
-          <div className="detail-label mb-8">Fundamentacao legal</div>
+          <div className="detail-label mb-8">Fundamentação legal</div>
           <div>{resultado.leisAplicaveis?.map((l, i) => <span key={i} className="badge-legal">{l}</span>)}</div>
         </div>
       )}

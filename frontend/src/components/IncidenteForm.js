@@ -6,13 +6,13 @@ const TIPO_INC_OPTIONS = [
   { value: 'VAZAMENTO', label: 'Vazamento' },
   { value: 'ACESSO_INDEVIDO', label: 'Acesso indevido' },
   { value: 'PERDA', label: 'Perda' },
-  { value: 'ALTERACAO', label: 'Alteracao' },
+  { value: 'ALTERACAO', label: 'Alteração' },
   { value: 'OUTRO', label: 'Outro' }
 ];
 
 const STATUS_INC_OPTIONS = [
   { value: 'ABERTO', label: 'Aberto' },
-  { value: 'EM_INVESTIGACAO', label: 'Em investigacao' },
+  { value: 'EM_INVESTIGACAO', label: 'Em investigação' },
   { value: 'RESOLVIDO', label: 'Resolvido' },
   { value: 'ENCERRADO', label: 'Encerrado' }
 ];
@@ -56,7 +56,7 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
           status: inc.status || 'ABERTO'
         });
       } else {
-        setErro('Incidente nao encontrado');
+        setErro('Incidente não encontrado');
       }
     } catch (err) {
       setErro(err.response?.data?.erro || 'Erro ao carregar incidente');
@@ -77,7 +77,7 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
 
   const salvar = async () => {
     if (!form.titulo || !form.tipoIncidente || !form.dataOcorrencia) {
-      return setErro('Preencha titulo, tipo e data de ocorrencia');
+      return setErro('Preencha título, tipo e data de ocorrência');
     }
     setLoading(true);
     setErro('');
@@ -116,11 +116,11 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
 
         <div className="form-grid mb-16">
           <div className="form-group">
-            <label>Titulo</label>
+            <label>Título</label>
             <input
               value={form.titulo}
               onChange={e => setForm({ ...form, titulo: e.target.value })}
-              placeholder="Titulo do incidente"
+              placeholder="Título do incidente"
             />
           </div>
           <div className="form-group">
@@ -134,7 +134,7 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
 
         <div className="form-grid mb-16">
           <div className="form-group">
-            <label>Data da ocorrencia</label>
+            <label>Data da ocorrência</label>
             <input
               type="date"
               value={form.dataOcorrencia}
@@ -154,7 +154,7 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
         </div>
 
         <div className="form-group mb-16">
-          <label>Descricao</label>
+          <label>Descrição</label>
           <textarea
             value={form.descricao}
             onChange={e => setForm({ ...form, descricao: e.target.value })}
@@ -180,12 +180,12 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
         </div>
 
         <div className="form-group mb-16">
-          <label>Plano de acao</label>
+          <label>Plano de ação</label>
           <textarea
             value={form.planoAcao}
             onChange={e => setForm({ ...form, planoAcao: e.target.value })}
             rows={3}
-            placeholder="Descreva as acoes corretivas..."
+            placeholder="Descreva as ações corretivas..."
           />
         </div>
 
@@ -197,7 +197,7 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
                 checked={form.notificadoANPD}
                 onChange={e => setForm({ ...form, notificadoANPD: e.target.checked })}
               />
-              {' '}Notificado a ANPD
+              {' '}Notificado à ANPD
             </label>
           </div>
           {incidenteId && (

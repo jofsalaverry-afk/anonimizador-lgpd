@@ -32,25 +32,25 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
 
   const ativar = async (e) => {
     e.preventDefault();
-    if (!codigo || codigo.length < 6) return setErro('Informe o codigo de 6 digitos');
+    if (!codigo || codigo.length < 6) return setErro('Informe o código de 6 dígitos');
     setLoading(true);
     setErro('');
     try {
       await axios.post(`${API}/auth/mfa/ativar`, { codigo }, { headers });
       setCodigo('');
-      setMsg('MFA ativado com sucesso. No proximo login sera pedido o codigo.');
+      setMsg('MFA ativado com sucesso. No próximo login será pedido o código.');
       setEtapa('status');
       onStatusChange && onStatusChange(true);
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Codigo invalido');
+      setErro(err.response?.data?.erro || 'Código inválido');
     }
     setLoading(false);
   };
 
   const desativar = async (e) => {
     e.preventDefault();
-    if (!codigo || codigo.length < 6) return setErro('Informe o codigo de 6 digitos');
-    if (!window.confirm('Tem certeza que deseja desativar o MFA? Sua conta ficara menos segura.')) return;
+    if (!codigo || codigo.length < 6) return setErro('Informe o código de 6 dígitos');
+    if (!window.confirm('Tem certeza que deseja desativar o MFA? Sua conta ficará menos segura.')) return;
     setLoading(true);
     setErro('');
     try {
@@ -69,9 +69,9 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
 
   return (
     <div className="card mb-16">
-      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Seguranca</h2>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Segurança</h2>
       <p className="text-sm" style={{ color: '#64748b', marginBottom: 16 }}>
-        Autenticacao em 2 etapas protege sua conta mesmo que alguem descubra sua senha. Use um app como Google Authenticator, Authy ou Microsoft Authenticator.
+        Autenticação em 2 etapas protege sua conta mesmo que alguém descubra sua senha. Use um app como Google Authenticator, Authy ou Microsoft Authenticator.
       </p>
 
       {msg && <div className="alert-success mb-8">{msg}</div>}
@@ -83,7 +83,7 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
             className={`badge ${mfaAtivo ? 'badge-success' : 'badge-muted'}`}
             style={{ padding: '4px 10px' }}
           >
-            {mfaAtivo ? '🔐 MFA ativo' : '⚠️ MFA nao configurado'}
+            {mfaAtivo ? '🔐 MFA ativo' : '⚠️ MFA não configurado'}
           </span>
           {!mfaAtivo ? (
             <button className="btn-primary btn-sm" type="button" onClick={iniciarSetup} disabled={loading}>
@@ -113,7 +113,7 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
               </div>
             </div>
           )}
-          <p className="text-sm mb-8">2. Digite o codigo de 6 digitos que aparece no app:</p>
+          <p className="text-sm mb-8">2. Digite o código de 6 dígitos que aparece no app:</p>
           <form onSubmit={ativar}>
             <input
               type="text"
@@ -139,7 +139,7 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
 
       {etapa === 'desativar' && (
         <form onSubmit={desativar}>
-          <p className="text-sm mb-8">Para desativar, informe o codigo atual do seu app autenticador:</p>
+          <p className="text-sm mb-8">Para desativar, informe o código atual do seu app autenticador:</p>
           <input
             type="text"
             inputMode="numeric"
@@ -152,7 +152,7 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
           />
           <div className="flex gap-8 mt-8">
             <button type="submit" disabled={loading} className="btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: 4 }}>
-              {loading ? 'Desativando...' : 'Confirmar desativacao'}
+              {loading ? 'Desativando...' : 'Confirmar desativação'}
             </button>
             <button type="button" onClick={() => { setEtapa('status'); setCodigo(''); setErro(''); }} className="btn-sm">
               Cancelar
@@ -210,22 +210,22 @@ export default function Configuracoes({ token, usuario }) {
       />
 
       <div className='card' style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Dados da Camara</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Dados da Câmara</h2>
         <label>Nome</label><input value={perfil.nome || ''} readOnly style={{ background: '#f1f5f9', color: '#888' }} />
         <label>CNPJ</label><input value={perfil.cnpj || ''} readOnly style={{ background: '#f1f5f9', color: '#888' }} />
         <label>Email</label><input value={perfil.email || ''} readOnly style={{ background: '#f1f5f9', color: '#888' }} />
-        <label>Municipio</label><input value={perfil.municipio || ''} onChange={e => setPerfil(p => ({ ...p, municipio: e.target.value }))} placeholder='Ex: Portao / RS' />
-        <label>Cabecalho do documento</label>
-        <textarea value={perfil.cabecalho || ''} onChange={e => setPerfil(p => ({ ...p, cabecalho: e.target.value }))} rows={3} placeholder='Ex: Camara Municipal de Portao' />
+        <label>Município</label><input value={perfil.municipio || ''} onChange={e => setPerfil(p => ({ ...p, municipio: e.target.value }))} placeholder='Ex: Portão / RS' />
+        <label>Cabeçalho do documento</label>
+        <textarea value={perfil.cabecalho || ''} onChange={e => setPerfil(p => ({ ...p, cabecalho: e.target.value }))} rows={3} placeholder='Ex: Câmara Municipal de Portão' />
       </div>
       <div className='card' style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Logo da Camara</h2>
-        <p style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>A logo aparecera no cabecalho do PDF.</p>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Logo da Câmara</h2>
+        <p style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>A logo aparecerá no cabeçalho do PDF.</p>
         {perfil.logoBase64 && (<div style={{ marginBottom: 12, textAlign: 'center' }}><img src={perfil.logoBase64} alt='Logo' style={{ maxHeight: 100, maxWidth: 200, objectFit: 'contain', border: '1px solid #e2e8f0', borderRadius: 8, padding: 8 }} /><br /><button onClick={() => setPerfil(p => ({ ...p, logoBase64: '' }))} style={{ marginTop: 8, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}>Remover logo</button></div>)}
         <input type='file' accept='image/*' onChange={handleLogo} />
       </div>
       {msg && <p style={{ color: msg.includes('sucesso') ? '#16a34a' : '#dc2626', fontSize: 13, marginBottom: 12 }}>{msg}</p>}
-      <button className='btn-primary' onClick={salvar} disabled={salvando}>{salvando ? 'Salvando...' : 'Salvar configuracoes'}</button>
+      <button className='btn-primary' onClick={salvar} disabled={salvando}>{salvando ? 'Salvando...' : 'Salvar configurações'}</button>
     </div>
   );
 }

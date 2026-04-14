@@ -10,7 +10,7 @@ const TIPO_ICON = {
 
 const TIPO_LABEL = {
   DSAR_PRAZO: 'Prazo DSAR',
-  CHECKLIST_REVISAO: 'Revisao de checklist',
+  CHECKLIST_REVISAO: 'Revisão de checklist',
   INCIDENTE_ABERTO: 'Incidente em aberto',
   ROPA_DESATUALIZADO: 'ROPA desatualizado'
 };

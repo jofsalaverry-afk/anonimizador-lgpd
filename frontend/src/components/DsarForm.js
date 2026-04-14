@@ -4,13 +4,13 @@ import { API } from '../config';
 
 const TIPO_OPTIONS = [
   { value: 'ACESSO', label: 'Acesso aos dados' },
-  { value: 'CORRECAO', label: 'Correcao de dados' },
-  { value: 'ELIMINACAO', label: 'Eliminacao de dados' },
+  { value: 'CORRECAO', label: 'Correção de dados' },
+  { value: 'ELIMINACAO', label: 'Eliminação de dados' },
   { value: 'PORTABILIDADE', label: 'Portabilidade' },
-  { value: 'OPOSICAO', label: 'Oposicao ao tratamento' },
-  { value: 'REVOGACAO', label: 'Revogacao do consentimento' },
-  { value: 'INFORMACAO', label: 'Informacao sobre compartilhamento' },
-  { value: 'PETICAO', label: 'Peticao a ANPD' }
+  { value: 'OPOSICAO', label: 'Oposição ao tratamento' },
+  { value: 'REVOGACAO', label: 'Revogação do consentimento' },
+  { value: 'INFORMACAO', label: 'Informação sobre compartilhamento' },
+  { value: 'PETICAO', label: 'Petição à ANPD' }
 ];
 
 export default function DsarForm({ token, onVoltar }) {
@@ -21,7 +21,7 @@ export default function DsarForm({ token, onVoltar }) {
 
   const salvar = async () => {
     if (!form.titularNome || !form.titularEmail || !form.tipoDireito || !form.descricao) {
-      return setErro('Preencha nome, e-mail, tipo de direito e descricao');
+      return setErro('Preencha nome, e-mail, tipo de direito e descrição');
     }
     setLoading(true);
     setErro('');
@@ -29,10 +29,10 @@ export default function DsarForm({ token, onVoltar }) {
       const res = await axios.post(`${API}/dsar/solicitacoes`, form, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setSucesso(`Solicitacao criada com protocolo ${res.data.protocolo}`);
+      setSucesso(`Solicitação criada com protocolo ${res.data.protocolo}`);
       setTimeout(() => onVoltar(), 1200);
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao criar solicitacao');
+      setErro(err.response?.data?.erro || 'Erro ao criar solicitação');
     }
     setLoading(false);
   };
@@ -41,7 +41,7 @@ export default function DsarForm({ token, onVoltar }) {
     <div>
       <div className="flex-center gap-8 mb-20">
         <button onClick={onVoltar} className="link-back">← Voltar</button>
-        <h2 className="page-title">Nova solicitacao</h2>
+        <h2 className="page-title">Nova solicitação</h2>
       </div>
 
       <div className="card">
@@ -74,14 +74,14 @@ export default function DsarForm({ token, onVoltar }) {
         </div>
 
         <div className="form-group">
-          <label>Descricao da solicitacao</label>
+          <label>Descrição da solicitação</label>
           <textarea value={form.descricao} onChange={e => setForm({ ...form, descricao: e.target.value })} rows={4} placeholder="Descreva o pedido do titular..." />
         </div>
 
         <div className="btn-row-spread mt-20">
           <button onClick={onVoltar} className="btn-secondary btn-sm">Cancelar</button>
           <button onClick={salvar} disabled={loading} className="btn-primary btn-sm">
-            {loading ? 'Criando...' : 'Registrar solicitacao'}
+            {loading ? 'Criando...' : 'Registrar solicitação'}
           </button>
         </div>
       </div>

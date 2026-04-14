@@ -5,8 +5,8 @@ import { API } from '../config';
 const STATUS_OPTIONS = [
   { value: 'CONFORME', label: 'Conforme' },
   { value: 'PARCIAL', label: 'Parcial' },
-  { value: 'NAO_CONFORME', label: 'Nao conforme' },
-  { value: 'NAO_APLICAVEL', label: 'Nao aplicavel' }
+  { value: 'NAO_CONFORME', label: 'Não conforme' },
+  { value: 'NAO_APLICAVEL', label: 'Não aplicável' }
 ];
 
 const STATUS_BADGE = {
@@ -25,7 +25,7 @@ const CRITICIDADE_BADGE = {
 const EVIDENCIA_LABEL = {
   DOCUMENTO: 'Documento',
   CAPTURA: 'Captura de tela',
-  AUTO_DECLARACAO: 'Auto-declaracao',
+  AUTO_DECLARACAO: 'Auto-declaração',
   LINK_SISTEMA: 'Link de sistema'
 };
 
@@ -148,7 +148,7 @@ function ChecklistPage({ token }) {
           <div className="text-sm text-muted mb-12">
             {score.porStatus?.CONFORME || 0} conformes ·{' '}
             {score.porStatus?.PARCIAL || 0} parciais ·{' '}
-            {score.porStatus?.NAO_CONFORME || 0} nao conformes ·{' '}
+            {score.porStatus?.NAO_CONFORME || 0} não conformes ·{' '}
             {score.porStatus?.SEM_RESPOSTA || 0} sem resposta
           </div>
           {score.porCategoria && Object.keys(score.porCategoria).length > 0 && (
@@ -184,7 +184,7 @@ function ChecklistPage({ token }) {
         >
           <option value="">Todas as criticidades</option>
           <option value="ALTA">Alta</option>
-          <option value="MEDIA">Media</option>
+          <option value="MEDIA">Média</option>
           <option value="BAIXA">Baixa</option>
         </select>
       </div>
@@ -209,7 +209,7 @@ function ChecklistPage({ token }) {
                       {item.criticidade}
                     </span>
                     {item.obrigatorio && (
-                      <span className="badge badge-purple">Obrigatorio</span>
+                      <span className="badge badge-purple">Obrigatório</span>
                     )}
                     {item.resposta?.status ? (
                       <span className={STATUS_BADGE[item.resposta.status] || 'badge badge-muted'}>
@@ -226,18 +226,18 @@ function ChecklistPage({ token }) {
                     <span className="badge badge-legal">{item.fundamentoLegal}</span>
                   )}
                   <span className="badge badge-info">
-                    Evidencia: {EVIDENCIA_LABEL[item.evidenciaRequerida] || item.evidenciaRequerida}
+                    Evidência: {EVIDENCIA_LABEL[item.evidenciaRequerida] || item.evidenciaRequerida}
                   </span>
                 </div>
                 {item.resposta?.observacao && (
                   <div className="text-sm text-muted mb-8">
-                    <span className="detail-label">Observacao: </span>
+                    <span className="detail-label">Observação: </span>
                     {item.resposta.observacao}
                   </div>
                 )}
                 {item.resposta?.evidenciaUrl && (
                   <div className="text-sm mb-8">
-                    <span className="detail-label">Evidencia: </span>
+                    <span className="detail-label">Evidência: </span>
                     <a href={item.resposta.evidenciaUrl} target="_blank" rel="noopener noreferrer">
                       {item.resposta.evidenciaUrl}
                     </a>
@@ -245,7 +245,7 @@ function ChecklistPage({ token }) {
                 )}
                 {item.resposta?.proximaRevisao && (
                   <div className="text-sm text-muted mb-8">
-                    <span className="detail-label">Proxima revisao: </span>
+                    <span className="detail-label">Próxima revisão: </span>
                     {String(item.resposta.proximaRevisao).substring(0, 10)}
                   </div>
                 )}
@@ -267,7 +267,7 @@ function ChecklistPage({ token }) {
                       </select>
                     </div>
                     <div className="mb-8">
-                      <label className="detail-label">Observacao</label>
+                      <label className="detail-label">Observação</label>
                       <textarea
                         value={form.observacao}
                         onChange={(e) => setForm({ ...form, observacao: e.target.value })}
@@ -276,18 +276,18 @@ function ChecklistPage({ token }) {
                     </div>
                     <div className="mb-8">
                       <label className="detail-label">
-                        Evidencia ({EVIDENCIA_LABEL[item.evidenciaRequerida] || item.evidenciaRequerida})
+                        Evidência ({EVIDENCIA_LABEL[item.evidenciaRequerida] || item.evidenciaRequerida})
                       </label>
                       <input
                         type="text"
                         value={form.evidenciaUrl}
                         onChange={(e) => setForm({ ...form, evidenciaUrl: e.target.value })}
-                        placeholder={`URL ou referencia para ${EVIDENCIA_LABEL[item.evidenciaRequerida] || item.evidenciaRequerida}`}
+                        placeholder={`URL ou referência para ${EVIDENCIA_LABEL[item.evidenciaRequerida] || item.evidenciaRequerida}`}
                         style={{ fontFamily: 'monospace' }}
                       />
                     </div>
                     <div className="mb-12">
-                      <label className="detail-label">Proxima revisao</label>
+                      <label className="detail-label">Próxima revisão</label>
                       <input
                         type="date"
                         value={form.proximaRevisao}

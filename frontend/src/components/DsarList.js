@@ -3,13 +3,13 @@ import axios from 'axios';
 import { API } from '../config';
 
 const TIPO_LABEL = {
-  ACESSO: 'Acesso', CORRECAO: 'Correcao', ELIMINACAO: 'Eliminacao',
-  PORTABILIDADE: 'Portabilidade', OPOSICAO: 'Oposicao', REVOGACAO: 'Revogacao',
-  INFORMACAO: 'Informacao', PETICAO: 'Peticao'
+  ACESSO: 'Acesso', CORRECAO: 'Correção', ELIMINACAO: 'Eliminação',
+  PORTABILIDADE: 'Portabilidade', OPOSICAO: 'Oposição', REVOGACAO: 'Revogação',
+  INFORMACAO: 'Informação', PETICAO: 'Petição'
 };
 
 const STATUS_LABEL = {
-  RECEBIDA: 'Recebida', EM_ANALISE: 'Em analise', RESPONDIDA: 'Respondida',
+  RECEBIDA: 'Recebida', EM_ANALISE: 'Em análise', RESPONDIDA: 'Respondida',
   ENCERRADA: 'Encerrada', CANCELADA: 'Cancelada'
 };
 
@@ -38,7 +38,7 @@ export default function DsarList({ token, onNova, onVer }) {
       });
       setSolicitacoes(res.data);
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao carregar solicitacoes');
+      setErro(err.response?.data?.erro || 'Erro ao carregar solicitações');
     }
     setLoading(false);
   }, [token]);
@@ -58,7 +58,7 @@ export default function DsarList({ token, onNova, onVer }) {
       <div className="page-header">
         <h2 className="page-title">Direitos do Titular (DSAR)</h2>
         <div className="btn-row">
-          <button onClick={onNova} className="btn-primary btn-sm">+ Nova solicitacao</button>
+          <button onClick={onNova} className="btn-primary btn-sm">+ Nova solicitação</button>
         </div>
       </div>
 
@@ -77,8 +77,8 @@ export default function DsarList({ token, onNova, onVer }) {
 
       {filtradas.length === 0 ? (
         <div className="card empty-state">
-          <p>Nenhuma solicitacao registrada.</p>
-          <button onClick={onNova} className="btn-primary btn-sm">Registrar primeira solicitacao</button>
+          <p>Nenhuma solicitação registrada.</p>
+          <button onClick={onNova} className="btn-primary btn-sm">Registrar primeira solicitação</button>
         </div>
       ) : (
         <div className="card-flush">
@@ -90,7 +90,7 @@ export default function DsarList({ token, onNova, onVer }) {
                 <th>Tipo de Direito</th>
                 <th>Status</th>
                 <th>SLA</th>
-                <th>Acoes</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>

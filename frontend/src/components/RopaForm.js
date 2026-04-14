@@ -4,13 +4,13 @@ import { API } from '../config';
 
 const BASE_LEGAL_OPTIONS = [
   { value: 'CONSENTIMENTO', label: 'Consentimento' },
-  { value: 'OBRIGACAO_LEGAL', label: 'Obrigacao Legal' },
-  { value: 'EXECUCAO_CONTRATO', label: 'Execucao de Contrato' },
-  { value: 'INTERESSE_LEGITIMO', label: 'Interesse Legitimo' },
-  { value: 'PROTECAO_VIDA', label: 'Protecao a Vida' },
-  { value: 'TUTELA_SAUDE', label: 'Tutela da Saude' },
-  { value: 'INTERESSE_PUBLICO', label: 'Interesse Publico' },
-  { value: 'EXERCICIO_DIREITOS', label: 'Exercicio de Direitos' }
+  { value: 'OBRIGACAO_LEGAL', label: 'Obrigação Legal' },
+  { value: 'EXECUCAO_CONTRATO', label: 'Execução de Contrato' },
+  { value: 'INTERESSE_LEGITIMO', label: 'Interesse Legítimo' },
+  { value: 'PROTECAO_VIDA', label: 'Proteção à Vida' },
+  { value: 'TUTELA_SAUDE', label: 'Tutela da Saúde' },
+  { value: 'INTERESSE_PUBLICO', label: 'Interesse Público' },
+  { value: 'EXERCICIO_DIREITOS', label: 'Exercício de Direitos' }
 ];
 
 const CATEGORIAS_DADOS = ['Nome', 'CPF', 'RG', 'E-mail', 'Telefone', 'Endereco', 'Dados Bancarios', 'Dados de Saude', 'Outros'];
@@ -115,7 +115,7 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
     <div className="steps mb-20">
       {[1, 2, 3, 4].map(n => (
         <button key={n} onClick={() => setPasso(n)} className={`step ${passo === n ? 'step-active' : ''}`}>
-          {n}. {['Dados basicos', 'Categorias', 'Compartilhamentos', 'Retencao'][n - 1]}
+          {n}. {['Dados básicos', 'Categorias', 'Compartilhamentos', 'Retenção'][n - 1]}
         </button>
       ))}
     </div>
@@ -189,7 +189,7 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
                 <div className="grid-2 gap-8">
                   <div className="form-group">
                     <label>Nome</label>
-                    <input value={c.terceiroNome} onChange={e => setCompartilhamento(i, 'terceiroNome', e.target.value)} placeholder="Nome da empresa/orgao" />
+                    <input value={c.terceiroNome} onChange={e => setCompartilhamento(i, 'terceiroNome', e.target.value)} placeholder="Nome da empresa/órgão" />
                   </div>
                   <div className="form-group">
                     <label>CNPJ</label>
@@ -200,7 +200,7 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
                     <input value={c.finalidadeCompartilhamento} onChange={e => setCompartilhamento(i, 'finalidadeCompartilhamento', e.target.value)} placeholder="Finalidade do compartilhamento" />
                   </div>
                   <div className="form-group">
-                    <label>Pais destino</label>
+                    <label>País destino</label>
                     <input value={c.paisDestino} onChange={e => setCompartilhamento(i, 'paisDestino', e.target.value)} />
                   </div>
                 </div>
@@ -212,16 +212,16 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
         {passo === 4 && (
           <div className="form-grid">
             <div className="form-group">
-              <label>Retencao (dias)</label>
+              <label>Retenção (dias)</label>
               <input type="number" value={form.retencaoDias} onChange={e => setForm({ ...form, retencaoDias: e.target.value })} placeholder="Ex: 1825 (5 anos)" className="mb-12" />
             </div>
             <div className="form-group">
               <label>Forma de descarte</label>
-              <input value={form.formaDescarte} onChange={e => setForm({ ...form, formaDescarte: e.target.value })} placeholder="Ex: Eliminacao segura, anonimizacao" className="mb-12" />
+              <input value={form.formaDescarte} onChange={e => setForm({ ...form, formaDescarte: e.target.value })} placeholder="Ex: Eliminação segura, anonimização" className="mb-12" />
             </div>
             <div className="form-group">
-              <label>Medidas de seguranca</label>
-              <textarea value={form.medidasSeguranca} onChange={e => setForm({ ...form, medidasSeguranca: e.target.value })} rows={3} placeholder="Ex: Criptografia em transito e em repouso, controle de acesso, backup" />
+              <label>Medidas de segurança</label>
+              <textarea value={form.medidasSeguranca} onChange={e => setForm({ ...form, medidasSeguranca: e.target.value })} rows={3} placeholder="Ex: Criptografia em trânsito e em repouso, controle de acesso, backup" />
             </div>
           </div>
         )}
@@ -231,10 +231,10 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
             Anterior
           </button>
           {passo < 4 ? (
-            <button onClick={() => setPasso(passo + 1)} className="btn-primary">Proximo</button>
+            <button onClick={() => setPasso(passo + 1)} className="btn-primary">Próximo</button>
           ) : (
             <button onClick={salvar} disabled={loading} className="btn-primary">
-              {loading ? 'Salvando...' : (tratamentoId ? 'Salvar alteracoes' : 'Criar tratamento')}
+              {loading ? 'Salvando...' : (tratamentoId ? 'Salvar alterações' : 'Criar tratamento')}
             </button>
           )}
         </div>
