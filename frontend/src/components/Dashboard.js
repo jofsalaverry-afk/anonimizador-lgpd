@@ -21,11 +21,11 @@ const PAGE_TITLES = {
   anonimizador: 'Anonimizador de Documentos',
   ropa: 'Mapeamento ROPA',
   dsar: 'Direitos do Titular',
-  documentos: 'Repositorio de Documentos',
-  incidentes: 'Gestao de Incidentes',
+  documentos: 'Repositório de Documentos',
+  incidentes: 'Gestão de Incidentes',
   conformidade: 'Checklist de Conformidade',
   treinamento: 'Treinamentos LGPD',
-  configuracoes: 'Configuracoes e Seguranca'
+  configuracoes: 'Configurações e Segurança'
 };
 
 export default function Dashboard({ usuario, token, onLogout, onTokenInvalido }) {
@@ -49,7 +49,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           </div>
 
           <nav className="sidebar-nav">
-            <div className="sidebar-section-label">Modulos</div>
+            <div className="sidebar-section-label">Módulos</div>
             {modulos.includes('anonimizador') && (
               <button onClick={() => setPagina('anonimizador')} className={`nav-item ${pagina === 'anonimizador' ? 'nav-item-active' : ''}`}>
                 <span className="nav-icon">📄</span> Anonimizador
@@ -68,7 +68,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
             {modulos.includes('repositorio') && (
               <>
                 <button onClick={() => setPagina('documentos')} className={`nav-item ${pagina === 'documentos' ? 'nav-item-active' : ''}`}>
-                  <span className="nav-icon">📁</span> Repositorio
+                  <span className="nav-icon">📁</span> Repositório
                 </button>
                 <button onClick={() => setPagina('incidentes')} className={`nav-item ${pagina === 'incidentes' ? 'nav-item-active' : ''}`}>
                   <span className="nav-icon">⚠️</span> Incidentes
@@ -86,7 +86,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
               </button>
             )}
             <button onClick={() => setPagina('configuracoes')} className={`nav-item ${pagina === 'configuracoes' ? 'nav-item-active' : ''}`}>
-              <span className="nav-icon">⚙️</span> Configuracoes
+              <span className="nav-icon">⚙️</span> Configurações
             </button>
           </nav>
 

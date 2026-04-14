@@ -36,7 +36,7 @@ export default function Login({ onLogin }) {
   const verificarMfa = async (e) => {
     e.preventDefault();
     if (!codigo || codigo.length < 6) {
-      return setErro('Informe o codigo de 6 digitos');
+      return setErro('Informe o código de 6 dígitos');
     }
     setLoading(true);
     setErro('');
@@ -44,7 +44,7 @@ export default function Login({ onLogin }) {
       const res = await axios.post(`${API}/auth/mfa/verificar`, { tempToken, codigo });
       onLogin(res.data.token);
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Codigo invalido ou expirado');
+      setErro(err.response?.data?.erro || 'Código inválido ou expirado');
     }
     setLoading(false);
   };
@@ -55,11 +55,11 @@ export default function Login({ onLogin }) {
         <div className="login-card">
           <div className="login-header">
             <div className="login-icon">🔐</div>
-            <h1 className="login-title">Autenticacao em 2 etapas</h1>
-            <p className="login-subtitle">Abra seu app autenticador e informe o codigo de 6 digitos</p>
+            <h1 className="login-title">Autenticação em 2 etapas</h1>
+            <p className="login-subtitle">Abra seu app autenticador e informe o código de 6 dígitos</p>
           </div>
           <form onSubmit={verificarMfa}>
-            <label>Codigo</label>
+            <label>Código</label>
             <input
               type="text"
               inputMode="numeric"
@@ -73,7 +73,7 @@ export default function Login({ onLogin }) {
             />
             {erro && <p className="text-error">{erro}</p>}
             <button className="btn-primary" type="submit" disabled={loading}>
-              {loading ? 'Verificando...' : 'Verificar codigo'}
+              {loading ? 'Verificando...' : 'Verificar código'}
             </button>
           </form>
           <p className="text-center mt-16">
