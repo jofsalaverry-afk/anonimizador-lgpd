@@ -11,6 +11,7 @@ const cron = require('node-cron');
 const { PrismaClient } = require('@prisma/client');
 const { limparOtpsExpirados, getSolicitacoesPorPrazo } = require('./dsarService');
 const { enviarAlertaPrazoDPO } = require('./emailService');
+const { patrulhaSeguranca } = require('./patrulhaSeguranca');
 
 const prisma = new PrismaClient();
 
@@ -163,6 +164,23 @@ async function jobAnonimizacaoDsarAntigo() {
   }
 }
 
+// ==================== Job: Patrulha de seguranca ====================
+//
+// Roda todo dia as 03:30 UTC. Executa patrulhaSeguranca() que varre
+// gaps criticos (middleware de log inativo, soft-delete burlado, DSARs
+// vencidos, incidentes parados, retencao de log estourada). Nao escreve
+// nada no banco — so detecta e loga. Falhas por check ja sao capturadas
+// dentro do proprio modulo; esse wrapper protege contra erro global.
+async function jobPatrulhaSeguranca() {
+  console.log('[cron:patrulhaSeguranca] inicio');
+  try {
+    await patrulhaSeguranca();
+    console.log('[cron:patrulhaSeguranca] fim');
+  } catch (err) {
+    console.error('[cron:patrulhaSeguranca] falha global:', err);
+  }
+}
+
 // ==================== Registro ====================
 
 function iniciarCron() {
@@ -187,7 +205,12 @@ function iniciarCron() {
     timezone: 'UTC'
   });
 
-  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC');
+  // Patrulha de seguranca diaria (03:30 UTC)
+  cron.schedule('30 3 * * *', jobPatrulhaSeguranca, {
+    timezone: 'UTC'
+  });
+
+  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC, patrulhaSeguranca 03:30 UTC');
 
   // Em dev, permite forcar execucao imediata via env var
   if (process.env.RUN_CRON_ON_BOOT === 'true') {
@@ -195,7 +218,8 @@ function iniciarCron() {
     jobSlaDSAR().catch(err => console.error(err));
     jobRetencaoLogAuditoria().catch(err => console.error(err));
     jobAnonimizacaoDsarAntigo().catch(err => console.error(err));
+    jobPatrulhaSeguranca().catch(err => console.error(err));
   }
 }
 
-module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo };
+module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo, jobPatrulhaSeguranca };
