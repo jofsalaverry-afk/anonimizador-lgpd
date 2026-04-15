@@ -183,6 +183,8 @@ model LogAuditoria {
   ip         String?
   userAgent  String?
   body       Json?
+  hash       String?  // SHA-256 tamper-evidence, ver auditoria.js
+  prevHash   String?  // hash da linha anterior na chain (camaraId, userType); null = genesis
 
   @@index([camaraId, criadoEm])
   @@index([userId, criadoEm])
