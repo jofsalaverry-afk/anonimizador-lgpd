@@ -66,7 +66,7 @@ function gerarHash(r, prevHash) {
 async function appendLog(prisma, registro) {
   const chainKey = [registro.camaraId ?? '', registro.userType ?? ''].join('|');
   await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(9999, hashtext(${chainKey}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(9999, hashtext(${chainKey}))`;
     const anterior = await tx.logAuditoria.findFirst({
       where: { camaraId: registro.camaraId, userType: registro.userType },
       orderBy: { criadoEm: 'desc' },
