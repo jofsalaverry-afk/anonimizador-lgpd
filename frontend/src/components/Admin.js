@@ -42,6 +42,7 @@ export default function Admin() {
   const [form, setForm] = useState({ nome: '', cnpj: '', email: '', senha: '', plano: 'basico' });
   const [msg, setMsg] = useState('');
   const [expandida, setExpandida] = useState(null);
+  const [linkCopiadoId, setLinkCopiadoId] = useState(null);
   const [trilhas, setTrilhas] = useState([]);
   const [edicaoModulo, setEdicaoModulo] = useState({});
 
@@ -363,6 +364,31 @@ export default function Admin() {
 
               {expandida === o.id && (
                 <div className="org-expand">
+                  <div className="mb-12">
+                    <div className="detail-label mb-8">Link público DSAR</div>
+                    {(() => {
+                      const linkDsar = `${window.location.origin}/#solicitar-direitos/${o.id}`;
+                      const copiar = async () => {
+                        try {
+                          await navigator.clipboard.writeText(linkDsar);
+                          setLinkCopiadoId(o.id);
+                          setTimeout(() => setLinkCopiadoId(prev => prev === o.id ? null : prev), 2000);
+                        } catch (e) {
+                          window.prompt('Copie o link:', linkDsar);
+                        }
+                      };
+                      return (
+                        <div className="flex-center gap-8">
+                          <input type="text" readOnly value={linkDsar} onFocus={e => e.target.select()} className="text-sm" style={{ flex: 1, minWidth: 0 }} />
+                          <button type="button" onClick={copiar} className="btn-secondary btn-sm">
+                            {linkCopiadoId === o.id ? 'Copiado!' : 'Copiar'}
+                          </button>
+                          <a href={linkDsar} target="_blank" rel="noreferrer" className="btn-ghost btn-sm">Abrir</a>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   <div className="mb-12">
                     <div className="detail-label mb-8">Módulos</div>
                     <div className="chip-row">

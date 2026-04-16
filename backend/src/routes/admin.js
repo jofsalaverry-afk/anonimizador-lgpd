@@ -88,7 +88,7 @@ router.get('/camaras', adminAuth, async (req, res) => {
   try {
     const orgs = await prisma.organizacao.findMany({
       select: {
-        id: true, nome: true, cnpj: true, ativo: true, plano: true, criadoEm: true, modulosAtivos: true,
+        id: true, nome: true, cnpj: true, ativo: true, plano: true, criadoEm: true, modulosAtivos: true, slug: true,
         _count: { select: { documentos: true, usuarios: true } },
         usuarios: {
           where: { deletedAt: null },
