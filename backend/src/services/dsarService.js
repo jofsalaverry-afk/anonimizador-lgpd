@@ -113,8 +113,6 @@ async function consumirOtp(otpId) {
 async function criarSolicitacaoApartirDeOtp(otp) {
   const protocolo = await gerarProtocolo(otp.organizacaoId);
   const dataRecebimento = new Date();
-  const dataLimite = new Date(dataRecebimento);
-  dataLimite.setDate(dataLimite.getDate() + 15);
 
   const solicitacao = await prisma.solicitacaoTitular.create({
     data: {
@@ -126,7 +124,7 @@ async function criarSolicitacaoApartirDeOtp(otp) {
       tipoDireito: otp.tipoDireito,
       descricao: otp.descricao,
       dataRecebimento,
-      dataLimite
+      status: 'AGUARDANDO_VERIFICACAO'
     }
   });
 

@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "StatusDSAR" ADD VALUE 'AGUARDANDO_VERIFICACAO';
+
+-- AlterTable
+ALTER TABLE "SolicitacaoTitular" ALTER COLUMN "dataLimite" DROP NOT NULL;

@@ -330,7 +330,9 @@ router.post('/publico/solicitar-otp', validadoresSolicitarOtp, async (req, res) 
       });
     } catch (e) {
       console.error('[dsar] falha ao enviar OTP:', e.message);
-      // Em dev (sem SMTP), seguimos mesmo assim — o emailService loga no console
+      return res.status(502).json({
+        erro: 'Não foi possível enviar o código por email. Tente novamente em instantes ou contate o suporte.'
+      });
     }
 
     res.status(200).json({

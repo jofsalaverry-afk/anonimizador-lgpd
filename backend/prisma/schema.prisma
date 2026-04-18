@@ -34,6 +34,7 @@ enum TipoDireito {
 
 enum StatusDSAR {
   RECEBIDA
+  AGUARDANDO_VERIFICACAO
   EM_ANALISE
   RESPONDIDA
   ENCERRADA
@@ -254,7 +255,7 @@ model SolicitacaoTitular {
   descricao        String
   status           StatusDSAR  @default(RECEBIDA)
   dataRecebimento  DateTime    @default(now())
-  dataLimite       DateTime
+  dataLimite         DateTime?
   dataResposta     DateTime?
   respostaTexto    String?
   responsavelId    String?
