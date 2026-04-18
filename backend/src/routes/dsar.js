@@ -270,6 +270,63 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
   }
 });
 
+// Verifica identidade do titular e inicia o prazo de 15 dias.
+// Muda status de AGUARDANDO_VERIFICACAO para EM_ANALISE.
+router.patch('/solicitacoes/:id/verificar-identidade', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!['GESTOR', 'ENCARREGADO_LGPD'].includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Apenas Gestor ou DPO podem verificar identidade' });
+    }
+
+    const existente = await prisma.solicitacaoTitular.findFirst({
+      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
+    });
+    if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
+
+    if (existente.status !== 'AGUARDANDO_VERIFICACAO') {
+      return res.status(400).json({
+        erro: `Verificação permitida apenas para status "AGUARDANDO_VERIFICACAO" (atual: "${existente.status}").`
+      });
+    }
+
+    const { observacao } = req.body;
+    const agora = new Date();
+    const dataLimite = new Date(agora);
+    dataLimite.setDate(dataLimite.getDate() + 15);
+
+    const descricaoEvidencia = `Identidade do titular verificada${observacao ? ': ' + observacao : ''}`;
+    const hashSha256 = crypto.createHash('sha256')
+      .update(descricaoEvidencia + agora.toISOString())
+      .digest('hex');
+
+    const [, sol] = await prisma.$transaction([
+      prisma.evidenciaDSAR.create({
+        data: {
+          solicitacaoId: req.params.id,
+          tipo: 'VERIFICACAO_IDENTIDADE',
+          descricao: descricaoEvidencia,
+          hashSha256,
+          autorId: req.usuario.id
+        }
+      }),
+      prisma.solicitacaoTitular.update({
+        where: { id: req.params.id },
+        data: {
+          status: 'EM_ANALISE',
+          dataLimite,
+          responsavelId: req.usuario.id
+        },
+        include: { evidencias: true }
+      })
+    ]);
+
+    res.json(enriquecerSolicitacao(sol));
+  } catch (err) {
+    console.error('[PATCH /dsar/solicitacoes/:id/verificar-identidade]', err);
+    res.status(500).json({ erro: 'Erro ao verificar identidade' });
+  }
+});
+
 // ---------- Rotas publicas (sem auth, com OTP) ----------
 
 // Passo 0: titular abre a pagina publica /solicitar/:slug. O frontend

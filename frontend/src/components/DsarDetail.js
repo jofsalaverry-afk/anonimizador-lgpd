@@ -9,12 +9,14 @@ const TIPO_LABEL = {
 };
 
 const STATUS_LABEL = {
-  RECEBIDA: 'Recebida', EM_ANALISE: 'Em análise', RESPONDIDA: 'Respondida',
+  RECEBIDA: 'Recebida', AGUARDANDO_VERIFICACAO: 'Aguardando verificação',
+  EM_ANALISE: 'Em análise', RESPONDIDA: 'Respondida',
   ENCERRADA: 'Encerrada', CANCELADA: 'Cancelada'
 };
 
 const STATUS_BADGE = {
-  RECEBIDA: 'badge badge-info', EM_ANALISE: 'badge badge-warning',
+  RECEBIDA: 'badge badge-info', AGUARDANDO_VERIFICACAO: 'badge badge-info',
+  EM_ANALISE: 'badge badge-warning',
   RESPONDIDA: 'badge badge-success', ENCERRADA: 'badge badge-muted',
   CANCELADA: 'badge badge-danger'
 };
@@ -33,6 +35,9 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   const [evidForm, setEvidForm] = useState({ tipo: '', descricao: '' });
   const [showEvidForm, setShowEvidForm] = useState(false);
   const [salvandoEvid, setSalvandoEvid] = useState(false);
+  const [observacaoVerif, setObservacaoVerif] = useState('');
+  const [showVerifForm, setShowVerifForm] = useState(false);
+  const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState('');
 
   const headers = { Authorization: `Bearer ${token}` };
@@ -89,6 +94,23 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
     }
   };
 
+  const verificarIdentidade = async () => {
+    setVerificando(true);
+    try {
+      await axios.patch(
+        `${API}/dsar/solicitacoes/${solicitacaoId}/verificar-identidade`,
+        { observacao: observacaoVerif.trim() || undefined },
+        { headers }
+      );
+      setShowVerifForm(false);
+      setObservacaoVerif('');
+      carregar();
+    } catch (err) {
+      setErro(err.response?.data?.erro || 'Erro ao verificar identidade');
+    }
+    setVerificando(false);
+  };
+
   if (loading) return <p className="text-muted">Carregando...</p>;
   if (!sol) return <div className="alert-error">Solicitação não encontrada.</div>;
 
@@ -100,7 +122,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
         <button onClick={onVoltar} className="link-back">← Voltar</button>
         <h2 className="page-title">{sol.protocolo}</h2>
         <span className={STATUS_BADGE[sol.status] || 'badge badge-muted'}>{STATUS_LABEL[sol.status]}</span>
-        {!encerrada && <span className={SLA_BADGE[sol.sla?.cor] || 'badge badge-muted'}>{sol.sla?.label}</span>}
+        {!encerrada && sol.dataLimite && <span className={SLA_BADGE[sol.sla?.cor] || 'badge badge-muted'}>{sol.sla?.label}</span>}
       </div>
 
       {erro && <div className="alert-error">{erro}</div>}
@@ -124,7 +146,11 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
             <div className="detail-label">Data de recebimento</div>
             <div className="detail-value">{new Date(sol.dataRecebimento).toLocaleDateString('pt-BR')}</div>
             <div className="detail-label">Data limite</div>
-            <div className="detail-value">{new Date(sol.dataLimite).toLocaleDateString('pt-BR')}</div>
+            <div className="detail-value">
+              {sol.dataLimite
+                ? new Date(sol.dataLimite).toLocaleDateString('pt-BR')
+                : <span className="text-muted">Aguardando verificação de identidade</span>}
+            </div>
           </div>
         </div>
         <div className="detail-label">Descrição</div>
@@ -143,18 +169,47 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
 
         {!encerrada && (
           <div className="btn-row mt-20">
-            {sol.status === 'RECEBIDA' && (
-              <button onClick={() => mudarStatus('EM_ANALISE')} className="btn-secondary btn-sm">Iniciar análise</button>
+            {sol.status === 'AGUARDANDO_VERIFICACAO' ? (
+              <button onClick={() => setShowVerifForm(!showVerifForm)} className="btn-primary btn-sm">
+                {showVerifForm ? 'Cancelar' : 'Verificar identidade'}
+              </button>
+            ) : (
+              <>
+                {sol.status === 'RECEBIDA' && (
+                  <button onClick={() => mudarStatus('EM_ANALISE')} className="btn-secondary btn-sm">Iniciar análise</button>
+                )}
+                <button onClick={() => setShowEvidForm(!showEvidForm)} className="btn-secondary btn-sm">
+                  {showEvidForm ? 'Cancelar' : '+ Evidência'}
+                </button>
+                <button onClick={() => setShowRespForm(!showRespForm)} className="btn-primary btn-sm">
+                  {showRespForm ? 'Cancelar' : 'Responder'}
+                </button>
+              </>
             )}
-            <button onClick={() => setShowEvidForm(!showEvidForm)} className="btn-secondary btn-sm">
-              {showEvidForm ? 'Cancelar' : '+ Evidência'}
-            </button>
-            <button onClick={() => setShowRespForm(!showRespForm)} className="btn-primary btn-sm">
-              {showRespForm ? 'Cancelar' : 'Responder'}
-            </button>
           </div>
         )}
       </div>
+
+      {showVerifForm && (
+        <div className="card mb-16">
+          <div className="card-header">Verificar identidade do titular</div>
+          <p className="text-muted text-xs mb-16">
+            Ao verificar, o status muda para "Em análise" e o prazo legal de 15 dias começa a contar.
+          </p>
+          <label>Observação (opcional)</label>
+          <textarea
+            value={observacaoVerif}
+            onChange={e => setObservacaoVerif(e.target.value)}
+            rows={3}
+            placeholder="Ex: Documento validado presencialmente; Ligação confirmada com o titular; etc."
+          />
+          <div className="btn-row mt-16">
+            <button onClick={verificarIdentidade} disabled={verificando} className="btn-primary btn-sm">
+              {verificando ? 'Verificando...' : 'Confirmar verificação'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {showRespForm && (
         <div className="card mb-16">

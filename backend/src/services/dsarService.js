@@ -42,6 +42,7 @@ async function gerarProtocolo(organizacaoId) {
 
 // Calcula SLA badge: verde (>5d), amarelo (2-5d), vermelho (<2d), vencido
 function calcularSLA(dataLimite) {
+  if (!dataLimite) return { cor: 'sem-prazo', dias: null, label: 'Sem prazo ativo' };
   const agora = new Date();
   const limite = new Date(dataLimite);
   const diasRestantes = Math.ceil((limite - agora) / (1000 * 60 * 60 * 24));

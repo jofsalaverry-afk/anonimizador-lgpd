@@ -9,12 +9,14 @@ const TIPO_LABEL = {
 };
 
 const STATUS_LABEL = {
-  RECEBIDA: 'Recebida', EM_ANALISE: 'Em análise', RESPONDIDA: 'Respondida',
+  RECEBIDA: 'Recebida', AGUARDANDO_VERIFICACAO: 'Aguardando verificação',
+  EM_ANALISE: 'Em análise', RESPONDIDA: 'Respondida',
   ENCERRADA: 'Encerrada', CANCELADA: 'Cancelada'
 };
 
 const STATUS_BADGE = {
-  RECEBIDA: 'badge badge-info', EM_ANALISE: 'badge badge-warning',
+  RECEBIDA: 'badge badge-info', AGUARDANDO_VERIFICACAO: 'badge badge-info',
+  EM_ANALISE: 'badge badge-warning',
   RESPONDIDA: 'badge badge-success', ENCERRADA: 'badge badge-muted',
   CANCELADA: 'badge badge-danger'
 };
