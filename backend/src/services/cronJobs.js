@@ -10,8 +10,9 @@
 const cron = require('node-cron');
 const { PrismaClient } = require('@prisma/client');
 const { limparOtpsExpirados, getSolicitacoesPorPrazo } = require('./dsarService');
-const { enviarAlertaPrazoDPO } = require('./emailService');
+const { enviarAlertaPrazoDPO, enviar } = require('./emailService');
 const { patrulhaSeguranca } = require('./patrulhaSeguranca');
+const { gerarRelatorioDiario, formatarRelatorio } = require('./dailyReport');
 
 const prisma = new PrismaClient();
 
@@ -181,6 +182,31 @@ async function jobPatrulhaSeguranca() {
   }
 }
 
+// ==================== Job: Relatorio diario por email ====================
+//
+// Roda todo dia as 11:00 UTC (08:00 BRT). Coleta metricas agregadas
+// do dia anterior e envia email. Destinatario configuravel via env
+// REPORT_TO; fallback para jofsalaverry@gmail.com.
+async function jobRelatorioDiario() {
+  console.log('[cron:relatorioDiario] inicio');
+  try {
+    const metricas = await gerarRelatorioDiario();
+    const { text, html } = formatarRelatorio(metricas);
+    const to = process.env.REPORT_TO || 'jofsalaverry@gmail.com';
+    await enviar({
+      to,
+      subject: `Relatório diário Complidata — ${metricas.referencia}`,
+      text,
+      html
+    });
+    console.log(`[cron:relatorioDiario] enviado para ${to} — criadas=${metricas.criadasOntem} respondidas=${metricas.respondidasOntem} vencidas=${metricas.vencidas}`);
+    return metricas;
+  } catch (err) {
+    console.error('[cron:relatorioDiario] falha:', err.message);
+    throw err;
+  }
+}
+
 // ==================== Registro ====================
 
 function iniciarCron() {
@@ -210,7 +236,12 @@ function iniciarCron() {
     timezone: 'UTC'
   });
 
-  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC, patrulhaSeguranca 03:30 UTC');
+  // Relatorio diario por email (11:00 UTC = 08:00 BRT)
+  cron.schedule('0 11 * * *', jobRelatorioDiario, {
+    timezone: 'UTC'
+  });
+
+  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC, patrulhaSeguranca 03:30 UTC, relatorioDiario 11:00 UTC');
 
   // Em dev, permite forcar execucao imediata via env var
   if (process.env.RUN_CRON_ON_BOOT === 'true') {
@@ -222,4 +253,4 @@ function iniciarCron() {
   }
 }
 
-module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo, jobPatrulhaSeguranca };
+module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo, jobPatrulhaSeguranca, jobRelatorioDiario };

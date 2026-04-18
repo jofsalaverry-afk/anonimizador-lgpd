@@ -372,4 +372,17 @@ router.delete('/repositorio/:id', adminAuth, async (req, res) => {
   }
 });
 
+// Dispara o relatorio diario manualmente (em vez de esperar 11:00 UTC).
+// Retorna as metricas coletadas. O envio de email acontece via emailService.
+router.post('/relatorio-diario/enviar', adminAuth, async (req, res) => {
+  try {
+    const { jobRelatorioDiario } = require('../services/cronJobs');
+    const metricas = await jobRelatorioDiario();
+    res.json({ ok: true, destinatario: process.env.REPORT_TO || 'jofsalaverry@gmail.com', metricas });
+  } catch (err) {
+    console.error('[POST /admin/relatorio-diario/enviar]', err);
+    res.status(500).json({ erro: 'Falha ao enviar relatório: ' + err.message });
+  }
+});
+
 module.exports = router;
