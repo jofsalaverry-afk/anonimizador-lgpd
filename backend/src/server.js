@@ -163,6 +163,13 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Anonimizador LGPD API rodando!' });
 });
 
+// Endpoints de observabilidade — protegidos por admin-auth.
+// Exigem token JWT com isAdmin=true (mesmo da rota /admin/*).
+const { adminAuth } = require('./routes/admin');
+const { getStatus, getMetrics } = require('./routes/observability');
+app.get('/api/status', adminAuth, getStatus);
+app.get('/api/metrics', adminAuth, getMetrics);
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);

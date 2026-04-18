@@ -386,3 +386,4 @@ router.post('/relatorio-diario/enviar', adminAuth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.adminAuth = adminAuth;
