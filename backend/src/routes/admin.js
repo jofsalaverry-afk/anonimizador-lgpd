@@ -372,6 +372,54 @@ router.delete('/repositorio/:id', adminAuth, async (req, res) => {
   }
 });
 
+// Hard delete de organizacao (admin). So permite quando a org esta sem
+// qualquer dado dependente (usuarios, documentos, DSAR, etc.) — se houver
+// historico, o admin deve usar "Desativar" para preservar rastreabilidade LGPD.
+router.delete('/camaras/:id/excluir', adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const org = await prisma.organizacao.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        nome: true,
+        _count: {
+          select: {
+            usuarios: true,
+            documentos: true,
+            tratamentos: true,
+            solicitacoes: true,
+            modelosDSAR: true,
+            docsRepo: true,
+            incidentes: true,
+            respostasChecklist: true,
+            alertas: true
+          }
+        }
+      }
+    });
+    if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
+
+    const dependencias = Object.entries(org._count).filter(([, n]) => n > 0);
+    if (dependencias.length > 0) {
+      const resumo = dependencias.map(([k, n]) => `${n} ${k}`).join(', ');
+      return res.status(400).json({
+        erro: 'Organização possui dados vinculados e não pode ser excluída',
+        detalhes: `Encontrado: ${resumo}. Use "Desativar" para preservar histórico (LGPD).`
+      });
+    }
+
+    console.log(`[AUDIT] admin=${req.admin.email} exclusao_org id=${org.id} nome="${org.nome}"`);
+    await prisma.organizacao.delete({ where: { id } });
+    res.json({ ok: true, id: org.id, nome: org.nome });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ erro: 'Organização não encontrada' });
+    if (err.code === 'P2003') return res.status(400).json({ erro: 'Organização possui dados vinculados e não pode ser excluída' });
+    console.error('[DELETE /admin/camaras/:id/excluir]', err);
+    res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
 // Dispara o relatorio diario manualmente (em vez de esperar 11:00 UTC).
 // Retorna as metricas coletadas. O envio de email acontece via emailService.
 router.post('/relatorio-diario/enviar', adminAuth, async (req, res) => {

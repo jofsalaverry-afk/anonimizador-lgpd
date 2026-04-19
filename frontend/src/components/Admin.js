@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import ConfirmDeleteModal from './ConfirmDeleteModal';
 
 const PERFIL_LABEL = {
   ENCARREGADO_LGPD: 'DPO',
@@ -45,6 +46,8 @@ export default function Admin() {
   const [linkCopiadoId, setLinkCopiadoId] = useState(null);
   const [trilhas, setTrilhas] = useState([]);
   const [edicaoModulo, setEdicaoModulo] = useState({});
+  const [orgParaExcluir, setOrgParaExcluir] = useState(null);
+  const [excluindoOrg, setExcluindoOrg] = useState(false);
 
   // Repositorio de documentos — estado
   const [repoOrg, setRepoOrg] = useState('');
@@ -217,6 +220,20 @@ export default function Admin() {
     }
   };
 
+  const excluirOrg = async (id) => {
+    setExcluindoOrg(true);
+    try {
+      await axios.delete(`${API}/admin/camaras/${id}/excluir`, { headers });
+      setOrgParaExcluir(null);
+      carregar();
+    } catch (err) {
+      const r = err.response?.data;
+      alert(`${r?.erro || 'Erro ao excluir organização'}${r?.detalhes ? `\n\n${r.detalhes}` : ''}`);
+    } finally {
+      setExcluindoOrg(false);
+    }
+  };
+
   const toggleModulo = async (orgId, modulo, ativo, modulosAtuais) => {
     const novos = ativo
       ? modulosAtuais.filter(m => m !== modulo)
@@ -358,6 +375,14 @@ export default function Admin() {
                   </button>
                   <button onClick={() => toggleOrg(o.id)} className="btn-secondary btn-sm">
                     {o.ativo ? 'Desativar' : 'Ativar'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrgParaExcluir(o)}
+                    className="btn-danger btn-sm"
+                    title="Excluir permanentemente (apenas se não houver dados vinculados)"
+                  >
+                    Excluir
                   </button>
                 </div>
               </div>
@@ -593,6 +618,15 @@ export default function Admin() {
           )}
         </div>
       </div>
+
+      {orgParaExcluir && (
+        <ConfirmDeleteModal
+          org={orgParaExcluir}
+          loading={excluindoOrg}
+          onConfirm={excluirOrg}
+          onCancel={() => setOrgParaExcluir(null)}
+        />
+      )}
     </div>
   );
 }

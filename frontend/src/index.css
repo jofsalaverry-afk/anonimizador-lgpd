@@ -1239,3 +1239,50 @@ label {
 .modulo-info { flex: 1; min-width: 0; }
 .modulo-titulo { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .modulo-duracao { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+.modal-card {
+  background: var(--surface, #fff);
+  color: var(--text-primary, #0f172a);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  width: 100%;
+  max-width: 520px;
+  padding: 24px;
+}
+.modal-title { margin: 0 0 12px 0; font-size: 18px; font-weight: 700; }
+.modal-warn {
+  background: rgba(155, 28, 46, 0.08);
+  border: 1px solid var(--red-border, rgba(155, 28, 46, 0.25));
+  color: var(--red, #9b1c2e);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.modal-field { margin-top: 16px; }
+.modal-code {
+  display: block;
+  font-family: var(--font-mono, monospace);
+  background: rgba(15, 23, 42, 0.06);
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin: 6px 0 8px 0;
+  font-size: 13px;
+}
+.modal-field input { width: 100%; margin-bottom: 0; }
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
