@@ -13,7 +13,6 @@ const {
   gerarRelatorio,
   PROMPT_INSTRUCOES,
 } = require('../services/tarjador');
-const { extrairTextoOCR } = require('../services/ocr');
 const { body } = require('express-validator');
 const { validar, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
 
@@ -21,6 +20,74 @@ const router = express.Router();
 const prisma = new PrismaClient();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+// PDF sem texto extraivel (provavelmente digitalizado). Bloqueia o fluxo;
+// o handler mapeia para HTTP 422 com mensagem orientando o usuario a
+// procurar o suporte (atendimento manual via Infolock).
+class PdfSemTextoError extends Error {
+  constructor(detalhes) {
+    super('PDF sem texto extraivel');
+    this.name = 'PdfSemTextoError';
+    this.detalhes = detalhes || {};
+  }
+}
+
+// Saldo de credito da Anthropic esgotado. Diferente de outras falhas da
+// IA (rate-limit, 5xx, rede) que caem em "modo basico", esse caso e
+// critico — devolvemos 503 e logamos em [CRITICAL] para alerta.
+class AnthropicBillingError extends Error {
+  constructor(requestId) {
+    super('Anthropic billing exhausted');
+    this.name = 'AnthropicBillingError';
+    this.requestId = requestId || null;
+  }
+}
+
+// Inspeciona um erro vindo do SDK da Anthropic e, se for billing
+// esgotado (status 400 + mensagem "credit balance is too low"), loga
+// como [CRITICAL] e lanca AnthropicBillingError. Caso contrario,
+// retorna sem efeito e o chamador segue com o tratamento generico.
+function checkAnthropicBilling(err) {
+  if (err && err.status === 400 && /credit balance is too low/i.test(err.message || '')) {
+    console.error('[CRITICAL] Anthropic billing exhausted', { request_id: err.request_id || null });
+    throw new AnthropicBillingError(err.request_id);
+  }
+}
+
+// Mapeia erros tipados (PdfSemTextoError, AnthropicBillingError) para
+// respostas HTTP padronizadas em todos os endpoints que chamam
+// anonimizarPDF (/anonymize e /download-pdf). Retorna true se enviou
+// resposta (caller deve dar return); false se nao reconheceu o erro
+// (caller cai no tratamento generico de 500).
+function mapearErroAnonimizacao(req, res, err) {
+  if (err instanceof PdfSemTextoError) {
+    console.log('[anonimizarPDF] PDF digitalizado bloqueado', {
+      user_id: req.usuario && req.usuario.id,
+      org_id: req.usuario && req.usuario.organizacaoId,
+      filename: req.file && req.file.originalname,
+      file_size: req.file && req.file.size,
+      chars_extracted: err.detalhes.chars_extracted
+    });
+    res.status(422).json({
+      error: 'pdf_sem_texto_extraivel',
+      message: 'Este PDF parece estar digitalizado e não contém texto editável extraível. O Anonimizador processa apenas documentos nativos. Para documentos digitalizados, entre em contato com o suporte.',
+      suporte: 'contato@infolock.com.br'
+    });
+    return true;
+  }
+  if (err instanceof AnthropicBillingError) {
+    const body = {
+      error: 'service_unavailable',
+      message: 'Serviço temporariamente indisponível. Suporte foi notificado.'
+    };
+    // Inclui request_id apenas se a Anthropic devolveu um — facilita o
+    // suporte abrir ticket com a Anthropic citando o ID. Sem null nem "".
+    if (err.requestId) body.request_id = err.requestId;
+    res.status(503).json(body);
+    return true;
+  }
+  return false;
+}
 
 // Prompt de anonimizacao de texto (DOCX, texto puro, OCR) com marco LAI/LGPD
 function buildPromptTexto(texto, mascara) {
@@ -106,7 +173,8 @@ const baseJuridica = {
 };
 
 // Limiar minimo de caracteres extraidos para considerar o PDF como "com texto".
-// Abaixo disso, trata como PDF escaneado e aciona OCR.
+// Abaixo disso, tratamos como PDF digitalizado e bloqueamos (PdfSemTextoError).
+// OCR foi removido — casos digitalizados sao atendidos manualmente via suporte.
 const LIMIAR_TEXTO_MIN = 50;
 
 // Classificacoes aceitas no aprendizado (alinhadas com LABELS_CATEGORIA
@@ -136,7 +204,8 @@ async function carregarAprendizado() {
 
 // Pipeline unificado de anonimizacao de PDF — usa tarjador.js com
 // regex obrigatorio como fallback para CPFs e filtro sede/residencial.
-// Retorna { pdfBuffer, stats, tipoDocumento, ocrUsado }
+// Retorna { pdfBuffer, stats, relatorio, tipoDocumento, modoBasico }.
+// Se o PDF nao tiver texto extraivel suficiente, lanca PdfSemTextoError.
 async function anonimizarPDF(pdfBuffer) {
   const itens = await extrairItens(pdfBuffer);
   const linhas = agruparLinhas(itens);
@@ -144,21 +213,12 @@ async function anonimizarPDF(pdfBuffer) {
 
   console.log('[anonimizarPDF] itens extraidos:', itens.length, '| linhas:', linhas.length, '| chars:', textoExtraido.length);
 
-  // Se texto extraido e muito curto, provavelmente e PDF escaneado — usar OCR
+  // Texto extraido muito curto — provavelmente PDF digitalizado. Bloqueia
+  // (sem OCR). O handler converte essa excecao para HTTP 422 com mensagem
+  // orientando o usuario; o log estruturado com user_id/org_id/filename
+  // tambem fica no handler, onde "req" esta disponivel.
   if (textoExtraido.length < LIMIAR_TEXTO_MIN) {
-    console.log('[anonimizarPDF] texto insuficiente (<', LIMIAR_TEXTO_MIN, 'chars), tentando OCR...');
-    try {
-      const { texto: textoOCR } = await extrairTextoOCR(pdfBuffer);
-      if (!textoOCR || textoOCR.trim().length < 10) {
-        return { ocrUsado: true, textoVazio: true };
-      }
-      console.log('[anonimizarPDF] OCR extraiu', textoOCR.length, 'caracteres');
-      // Retorna texto OCR para ser anonimizado pela pipeline de texto
-      return { ocrUsado: true, textoOCR: textoOCR.trim() };
-    } catch (err) {
-      console.error('[anonimizarPDF] erro no OCR:', err.message);
-      return { ocrUsado: true, textoVazio: true };
-    }
+    throw new PdfSemTextoError({ chars_extracted: textoExtraido.length });
   }
 
   // PDF com texto normal — pipeline de tarjas
@@ -184,6 +244,10 @@ async function anonimizarPDF(pdfBuffer) {
       console.log('[anonimizarPDF] falha ao parsear resposta da IA:', e.message);
     }
   } catch (err) {
+    // Billing esgotado tem prioridade sobre o "modo basico": se nao temos
+    // credito na Anthropic, devolver um PDF "anonimizado" so com regex
+    // basico esconde o problema do operador. Aborta o request com 503.
+    checkAnthropicBilling(err);
     // API da Anthropic indisponivel (529, timeout, 5xx, rede). Continua
     // em "modo basico" — so as tarjas de construirTarjas (regex CPF/RG/
     // email/telefone por item e por linha) entram no PDF. Cobertura
@@ -216,7 +280,7 @@ async function anonimizarPDF(pdfBuffer) {
   };
 
   const pdfFinal = await aplicarTarjas(pdfBuffer, itens, tarjas);
-  return { pdfBuffer: pdfFinal, stats, relatorio, tipoDocumento: 'contrato', ocrUsado: false, modoBasico: iaFalhou };
+  return { pdfBuffer: pdfFinal, stats, relatorio, tipoDocumento: 'contrato', modoBasico: iaFalhou };
 }
 
 // Lista documentos processados pela camara autenticada (filtro multi-tenant
@@ -286,51 +350,7 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
     if (req.file && req.file.mimetype === 'application/pdf') {
       const resultado = await anonimizarPDF(req.file.buffer);
 
-      // PDF escaneado — OCR nao conseguiu extrair texto
-      if (resultado.textoVazio) {
-        return res.status(422).json({
-          erro: 'Não foi possível ler o documento. Verifique se o arquivo está legível e tente novamente.',
-          ocrUsado: true
-        });
-      }
-
-      // PDF escaneado — OCR extraiu texto, anonimizar via pipeline de texto
-      if (resultado.textoOCR) {
-        // Reutiliza a pipeline de texto (igual a DOCX/texto puro) com o conteudo OCR
-        const mascara = req.body.mascara || 'asterisk';
-        const prompt = buildPromptTexto(resultado.textoOCR, mascara);
-
-        const message = await anthropic.messages.create({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 8000,
-          messages: [{ role: 'user', content: prompt }]
-        });
-
-        const resposta = message.content[0].text;
-        const partes = resposta.split('---STATS---');
-        const textoAnonimizado = partes[0].trim();
-        let stats = {};
-        let tipoDocumento = 'outro';
-
-        if (partes[1]) {
-          const partes2 = partes[1].split('---TIPO---');
-          try { stats = JSON.parse(partes2[0].match(/\{[\s\S]*\}/)[0]); } catch(e) {}
-          if (partes2[1]) tipoDocumento = partes2[1].trim().toLowerCase().split('\n')[0].trim();
-        }
-
-        const qtdTotal = Object.values(stats).reduce((a, b) => a + b, 0);
-        await prisma.documento.create({
-          data: { organizacaoId: req.usuario.organizacaoId, tipoDocumento, qtdDadosMascarados: qtdTotal, dadosJson: stats }
-        });
-
-        return res.json({
-          textoAnonimizado, stats, tipoDocumento,
-          leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro,
-          ocrUsado: true
-        });
-      }
-
-      // PDF normal com texto — retorna JSON com PDF em base64 + relatorio
+      // PDF nativo com texto — retorna JSON com PDF em base64 + relatorio
       // simplificado para exibir ao usuario. O frontend decodifica o base64
       // para disparar o download e renderiza o relatorio na tela.
       await prisma.documento.create({
@@ -360,11 +380,17 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
     const mascara = req.body.mascara || 'asterisk';
     const prompt = buildPromptTexto(texto, mascara);
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8000,
-      messages: [{ role: 'user', content: prompt }]
-    });
+    let message;
+    try {
+      message = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        messages: [{ role: 'user', content: prompt }]
+      });
+    } catch (err) {
+      checkAnthropicBilling(err);
+      throw err;
+    }
 
     const resposta = message.content[0].text;
     const partes = resposta.split('---STATS---');
@@ -385,6 +411,7 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
 
     res.json({ textoAnonimizado, stats, tipoDocumento, leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro });
   } catch (err) {
+    if (mapearErroAnonimizacao(req, res, err)) return;
     // Log completo para debug no Railway + retorna detalhes ao frontend
     // para ficar visivel no DevTools (temporario — remover depois de debug).
     console.error('[POST /documents/anonymize] erro:', err);
@@ -409,7 +436,8 @@ router.post('/download-pdf', authMiddleware, requireModulo('anonimizador'), uplo
     res.setHeader('Content-Disposition', 'attachment; filename=documento-anonimizado.pdf');
     res.send(pdfBuffer);
   } catch (err) {
-    console.error(err);
+    if (mapearErroAnonimizacao(req, res, err)) return;
+    console.error('[POST /documents/download-pdf] erro:', err);
     res.status(500).json({ erro: 'Erro ao gerar PDF' });
   }
 });
