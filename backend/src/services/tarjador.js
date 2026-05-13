@@ -1,8 +1,26 @@
+const path = require('path');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+
+// Aponta o pdfjs-dist para os cmaps (.bcmap) e fontes padrao (Foxit*.pfb)
+// que ja vem em node_modules/pdfjs-dist/. Sem isso, PDFs com CMaps custom
+// (ToUnicode) ou que referenciam fontes pelo nome padrao do PDF spec
+// (Helvetica, Times, etc.) extraem strings vazias ou caracteres do PUA.
+// Resolvido via require.resolve para evitar hardcode de path — caminhos
+// sao estaveis para a versao pinada 3.4.120.
+const PDFJS_ROOT = path.dirname(require.resolve('pdfjs-dist/package.json'));
+const PDFJS_CMAP_URL = path.join(PDFJS_ROOT, 'cmaps') + path.sep;
+const PDFJS_STANDARD_FONTS_URL = path.join(PDFJS_ROOT, 'standard_fonts') + path.sep;
 
 async function extrairItens(pdfBuffer) {
   const pdfjsLib = require('pdfjs-dist');
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) });
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(pdfBuffer),
+    cMapUrl: PDFJS_CMAP_URL,
+    cMapPacked: true,
+    standardFontDataUrl: PDFJS_STANDARD_FONTS_URL,
+    useSystemFonts: false,
+    verbosity: 0
+  });
   const pdfjsDoc = await loadingTask.promise;
   const itens = [];
   for (let p = 1; p <= pdfjsDoc.numPages; p++) {
@@ -21,6 +39,8 @@ async function extrairItens(pdfBuffer) {
       });
     }
   }
+  const totalChars = itens.reduce((s, it) => s + it.texto.length, 0);
+  console.log('[extrairItens] chars extraidos:', totalChars, '| paginas:', pdfjsDoc.numPages);
   return itens;
 }
 
