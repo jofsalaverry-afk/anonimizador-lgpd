@@ -190,6 +190,11 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [erro, setErro] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  // Modal informativo quando o backend bloqueia um PDF digitalizado (422
+  // pdf_sem_texto_extraivel). Tom informativo, nao alerta. Fechar pelo
+  // overlay so esconde o modal; "Tentar outro documento" tambem reseta
+  // o arquivo selecionado.
+  const [pdfSemTextoModal, setPdfSemTextoModal] = useState({ isOpen: false, message: '', suporte: '' });
   const fileRef = useRef(null);
 
   const selecionarArquivo = (file) => {
@@ -224,22 +229,48 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
 
   const tratarErro = async (err) => {
     const status = err.response?.status;
+    // Normaliza o body de erro para objeto. No caminho PDF a chamada usa
+    // responseType: 'blob' (esperando o PDF), entao em erro o JSON vem
+    // empacotado num Blob e precisa ser desserializado.
+    let data = err.response?.data;
+    if (data instanceof Blob) {
+      try {
+        data = JSON.parse(await data.text());
+      } catch {
+        data = {};
+      }
+    }
+    data = data || {};
+
     if (status === 401) {
       setErro('Sessão expirada. Faça login novamente.');
       if (onTokenInvalido) onTokenInvalido();
       return;
     }
-    let msg = 'Erro ao processar';
-    if (err.response?.data instanceof Blob) {
-      try {
-        const text = await err.response.data.text();
-        const json = JSON.parse(text);
-        msg = json.erro || msg;
-      } catch { /* keeps default */ }
-    } else {
-      msg = err.response?.data?.erro || msg;
+    // PDF digitalizado bloqueado pelo backend — abre modal informativo
+    // (nao alerta). Mensagem e contato de suporte vem do proprio backend.
+    if (status === 422 && data.error === 'pdf_sem_texto_extraivel') {
+      setPdfSemTextoModal({
+        isOpen: true,
+        message: data.message || 'Este PDF parece estar digitalizado e não contém texto editável extraível.',
+        suporte: data.suporte || 'contato@infolock.com.br'
+      });
+      return;
     }
-    setErro(msg);
+    // Servico temporariamente indisponivel (hoje, billing da Anthropic
+    // esgotado). Mensagem na UI e generica; o request_id, se vier, fica
+    // so no console para o suporte cruzar pelo horario do log.
+    if (status === 503) {
+      if (data.request_id) {
+        console.error('[Anonimizador 503]', { request_id: data.request_id });
+      }
+      setErro('Serviço temporariamente indisponível. Tente novamente em alguns minutos.');
+      return;
+    }
+    // Demais erros (500, rede, etc.) — exibe mensagem inline. Backend
+    // novo usa "error" (EN) nos contratos atuais; manter fallback "erro"
+    // (PT) para rotas legadas que ainda nao foram padronizadas.
+    setErro(data.error || data.erro || 'Erro ao processar');
   };
 
   const handleSubmit = async () => {
@@ -386,7 +417,6 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
           <div className="badge-row mb-16">
             <span className="badge badge-success">Tipo: {resultado.tipoDocumento}</span>
             <span className="badge badge-muted">{Object.values(resultado.stats).reduce((a, b) => a + b, 0)} dados mascarados</span>
-            {resultado.ocrUsado && <span className="badge badge-warning">Lido via digitalização</span>}
           </div>
           {resultado.stats && Object.values(resultado.stats).reduce((a, b) => a + b, 0) === 0 ? (
             <div className="alert-info mb-16">Documento processado. Nenhum dado pessoal identificado.</div>
@@ -402,6 +432,43 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
           <hr className="card-divider" />
           <div className="detail-label mb-8">Fundamentação legal</div>
           <div>{resultado.leisAplicaveis?.map((l, i) => <span key={i} className="badge-legal">{l}</span>)}</div>
+        </div>
+      )}
+
+      {pdfSemTextoModal.isOpen && (
+        <div
+          onClick={() => setPdfSemTextoModal({ isOpen: false, message: '', suporte: '' })}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 8, padding: 24, maxWidth: 420, width: '90%', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
+          >
+            <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>📄 Documento digitalizado detectado</h3>
+            <p className="text-sm mb-16" style={{ color: '#64748b' }}>
+              {pdfSemTextoModal.message}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <a
+                href={`mailto:${pdfSemTextoModal.suporte}`}
+                className="btn-primary"
+                style={{ padding: '10px 12px', textAlign: 'center', textDecoration: 'none' }}
+              >
+                Falar com suporte
+              </a>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setPdfSemTextoModal({ isOpen: false, message: '', suporte: '' });
+                  removerArquivo();
+                }}
+                style={{ padding: '10px 12px' }}
+              >
+                Tentar outro documento
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
