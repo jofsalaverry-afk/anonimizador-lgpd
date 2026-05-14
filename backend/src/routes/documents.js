@@ -13,6 +13,7 @@ const {
   gerarRelatorio,
   PROMPT_INSTRUCOES,
 } = require('../services/tarjador');
+const { extrairItensViaAzureOcr } = require('../services/azureOcr');
 const { body } = require('express-validator');
 const { validar, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
 
@@ -207,18 +208,33 @@ async function carregarAprendizado() {
 // Retorna { pdfBuffer, stats, relatorio, tipoDocumento, modoBasico }.
 // Se o PDF nao tiver texto extraivel suficiente, lanca PdfSemTextoError.
 async function anonimizarPDF(pdfBuffer) {
-  const itens = await extrairItens(pdfBuffer);
-  const linhas = agruparLinhas(itens);
-  const textoExtraido = linhas.map(l => l.texto).join(' ').trim();
+  let itens = await extrairItens(pdfBuffer);
+  let linhas = agruparLinhas(itens);
+  let textoExtraido = linhas.map(l => l.texto).join(' ').trim();
 
   console.log('[anonimizarPDF] itens extraidos:', itens.length, '| linhas:', linhas.length, '| chars:', textoExtraido.length);
 
-  // Texto extraido muito curto — provavelmente PDF digitalizado. Bloqueia
-  // (sem OCR). O handler converte essa excecao para HTTP 422 com mensagem
-  // orientando o usuario; o log estruturado com user_id/org_id/filename
-  // tambem fica no handler, onde "req" esta disponivel.
+  // Texto extraido pelo pdfjs muito curto — provavelmente PDF digitalizado.
+  // Antes de bloquear (PdfSemTextoError -> HTTP 422), tenta OCR Azure como
+  // fallback se a feature estiver ativada via AZURE_DOCINTEL_ENABLED='true'.
+  // Se o OCR tambem nao trouxer >= LIMIAR_TEXTO_MIN chars, bloqueia como
+  // antes — empurrar lixo de OCR pro detector geraria PDF "anonimizado"
+  // com PII intacta, pior que mostrar o modal 422.
   if (textoExtraido.length < LIMIAR_TEXTO_MIN) {
-    throw new PdfSemTextoError({ chars_extracted: textoExtraido.length });
+    let recuperado = false;
+    if (process.env.AZURE_DOCINTEL_ENABLED === 'true') {
+      const ocrItens = await extrairItensViaAzureOcr(pdfBuffer);
+      if (ocrItens && ocrItens.length > 0) {
+        itens = ocrItens;
+        linhas = agruparLinhas(itens);
+        textoExtraido = linhas.map(l => l.texto).join(' ').trim();
+        console.log('[anonimizarPDF] OCR Azure substituiu itens:', itens.length, '| linhas:', linhas.length, '| chars:', textoExtraido.length);
+        if (textoExtraido.length >= LIMIAR_TEXTO_MIN) recuperado = true;
+      }
+    }
+    if (!recuperado) {
+      throw new PdfSemTextoError({ chars_extracted: textoExtraido.length });
+    }
   }
 
   // PDF com texto normal — pipeline de tarjas

@@ -9,4 +9,9 @@ frontend/.env
 # PDFs de teste podem conter dados pessoais reais - nao commitar
 backend/*.pdf
 
+# Lab isolado de avaliacao Azure DI — fixtures, responses e scripts
+# nao entram no repo (podem ter PDFs com PII real, keys vazadas em
+# response cruda, etc.)
+backend/_lab_azure/
+
 .claude/
