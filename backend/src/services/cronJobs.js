@@ -165,6 +165,33 @@ async function jobAnonimizacaoDsarAntigo() {
   }
 }
 
+// ==================== Job: Anonimizacao PesquisaSatisfacao 5 anos ====================
+//
+// Roda todo dia as 02:10 UTC. Marca pesquisas com criadoEm > 5 anos
+// como anonimizadas (timestamp em anonimizadoEm). Pesquisa ja e
+// anonima por design — nao ha titularNome/Email/CPF a apagar — entao
+// este job e no-op de redacao. Mantido por padronizacao e prova de
+// auditoria PNTP TCE/RS 15.6 (demonstra que politica de retencao
+// esta ativa).
+//
+// Idempotente via filtro anonimizadoEm IS NULL.
+async function jobAnonimizacaoPesquisaAntiga() {
+  console.log('[cron:anonimizaPesquisa] inicio');
+  try {
+    const cutoff = new Date(Date.now() - CINCO_ANOS_EM_MS);
+    const resultado = await prisma.pesquisaSatisfacao.updateMany({
+      where: {
+        criadoEm: { lt: cutoff },
+        anonimizadoEm: null
+      },
+      data: { anonimizadoEm: new Date() }
+    });
+    console.log(`[cron:anonimizaPesquisa] ${resultado.count} pesquisa(s) marcada(s) (cutoff ${cutoff.toISOString()})`);
+  } catch (err) {
+    console.error('[cron:anonimizaPesquisa] falha:', err.message);
+  }
+}
+
 // ==================== Job: Patrulha de seguranca ====================
 //
 // Roda todo dia as 03:30 UTC. Executa patrulhaSeguranca() que varre
@@ -231,6 +258,13 @@ function iniciarCron() {
     timezone: 'UTC'
   });
 
+  // Retencao: PesquisaSatisfacao anonimizacao 5 anos (02:10 UTC).
+  // No-op de redacao (pesquisa ja e anonima); marca anonimizadoEm
+  // para prova de auditoria PNTP.
+  cron.schedule('10 2 * * *', jobAnonimizacaoPesquisaAntiga, {
+    timezone: 'UTC'
+  });
+
   // Patrulha de seguranca diaria (03:30 UTC)
   cron.schedule('30 3 * * *', jobPatrulhaSeguranca, {
     timezone: 'UTC'
@@ -241,7 +275,7 @@ function iniciarCron() {
     timezone: 'UTC'
   });
 
-  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC, patrulhaSeguranca 03:30 UTC, relatorioDiario 11:00 UTC');
+  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC, anonimizaPesquisa 02:10 UTC, patrulhaSeguranca 03:30 UTC, relatorioDiario 11:00 UTC');
 
   // Em dev, permite forcar execucao imediata via env var
   if (process.env.RUN_CRON_ON_BOOT === 'true') {
@@ -249,8 +283,9 @@ function iniciarCron() {
     jobSlaDSAR().catch(err => console.error(err));
     jobRetencaoLogAuditoria().catch(err => console.error(err));
     jobAnonimizacaoDsarAntigo().catch(err => console.error(err));
+    jobAnonimizacaoPesquisaAntiga().catch(err => console.error(err));
     jobPatrulhaSeguranca().catch(err => console.error(err));
   }
 }
 
-module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo, jobPatrulhaSeguranca, jobRelatorioDiario };
+module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo, jobAnonimizacaoPesquisaAntiga, jobPatrulhaSeguranca, jobRelatorioDiario };

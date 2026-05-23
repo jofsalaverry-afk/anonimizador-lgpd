@@ -123,6 +123,7 @@ const adminRoutes = require('./routes/admin');
 const documentRoutes = require('./routes/documents');
 const ropaRoutes = require('./routes/ropa');
 const dsarRoutes = require('./routes/dsar');
+const pesquisaRoutes = require('./routes/pesquisa');
 const repositorioRoutes = require('./routes/repositorio');
 const conformidadeRoutes = require('./routes/conformidade');
 const treinamentoRoutes = require('./routes/treinamento');
@@ -146,6 +147,11 @@ app.use('/documents', documentRoutes);
 app.use('/ropa', crudLimiter);
 app.use('/ropa', ropaRoutes);
 app.use('/dsar', dsarRoutes);
+// /pesquisa — autenticadas usam crudLimiter padrão; rotas publicas
+// (/pesquisa/publico/*) tem limiters proprios definidos no router
+// (per-IP 3/24h em submissoes + per-slug 1000/min em tudo).
+app.use('/pesquisa', crudLimiter);
+app.use('/pesquisa', pesquisaRoutes);
 app.use('/repositorio', crudLimiter);
 app.use('/repositorio', repositorioRoutes);
 app.use('/conformidade', crudLimiter);

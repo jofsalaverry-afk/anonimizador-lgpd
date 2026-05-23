@@ -122,6 +122,7 @@ model Organizacao {
   cabecalho    String?
   municipio    String?
   modulosAtivos  String[]   @default(["anonimizador"])
+  setoresPesquisa String[]  @default(["Protocolo", "RH", "Financeiro", "Juridico", "Presidencia", "Outro"])
   usuarios       Usuario[]
   documentos     Documento[]
   tratamentos    Tratamento[]
@@ -131,6 +132,7 @@ model Organizacao {
   incidentes     Incidente[]
   respostasChecklist RespostaChecklist[]
   alertas        AlertaConformidade[]
+  pesquisas      PesquisaSatisfacao[]
 }
 
 model Usuario {
@@ -445,4 +447,33 @@ model TrilhaOverride {
   atualizadoEm DateTime @updatedAt
 
   @@unique([trilhaId, moduloId])
+}
+
+// ============ Pesquisa de Satisfacao (PNTP TCE/RS 15.6) ============
+
+// INVARIANTE LGPD/PNTP 15.6:
+// 1. Pesquisa é instrumento anônimo. NÃO adicionar campos de
+//    identificação (nome, email, CPF, telefone) sem revisão DPO.
+// 2. Endpoint público de métricas NUNCA expõe comentários,
+//    nem integrais nem parciais (snippets, nuvem de palavras,
+//    análise de sentimento textual). Comentários ficam apenas
+//    no painel interno autenticado.
+// 3. Mínimo de 5 respostas para retorno de métricas públicas
+//    (proteção contra reidentificação).
+// 4. anonimizadoEm marca execução do cron de retenção (5 anos),
+//    para auditoria PNTP.
+model PesquisaSatisfacao {
+  id              String      @id @default(cuid())
+  organizacaoId   String
+  organizacao     Organizacao @relation(fields: [organizacaoId], references: [id])
+  avaliacao       Int
+  setor           String
+  comentario      String
+  criadoEm        DateTime    @default(now())
+  atualizadoEm    DateTime    @updatedAt
+  anonimizadoEm   DateTime?
+
+  @@index([organizacaoId, criadoEm])
+  @@index([organizacaoId, avaliacao])
+  @@index([organizacaoId, setor])
 }

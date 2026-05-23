@@ -4,6 +4,7 @@ import Anonimizador from './Anonimizador';
 import Configuracoes from './Configuracoes';
 import Ropa from './Ropa';
 import Dsar from './Dsar';
+import Pesquisa from './Pesquisa';
 import Repositorio from './Repositorio';
 import ChecklistPage from './ChecklistPage';
 import Treinamento from './Treinamento';
@@ -21,6 +22,7 @@ const PAGE_TITLES = {
   anonimizador: 'Anonimizador de Documentos',
   ropa: 'Mapeamento ROPA',
   dsar: 'Direitos do Titular',
+  pesquisa: 'Pesquisa de Satisfação',
   documentos: 'Repositório de Documentos',
   incidentes: 'Gestão de Incidentes',
   conformidade: 'Checklist de Conformidade',
@@ -63,6 +65,11 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
             {modulos.includes('dsar') && (
               <button onClick={() => setPagina('dsar')} className={`nav-item ${pagina === 'dsar' ? 'nav-item-active' : ''}`}>
                 <span className="nav-icon">🔒</span> DSAR
+              </button>
+            )}
+            {modulos.includes('pesquisa') && (
+              <button onClick={() => setPagina('pesquisa')} className={`nav-item ${pagina === 'pesquisa' ? 'nav-item-active' : ''}`}>
+                <span className="nav-icon">💬</span> Pesquisa
               </button>
             )}
             {modulos.includes('repositorio') && (
@@ -121,6 +128,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           {pagina === 'anonimizador' && <Anonimizador token={token} usuario={usuario} onTokenInvalido={onTokenInvalido} />}
           {pagina === 'ropa' && <Ropa token={token} />}
           {pagina === 'dsar' && <Dsar token={token} />}
+          {pagina === 'pesquisa' && <Pesquisa token={token} usuario={usuario} />}
           {pagina === 'documentos' && <Repositorio token={token} subpagina="documentos" />}
           {pagina === 'incidentes' && <Repositorio token={token} subpagina="incidentes" />}
           {pagina === 'conformidade' && <ChecklistPage token={token} />}

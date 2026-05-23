@@ -5,6 +5,7 @@ import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Admin from './components/Admin';
 import SolicitarDireitos from './components/SolicitarDireitos';
+import PesquisaResultadosPublicos from './components/PesquisaResultadosPublicos';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -79,6 +80,12 @@ function App() {
   if (rota.startsWith('#pesquisa/')) {
     const slug = rota.split('/')[1] || '';
     return <SolicitarDireitos slug={slug} modo="pesquisa" />;
+  }
+  // Resultados publicos da pesquisa: #pesquisa-resultados/:slug
+  // Linkado do portal Plone da camara (PNTP TCE/RS 15.6).
+  if (rota.startsWith('#pesquisa-resultados/')) {
+    const slug = rota.split('/')[1] || '';
+    return <PesquisaResultadosPublicos slug={slug} />;
   }
   // Rota publica legada: #solicitar-direitos/:organizacaoId (compat)
   if (rota.startsWith('#solicitar-direitos')) {
