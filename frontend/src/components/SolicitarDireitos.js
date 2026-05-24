@@ -156,13 +156,17 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
   const [carregandoOrg, setCarregandoOrg] = useState(!!slug);
   const [orgErro, setOrgErro] = useState('');
 
-  // Resolve o slug para id + nome + municipio no mount.
+  // Resolve o slug para id + nome + municipio no mount. Cada módulo tem
+  // seu próprio endpoint público (gateia em modulosAtivos do seu módulo) —
+  // câmara que assina só Pesquisa não tem 'dsar' ativo, então /pesquisa/...
+  // é obrigatório aqui.
   useEffect(() => {
     if (!slug) return;
     let cancelado = false;
+    const basePath = modo === 'pesquisa' ? 'pesquisa' : 'dsar';
     (async () => {
       try {
-        const res = await axios.get(`${API}/dsar/publico/org/${encodeURIComponent(slug)}`);
+        const res = await axios.get(`${API}/${basePath}/publico/org/${encodeURIComponent(slug)}`);
         if (!cancelado) setOrg(res.data);
       } catch (err) {
         if (!cancelado) setOrgErro(err.response?.data?.erro || 'Organização não encontrada');
@@ -171,7 +175,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
       }
     })();
     return () => { cancelado = true; };
-  }, [slug]);
+  }, [slug, modo]);
 
   const solicitarOTP = async (e) => {
     e.preventDefault();
