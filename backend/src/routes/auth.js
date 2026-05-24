@@ -131,13 +131,13 @@ router.get('/me', async (req, res) => {
       select: {
         id: true, nome: true, email: true, perfil: true, ativo: true, mfaAtivo: true, deletedAt: true,
         organizacaoId: true,
-        organizacao: { select: { nome: true, plano: true, modulosAtivos: true } }
+        organizacao: { select: { nome: true, slug: true, plano: true, modulosAtivos: true } }
       }
     });
     if (!usuario || usuario.deletedAt) return res.status(401).json({ erro: 'Sessão inválida' });
     delete usuario.deletedAt;
     const { organizacao, ...rest } = usuario;
-    res.json({ ...rest, orgNome: organizacao.nome, plano: organizacao.plano, modulosAtivos: organizacao.modulosAtivos });
+    res.json({ ...rest, orgNome: organizacao.nome, orgSlug: organizacao.slug, plano: organizacao.plano, modulosAtivos: organizacao.modulosAtivos });
   } catch (err) {
     res.status(401).json({ erro: 'Token inválido' });
   }

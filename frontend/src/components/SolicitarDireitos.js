@@ -18,20 +18,29 @@ const TIPO_OPTIONS = [
   { value: 'OUTRO', label: 'Outro (descrever)' }
 ];
 
-const SETORES_PESQUISA = ['Protocolo', 'RH', 'Financeiro', 'Juridico', 'Presidencia', 'Outro'];
-
 // Render interno do formulario de pesquisa de satisfacao — usa o slug
 // ja resolvido (org + OrgHeader) do componente pai e trata o proprio
-// estado e submissao. Nao passa pelo fluxo de OTP.
+// estado e submissao. Pesquisa anonima (PNTP TCE/RS 15.6) — nao coleta
+// nome, email ou CPF. Setores carregados via API (cada organizacao
+// configura a lista pelo painel autenticado).
 function PesquisaSatisfacao({ slug, org, OrgHeader }) {
-  const [nome, setNome] = useState('');
-  const [email, setEmail] = useState('');
   const [avaliacao, setAvaliacao] = useState(0);
   const [setor, setSetor] = useState('');
   const [comentario, setComentario] = useState('');
+  const [setores, setSetores] = useState([]);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState('');
   const [enviada, setEnviada] = useState(false);
+
+  useEffect(() => {
+    if (!slug) return;
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/pesquisa/publico/setores/${encodeURIComponent(slug)}`);
+        setSetores(res.data.setores || []);
+      } catch (err) { /* deixa setores vazio — usuario vera erro ao tentar enviar */ }
+    })();
+  }, [slug]);
 
   const enviar = async (e) => {
     e.preventDefault();
@@ -41,10 +50,7 @@ function PesquisaSatisfacao({ slug, org, OrgHeader }) {
     setLoading(true);
     setErro('');
     try {
-      await axios.post(`${API}/dsar/publico/pesquisa`, {
-        slug,
-        titularNome: nome,
-        titularEmail: email,
+      await axios.post(`${API}/pesquisa/publico/${encodeURIComponent(slug)}`, {
         avaliacao,
         setor,
         comentario
@@ -87,12 +93,6 @@ function PesquisaSatisfacao({ slug, org, OrgHeader }) {
         {erro && <div className="alert-error">{erro}</div>}
 
         <form onSubmit={enviar}>
-          <label>Nome (opcional)</label>
-          <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Seu nome" maxLength={200} />
-
-          <label>E-mail (opcional)</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" />
-
           <label>Avaliação geral *</label>
           <div style={{ display: 'flex', gap: 8, fontSize: 32, marginBottom: 16, userSelect: 'none' }}>
             {[1, 2, 3, 4, 5].map(n => (
@@ -112,7 +112,7 @@ function PesquisaSatisfacao({ slug, org, OrgHeader }) {
           <label>Setor atendido *</label>
           <select value={setor} onChange={e => setSetor(e.target.value)} required>
             <option value="">Selecione...</option>
-            {SETORES_PESQUISA.map(s => <option key={s} value={s}>{s}</option>)}
+            {setores.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
 
           <label>Comentário *</label>
@@ -131,7 +131,7 @@ function PesquisaSatisfacao({ slug, org, OrgHeader }) {
         </form>
 
         <p className="text-muted text-xs text-center mt-16">
-          Esta pesquisa não coleta dados sensíveis. Nome e email são opcionais e usados apenas para eventual retorno, caso você preencha.
+          Pesquisa anônima — não coletamos nome, email, CPF nem qualquer dado de identificação.
         </p>
       </div>
     </div>
@@ -156,13 +156,17 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
   const [carregandoOrg, setCarregandoOrg] = useState(!!slug);
   const [orgErro, setOrgErro] = useState('');
 
-  // Resolve o slug para id + nome + municipio no mount.
+  // Resolve o slug para id + nome + municipio no mount. Cada módulo tem
+  // seu próprio endpoint público (gateia em modulosAtivos do seu módulo) —
+  // câmara que assina só Pesquisa não tem 'dsar' ativo, então /pesquisa/...
+  // é obrigatório aqui.
   useEffect(() => {
     if (!slug) return;
     let cancelado = false;
+    const basePath = modo === 'pesquisa' ? 'pesquisa' : 'dsar';
     (async () => {
       try {
-        const res = await axios.get(`${API}/dsar/publico/org/${encodeURIComponent(slug)}`);
+        const res = await axios.get(`${API}/${basePath}/publico/org/${encodeURIComponent(slug)}`);
         if (!cancelado) setOrg(res.data);
       } catch (err) {
         if (!cancelado) setOrgErro(err.response?.data?.erro || 'Organização não encontrada');
@@ -171,7 +175,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
       }
     })();
     return () => { cancelado = true; };
-  }, [slug]);
+  }, [slug, modo]);
 
   const solicitarOTP = async (e) => {
     e.preventDefault();

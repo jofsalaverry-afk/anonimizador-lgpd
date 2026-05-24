@@ -159,4 +159,40 @@ function auditarLogin(prisma, { req, sucesso, userType, userId, motivo }) {
     .catch(err => console.error('[auditoria-login] falha gravando log:', err.message));
 }
 
-module.exports = { auditoriaMiddleware, auditarLogin };
+// Hash determinístico de IP para auditoria de requisições anônimas.
+// HMAC-SHA256 com JWT_SECRET como sal — permite clusterizar (mesmo IP
+// produz mesmo hash) sem permitir reversão para IP em claro. Prefixo
+// "sha256:" sinaliza ao leitor que o campo ip está hasheado (em vez
+// de raw, como nos logs de requisições autenticadas).
+function hashIpComSalt(ip) {
+  if (!ip) return null;
+  const salt = process.env.JWT_SECRET || 'sem-salt';
+  return 'sha256:' + crypto.createHmac('sha256', salt).update(String(ip)).digest('hex').slice(0, 32);
+}
+
+// Audita uma requisição pública anônima (sem usuário autenticado).
+// O middleware automático ignora requests sem userId; este helper
+// existe para endpoints onde a auditoria é exigida por compliance
+// (ex: Pesquisa de Satisfação — PNTP TCE/RS 15.6). Não grava conteúdo
+// da resposta: só metadados (slug, evento, ipHash, userAgent, rota).
+function auditarRequisicaoAnonima(prisma, { req, statusCode, slug, evento, organizacaoId }) {
+  const ipRaw = (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim();
+  const ua = (req.headers['user-agent'] || '').slice(0, 300);
+  const rota = (req.originalUrl || req.url || '').split('?')[0];
+  const registro = {
+    userId: null,
+    userType: 'anonimo',
+    camaraId: organizacaoId || null,
+    metodo: req.method,
+    rota,
+    statusCode: statusCode ?? null,
+    durMs: null,
+    ip: hashIpComSalt(ipRaw),
+    userAgent: ua || null,
+    body: { evento: evento || 'submissao_anonima', slug: slug || null }
+  };
+  appendLog(prisma, registro)
+    .catch(err => console.error('[auditoria-anonima] falha gravando log:', err.message));
+}
+
+module.exports = { auditoriaMiddleware, auditarLogin, auditarRequisicaoAnonima };
