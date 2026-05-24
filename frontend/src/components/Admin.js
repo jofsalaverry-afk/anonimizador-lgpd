@@ -17,7 +17,8 @@ const MODULOS_DISPONIVEIS = [
   { id: 'dsar', nome: 'DSAR' },
   { id: 'repositorio', nome: 'Repositório' },
   { id: 'treinamento', nome: 'Treinamento' },
-  { id: 'checklist', nome: 'Checklist' }
+  { id: 'checklist', nome: 'Checklist' },
+  { id: 'pesquisa', nome: 'Pesquisa de Satisfação' }
 ];
 
 const CATEGORIAS_REPO = [
