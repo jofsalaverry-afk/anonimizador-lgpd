@@ -1,80 +1,72 @@
-// Email Service — wrapper sobre Resend (HTTPS API) com fallback dev-mode.
+// Email Service — wrapper sobre nodemailer com fallback dev-mode.
 //
 // Em producao, configure via env vars:
-//   RESEND_API_KEY=re_xxxxxxxxxxxx
-//   RESEND_FROM="Anonimizador LGPD <nao-responda@dominio-verificado.com>"  // opcional
-//   ADMIN_ALERT_EMAIL=admin@dominio.com                                     // opcional
+//   SMTP_HOST=smtp.exemplo.com
+//   SMTP_PORT=587
+//   SMTP_SECURE=false
+//   SMTP_USER=usuario
+//   SMTP_PASS=senha
+//   SMTP_FROM="Anonimizador LGPD <nao-responda@exemplo.com>"
 //
-// Em dev (sem RESEND_API_KEY configurada), os emails sao logados no console.
+// Em dev (sem SMTP_HOST configurado), os emails sao logados no console.
 
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 
-let client = null;
+let transporter = null;
 
-function getClient() {
-  if (client) return client;
-  if (!process.env.RESEND_API_KEY) return null;
-  client = new Resend(process.env.RESEND_API_KEY);
-  return client;
+function getTransporter() {
+  if (transporter) return transporter;
+  if (!process.env.SMTP_HOST) return null;
+
+  transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '465', 10),
+    secure: process.env.SMTP_SECURE !== 'false',
+    auth: process.env.SMTP_USER ? {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    } : undefined
+  });
+  return transporter;
 }
 
-const FROM = process.env.RESEND_FROM || 'Anonimizador LGPD <onboarding@resend.dev>';
+const FROM = process.env.SMTP_FROM || 'Anonimizador LGPD <nao-responda@anonimizador.local>';
 
-// Notifica o admin sobre falha de envio. Usa o cliente Resend direto (nao
-// a funcao enviar() desta mesma lib) para garantir que nunca ha recursao —
-// se o alerta tambem falhar, so loga e desiste.
-async function notificarFalhaEnvio(c, { to, subject, err }) {
+// Notifica o admin sobre falha de SMTP. Usa trans.sendMail direto (nao
+// a funcao enviar() desta mesma lib) para garantir que nunca ha
+// recursao — se o alerta tambem falhar, so loga e desiste.
+async function notificarFalhaSmtp(trans, { to, subject, err }) {
   const adminEmail = process.env.ADMIN_ALERT_EMAIL;
   if (!adminEmail) return;
   if (to === adminEmail) return; // nao alerta sobre falha de envio para o proprio admin
   try {
-    const { data, error } = await c.emails.send({
+    await trans.sendMail({
       from: FROM,
       to: adminEmail,
-      subject: '[Complidata] Falha de envio detectada',
-      text: `Falha ao enviar email pelo serviço de envio.\n\nDestinatário original: ${to}\nAssunto: ${subject}\nErro: ${err.name || 'unknown'} — ${err.message}\n\nVerifique a chave Resend (RESEND_API_KEY), cota do plano e domínio verificado.`
+      subject: '[Complidata] Falha SMTP detectada',
+      text: `Falha ao enviar email pelo serviço de envio.\n\nDestinatário original: ${to}\nAssunto: ${subject}\nErro: ${err.message}\n\nVerifique credenciais SMTP, cota do provedor e conectividade do backend.`
     });
-    if (error) {
-      console.error('[emailService] falha ao alertar admin:', error.name, error.message);
-      return;
-    }
-    console.log('[emailService] alerta de falha enviado para', adminEmail, '(id:', data?.id, ')');
+    console.log('[emailService] alerta de falha SMTP enviado para', adminEmail);
   } catch (alertErr) {
-    console.error('[emailService] falha ao alertar admin sobre erro de envio:', alertErr.message);
+    console.error('[emailService] falha ao alertar admin sobre erro SMTP:', alertErr.message);
   }
 }
 
 async function enviar({ to, subject, text, html }) {
-  const c = getClient();
-  if (!c) {
+  const trans = getTransporter();
+  if (!trans) {
     console.log('[emailService:dev]', { to, subject, preview: (text || html || '').slice(0, 200) });
     return { devMode: true };
   }
-  let result;
   try {
-    result = await c.emails.send({
-      from: FROM,
-      to: Array.isArray(to) ? to : String(to).split(',').map(s => s.trim()).filter(Boolean),
-      subject, text, html
-    });
-  } catch (netErr) {
-    // Erros de rede (timeout, DNS) — o SDK do Resend pode lançar em vez de
-    // retornar { error }. Tratado separado pra log identificar a categoria.
-    console.error('[emailService] erro de rede para', to, '— code:', netErr.code || netErr.name, '— message:', netErr.message);
-    notificarFalhaEnvio(c, { to, subject, err: netErr }); // fire-and-forget
-    throw netErr;
+    const info = await trans.sendMail({ from: FROM, to, subject, text, html });
+    console.log('[emailService] enviado:', info.messageId, 'para', to);
+    return info;
+  } catch (err) {
+    console.error('[emailService] falha ao enviar para', to, err.message);
+    notificarFalhaSmtp(trans, { to, subject, err }); // fire-and-forget
+    throw err;
   }
-  const { data, error } = result;
-  if (error) {
-    console.error('[emailService] falha API Resend para', to, '— name:', error.name, '— message:', error.message, '— statusCode:', error.statusCode);
-    notificarFalhaEnvio(c, { to, subject, err: error }); // fire-and-forget
-    const e = new Error(error.message || 'Resend API error');
-    e.name = error.name || 'ResendError';
-    e.statusCode = error.statusCode;
-    throw e;
-  }
-  console.log('[emailService] enviado:', data?.id, 'para', to);
-  return { messageId: data?.id, ...data };
 }
 
 // ==================== Templates ====================
