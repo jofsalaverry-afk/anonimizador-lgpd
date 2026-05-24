@@ -339,7 +339,32 @@ router.post('/publico/:slug',
               select: { email: true }
             });
             const destinatarios = gestores.map(g => g.email).filter(Boolean);
-            if (!destinatarios.length) return;
+            // Fallback: org sem gestor/DPO ativo → alerta admin da plataforma,
+            // que aciona a câmara pra cadastrar destinatário.
+            if (!destinatarios.length) {
+              const adminEmail = process.env.ADMIN_ALERT_EMAIL;
+              if (!adminEmail) return;
+              const subjectAdmin = `[SEM_GESTOR] Nova pesquisa ${avaliacao}/5 — ${org.nome}`;
+              const textAdmin =
+                `Pesquisa de satisfação com nota baixa recebida, mas a organização não possui ` +
+                `usuário ativo com perfil GESTOR ou ENCARREGADO_LGPD para receber a notificação.\n\n` +
+                `Organização: ${org.nome}\n` +
+                `Slug: ${slug}\n` +
+                `Avaliação: ${avaliacao}/5\n` +
+                `Setor: ${setor}\n` +
+                `Recebida em: ${pesquisa.criadoEm.toISOString()}\n\n` +
+                `Ação necessária: cadastrar ao menos um usuário GESTOR ou ENCARREGADO_LGPD ativo ` +
+                `nesta organização para que futuras avaliações baixas sejam roteadas à câmara.`;
+              const htmlAdmin = `<p><strong>Pesquisa de satisfação com nota baixa recebida, mas a organização não possui usuário ativo com perfil GESTOR ou ENCARREGADO_LGPD para receber a notificação.</strong></p>
+<p><strong>Organização:</strong> ${org.nome}<br>
+<strong>Slug:</strong> ${slug}<br>
+<strong>Avaliação:</strong> ${avaliacao}/5<br>
+<strong>Setor:</strong> ${setor}<br>
+<strong>Recebida em:</strong> ${pesquisa.criadoEm.toISOString()}</p>
+<p><strong>Ação necessária:</strong> cadastrar ao menos um usuário GESTOR ou ENCARREGADO_LGPD ativo nesta organização para que futuras avaliações baixas sejam roteadas à câmara.</p>`;
+              await enviar({ to: adminEmail, subject: subjectAdmin, text: textAdmin, html: htmlAdmin });
+              return;
+            }
             const subject = `[INSATISFACAO] Nova pesquisa ${avaliacao}/5 — ${org.nome}`;
             const text =
               `Nova pesquisa de satisfação com nota baixa recebida.\n\n` +
