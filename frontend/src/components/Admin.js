@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import ConfirmDeleteModal from './ConfirmDeleteModal';
+import CampoSenha from './CampoSenha';
 
 const PERFIL_LABEL = {
   ENCARREGADO_LGPD: 'DPO',
@@ -260,7 +261,7 @@ export default function Admin() {
             <label>E-mail</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
             <label>Senha</label>
-            <input type="password" value={senha} onChange={e => setSenha(e.target.value)} required />
+            <CampoSenha value={senha} onChange={e => setSenha(e.target.value)} required />
             {erro && <p className="text-error mb-12">{erro}</p>}
             <button className="btn-primary" type="submit" disabled={loading}>
               {loading ? 'Entrando...' : 'Entrar'}

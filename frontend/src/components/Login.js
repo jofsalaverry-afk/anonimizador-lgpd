@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import CampoSenha from './CampoSenha';
 
 export default function Login({ onLogin }) {
   const [etapa, setEtapa] = useState('senha'); // 'senha' | 'mfa'
@@ -101,7 +102,7 @@ export default function Login({ onLogin }) {
           <label>E-mail</label>
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@camara.gov.br" required />
           <label>Senha</label>
-          <input type="password" value={senha} onChange={e => setSenha(e.target.value)} placeholder="••••••••" required />
+          <CampoSenha value={senha} onChange={e => setSenha(e.target.value)} placeholder="••••••••" required />
           {erro && <p className="text-error">{erro}</p>}
           <button className="btn-primary" type="submit" disabled={loading}>
             {loading ? 'Entrando...' : 'Entrar'}

@@ -699,6 +699,27 @@ input:focus, textarea:focus, select:focus {
 
 input::placeholder, textarea::placeholder { color: var(--text-muted); }
 
+/* Campo de senha com botao mostrar/ocultar (CampoSenha.js) */
+.campo-senha { position: relative; margin-bottom: 16px; }
+.campo-senha input { margin-bottom: 0; padding-right: 42px; }
+.campo-senha-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.campo-senha-toggle:hover { color: var(--text-primary); }
+.campo-senha-toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-dim); }
+
 label {
   font-family: var(--font-mono);
   font-size: 10px;
