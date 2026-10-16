@@ -2,7 +2,7 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { registrarHistorico } = require('../services/historico');
-const { responsavelValido } = require('../services/entidades');
+const { responsavelValido, idsDaOrganizacao } = require('../services/entidades');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -48,23 +48,65 @@ async function gravarHistorico(tratamentoId, organizacaoId, alteradoPor) {
   });
 }
 
-// Select padrao para retornar tratamento com compartilhamentos
+// Select padrao para retornar tratamento com compartilhamentos, setor e
+// sistemas do inventario.
 const TRATAMENTO_INCLUDE = {
-  compartilhamentos: true,
+  compartilhamentos: { include: { terceiro: { select: { id: true, razaoSocial: true, risco: true } } } },
+  setor: { select: { id: true, nome: true } },
+  sistemas: { include: { sistema: { select: { id: true, nome: true, tipo: true } } } },
   _count: { select: { historico: true } }
 };
 
-// Forma do tratamento para o diff do HistoricoRegistro: compartilhamentos
-// viram texto legivel (os ids mudam a cada edicao, pois sao recriados).
+// Forma do tratamento para o diff do HistoricoRegistro: compartilhamentos,
+// setor e sistemas viram texto legivel (ids de relacao nao dizem nada na tela).
 function paraHistorico(t) {
   if (!t) return null;
-  const { compartilhamentos, ...resto } = t;
+  const { compartilhamentos, setor, setorId, sistemas, ...resto } = t;
   return {
     ...resto,
+    setor: setor?.nome || null,
+    sistemas: (sistemas || []).map(v => v.sistema?.nome).filter(Boolean).sort(),
     compartilhamentos: (compartilhamentos || []).map(c =>
       `${c.terceiroNome}${c.terceiroCNPJ ? ` (${c.terceiroCNPJ})` : ''} — ${c.finalidadeCompartilhamento} — ${c.paisDestino}`
     )
   };
+}
+
+// Valida setor, sistemas e terceiros (todos da mesma organizacao) e monta
+// os compartilhamentos. Compartilhamento com terceiroId herda nome/CNPJ
+// do cadastro quando vierem vazios; os antigos (so nome/CNPJ) seguem iguais.
+async function validarVinculos(body, organizacaoId) {
+  const { setorId, sistemaIds, compartilhamentos } = body;
+  if (setorId && !(await idsDaOrganizacao(prisma.setor, setorId, organizacaoId))) return { erro: 'Setor inválido' };
+  if (sistemaIds !== undefined) {
+    if (!Array.isArray(sistemaIds)) return { erro: 'sistemaIds deve ser uma lista' };
+    if (!(await idsDaOrganizacao(prisma.sistemaInventario, sistemaIds, organizacaoId))) return { erro: 'Sistema inválido' };
+  }
+  let comps;
+  if (Array.isArray(compartilhamentos)) {
+    const ids = compartilhamentos.map(c => c.terceiroId).filter(Boolean);
+    const terceiros = ids.length === 0 ? [] : await prisma.terceiro.findMany({
+      where: { id: { in: ids }, organizacaoId }, select: { id: true, razaoSocial: true, cnpj: true }
+    });
+    const porId = Object.fromEntries(terceiros.map(t => [t.id, t]));
+    comps = [];
+    for (const c of compartilhamentos) {
+      const t = c.terceiroId ? porId[c.terceiroId] : null;
+      if (c.terceiroId && !t) return { erro: 'Terceiro inválido no compartilhamento' };
+      const terceiroNome = (c.terceiroNome || '').trim() || t?.razaoSocial || '';
+      if (!terceiroNome) return { erro: 'Informe o nome do terceiro no compartilhamento' };
+      comps.push({
+        terceiroNome,
+        terceiroCNPJ: c.terceiroCNPJ || t?.cnpj || null,
+        finalidadeCompartilhamento: c.finalidadeCompartilhamento,
+        paisDestino: c.paisDestino || 'Brasil',
+        baseLegalTransferencia: c.baseLegalTransferencia || null,
+        terceiroId: t ? t.id : null
+      });
+    }
+  }
+  const sistemas = Array.isArray(sistemaIds) ? [...new Set(sistemaIds.filter(Boolean))] : undefined;
+  return { compartilhamentos: comps, sistemaIds: sistemas };
 }
 
 // Tratamento.responsavelId nao tem FK (coluna legada); resolve o nome
@@ -107,7 +149,7 @@ router.post('/tratamentos', async (req, res) => {
     const {
       nome, finalidade, baseLegal, categoriasDados, categoriasTitulares,
       retencaoDias, formaDescarte, responsavelId, medidasSeguranca,
-      compartilhamentos
+      setorId, outrosMeios
     } = req.body;
 
     if (!nome || !finalidade || !baseLegal) {
@@ -116,6 +158,8 @@ router.post('/tratamentos', async (req, res) => {
     if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
+    const vinc = await validarVinculos(req.body, req.usuario.organizacaoId);
+    if (vinc.erro) return res.status(400).json({ erro: vinc.erro });
 
     const tratamento = await prisma.$transaction(async (tx) => {
       const criado = await tx.tratamento.create({
@@ -128,15 +172,10 @@ router.post('/tratamentos', async (req, res) => {
           formaDescarte: formaDescarte || null,
           responsavelId: responsavelId || null,
           medidasSeguranca: medidasSeguranca || null,
-          compartilhamentos: {
-            create: (compartilhamentos || []).map(c => ({
-              terceiroNome: c.terceiroNome,
-              terceiroCNPJ: c.terceiroCNPJ || null,
-              finalidadeCompartilhamento: c.finalidadeCompartilhamento,
-              paisDestino: c.paisDestino || 'Brasil',
-              baseLegalTransferencia: c.baseLegalTransferencia || null
-            }))
-          }
+          setorId: setorId || null,
+          outrosMeios: outrosMeios || null,
+          compartilhamentos: { create: vinc.compartilhamentos || [] },
+          sistemas: { create: (vinc.sistemaIds || []).map(sistemaId => ({ sistemaId })) }
         },
         include: TRATAMENTO_INCLUDE
       });
@@ -166,27 +205,32 @@ router.put('/tratamentos/:id', async (req, res) => {
 
     const existente = await prisma.tratamento.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId },
-      include: { compartilhamentos: true }
+      include: TRATAMENTO_INCLUDE
     });
     if (!existente) return res.status(404).json({ erro: 'Tratamento não encontrado' });
 
     const {
       nome, finalidade, baseLegal, categoriasDados, categoriasTitulares,
       retencaoDias, formaDescarte, responsavelId, medidasSeguranca, ativo,
-      compartilhamentos
+      setorId, outrosMeios
     } = req.body;
 
     if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
+    const vinc = await validarVinculos(req.body, req.usuario.organizacaoId);
+    if (vinc.erro) return res.status(400).json({ erro: vinc.erro });
 
     // Grava snapshot do estado ANTES da alteracao
     await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
 
     const tratamento = await prisma.$transaction(async (tx) => {
       // Atualiza compartilhamentos: deleta todos e recria (simples e correto)
-      if (Array.isArray(compartilhamentos)) {
+      if (vinc.compartilhamentos) {
         await tx.compartilhamentoTratamento.deleteMany({ where: { tratamentoId: req.params.id } });
+      }
+      if (vinc.sistemaIds) {
+        await tx.tratamentoSistema.deleteMany({ where: { tratamentoId: req.params.id } });
       }
 
       const atualizado = await tx.tratamento.update({
@@ -202,17 +246,10 @@ router.put('/tratamentos/:id', async (req, res) => {
           ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
           ...(medidasSeguranca !== undefined && { medidasSeguranca }),
           ...(ativo !== undefined && { ativo }),
-          ...(Array.isArray(compartilhamentos) && {
-            compartilhamentos: {
-              create: compartilhamentos.map(c => ({
-                terceiroNome: c.terceiroNome,
-                terceiroCNPJ: c.terceiroCNPJ || null,
-                finalidadeCompartilhamento: c.finalidadeCompartilhamento,
-                paisDestino: c.paisDestino || 'Brasil',
-                baseLegalTransferencia: c.baseLegalTransferencia || null
-              }))
-            }
-          })
+          ...(setorId !== undefined && { setorId: setorId || null }),
+          ...(outrosMeios !== undefined && { outrosMeios: outrosMeios || null }),
+          ...(vinc.compartilhamentos && { compartilhamentos: { create: vinc.compartilhamentos } }),
+          ...(vinc.sistemaIds && { sistemas: { create: vinc.sistemaIds.map(sistemaId => ({ sistemaId })) } })
         },
         include: TRATAMENTO_INCLUDE
       });
@@ -290,12 +327,13 @@ router.get('/export', async (req, res) => {
     const formato = req.query.formato || 'json';
     const tratamentos = await comNomeResponsavel(await prisma.tratamento.findMany({
       where: { organizacaoId: req.usuario.organizacaoId },
-      include: { compartilhamentos: true }
+      include: TRATAMENTO_INCLUDE
     }), req.usuario.organizacaoId);
 
     if (formato === 'csv') {
-      // "responsavel" entra no fim para nao deslocar colunas de planilhas existentes
-      const header = 'nome,finalidade,baseLegal,categoriasDados,categoriasTitulares,retencaoDias,formaDescarte,medidasSeguranca,ativo,criadoEm,compartilhamentos,responsavel';
+      // Colunas novas entram no fim para nao deslocar planilhas existentes
+      const header = 'nome,finalidade,baseLegal,categoriasDados,categoriasTitulares,retencaoDias,formaDescarte,medidasSeguranca,ativo,criadoEm,compartilhamentos,responsavel,setor,sistemas,outrosMeios';
+      const q = v => `"${String(v || '').replace(/"/g, '""')}"`;
       const rows = tratamentos.map(t => {
         const comp = t.compartilhamentos.map(c => `${c.terceiroNome}(${c.paisDestino})`).join('; ');
         return [
@@ -310,7 +348,10 @@ router.get('/export', async (req, res) => {
           t.ativo,
           t.criadoEm.toISOString(),
           `"${comp}"`,
-          `"${(t.responsavelNome || '').replace(/"/g, '""')}"`
+          `"${(t.responsavelNome || '').replace(/"/g, '""')}"`,
+          q(t.setor?.nome),
+          q((t.sistemas || []).map(v => v.sistema?.nome).filter(Boolean).join('; ')),
+          q(t.outrosMeios)
         ].join(',');
       });
       const csv = [header, ...rows].join('\n');

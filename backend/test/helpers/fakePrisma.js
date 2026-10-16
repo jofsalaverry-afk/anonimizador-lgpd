@@ -14,13 +14,49 @@ const RELACOES = {
   anexo: { enviadoPor: ['usuario', 'enviadoPorId'], organizacao: ['organizacao', 'organizacaoId'] },
   incidente: { responsavel: ['usuario', 'responsavelId'] },
   respostaChecklist: { responsavel: ['usuario', 'responsavelId'], item: ['itemChecklist', 'itemId'] },
-  historicoRegistro: { usuario: ['usuario', 'usuarioId'] }
+  historicoRegistro: { usuario: ['usuario', 'usuarioId'] },
+  tratamento: { setor: ['setor', 'setorId'] },
+  compartilhamentoTratamento: { terceiro: ['terceiro', 'terceiroId'] },
+  tratamentoSistema: { sistema: ['sistemaInventario', 'sistemaId'], tratamento: ['tratamento', 'tratamentoId'] },
+  sistemaInventario: { responsavel: ['usuario', 'responsavelId'], terceiro: ['terceiro', 'terceiroId'] },
+  integracaoSistema: { origem: ['sistemaInventario', 'origemId'], destino: ['sistemaInventario', 'destinoId'] },
+  respostaQuestionarioTerceiro: { respondidoPor: ['usuario', 'respondidoPorId'] },
+  acaoTerceiro: { responsavel: ['usuario', 'responsavelId'] }
 };
 // relacoes 1:N -> [modelo, campoFK no filho]
 const FILHOS = {
-  tratamento: { compartilhamentos: ['compartilhamentoTratamento', 'tratamentoId'], historico: ['tratamentoHistorico', 'tratamentoId'] },
+  tratamento: {
+    compartilhamentos: ['compartilhamentoTratamento', 'tratamentoId'],
+    historico: ['tratamentoHistorico', 'tratamentoId'],
+    sistemas: ['tratamentoSistema', 'tratamentoId']
+  },
+  sistemaInventario: {
+    integracoesSaida: ['integracaoSistema', 'origemId'],
+    integracoesEntrada: ['integracaoSistema', 'destinoId']
+  },
   solicitacaoTitular: { evidencias: ['evidenciaDSAR', 'solicitacaoId'] }
 };
+
+// Defaults do schema (lidos do datamodel do client gerado, antes de o
+// fake substituir @prisma/client): @default literal, opcional -> null,
+// lista -> []. Assim o fake devolve o mesmo formato que o Prisma real.
+function carregarDefaults() {
+  const { Prisma } = require('@prisma/client');
+  const mapa = {};
+  for (const m of Prisma.dmmf.datamodel.models) {
+    const nome = m.name.charAt(0).toLowerCase() + m.name.slice(1);
+    const padrao = {};
+    for (const f of m.fields) {
+      if (f.kind === 'object') continue;
+      if (f.default !== undefined && (typeof f.default !== 'object' || Array.isArray(f.default))) padrao[f.name] = f.default;
+      else if (f.isList) padrao[f.name] = [];
+      else if (!f.isRequired) padrao[f.name] = null;
+    }
+    mapa[nome] = padrao;
+  }
+  return mapa;
+}
+const DEFAULTS = carregarDefaults();
 
 function novoId() {
   return 'c' + crypto.randomBytes(12).toString('hex');
@@ -115,7 +151,7 @@ function criarBanco() {
       if (filho) {
         if (v && v.create) {
           const [alvo, fk] = filho;
-          for (const c of [].concat(v.create)) tabela(alvo).push({ id: novoId(), ...c, [fk]: row.id });
+          for (const c of [].concat(v.create)) tabela(alvo).push({ ...structuredClone(DEFAULTS[alvo] || {}), id: novoId(), ...c, [fk]: row.id });
         }
         continue;
       }
@@ -128,7 +164,7 @@ function criarBanco() {
     return {
       async create({ data, select, include }) {
         const agora = new Date();
-        const row = { id: novoId(), criadoEm: agora, atualizadoEm: agora };
+        const row = { ...structuredClone(DEFAULTS[modelo] || {}), id: novoId(), criadoEm: agora, atualizadoEm: agora };
         aplicarDados(modelo, row, data);
         rows().push(row);
         return projetar(modelo, row, { select, include });

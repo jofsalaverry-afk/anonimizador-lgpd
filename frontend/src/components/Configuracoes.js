@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import Setores from './Setores';
 
 // Seccao de MFA/Seguranca. Carrega o status atual de /auth/me, mostra
 // setup (QR code) se nao estiver ativo e opcao de desativar se estiver.
@@ -210,6 +211,8 @@ export default function Configuracoes({ token, usuario }) {
         usuario={{ ...usuario, mfaAtivo: mfaAtivoLocal }}
         onStatusChange={setMfaAtivoLocal}
       />
+
+      <Setores token={token} usuario={usuario} />
 
       <div className='card' style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Dados da Câmara</h2>

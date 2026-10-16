@@ -136,8 +136,13 @@ model Organizacao {
   respostasChecklist RespostaChecklist[]
   alertas        AlertaConformidade[]
   pesquisas      PesquisaSatisfacao[]
-  anexos         Anexo[]
-  historicos     HistoricoRegistro[]
+  anexos             Anexo[]
+  historicos         HistoricoRegistro[]
+  setores           Setor[]
+  sistemas           SistemaInventario[]
+  terceiros          Terceiro[]
+  respostasTerceiro  RespostaQuestionarioTerceiro[]
+  acoesTerceiro      AcaoTerceiro[]
 }
 
 model Usuario {
@@ -161,6 +166,9 @@ model Usuario {
   historicos            HistoricoRegistro[]
   incidentesResponsavel Incidente[]         @relation("IncidenteResponsavel")
   checklistResponsavel  RespostaChecklist[] @relation("ChecklistResponsavel")
+  sistemasResponsavel   SistemaInventario[]            @relation("SistemaResponsavel")
+  acoesTerceiroResp     AcaoTerceiro[]                 @relation("AcaoTerceiroResponsavel")
+  respostasTerceiro     RespostaQuestionarioTerceiro[] @relation("RespostaTerceiroAutor")
 }
 
 model Admin {
@@ -219,12 +227,18 @@ model Tratamento {
   formaDescarte       String?
   responsavelId       String?
   medidasSeguranca    String?
+  // Etapa 2 PoC: setor responsavel, sistemas usados (N:N via
+  // TratamentoSistema) e meios fora do inventario (papel, arquivo fisico).
+  setorId             String?
+  setor               Setor?      @relation(fields: [setorId], references: [id], onDelete: SetNull)
+  outrosMeios         String?
   ativo               Boolean     @default(true)
   criadoEm            DateTime    @default(now())
   atualizadoEm        DateTime    @updatedAt
 
   compartilhamentos   CompartilhamentoTratamento[]
   historico           TratamentoHistorico[]
+  sistemas            TratamentoSistema[]
 
   @@index([organizacaoId, ativo])
 }
@@ -238,6 +252,8 @@ model CompartilhamentoTratamento {
   finalidadeCompartilhamento  String
   paisDestino                 String     @default("Brasil")
   baseLegalTransferencia      String?
+  terceiroId                  String?
+  terceiro                    Terceiro?  @relation(fields: [terceiroId], references: [id], onDelete: SetNull)
 
   @@index([tratamentoId])
 }
@@ -538,4 +554,176 @@ model HistoricoRegistro {
   criadoEm       DateTime      @default(now())
 
   @@index([organizacaoId, entidade, registroId, criadoEm])
+}
+
+// ============ Etapa 2 PoC: setores, inventario e terceiros ============
+
+model Setor {
+  id            String       @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao  @relation(fields: [organizacaoId], references: [id])
+  nome          String
+  ativo         Boolean      @default(true)
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+  tratamentos   Tratamento[]
+
+  @@unique([organizacaoId, nome])
+}
+
+enum TipoSistema {
+  APLICACAO
+  BANCO_DADOS
+  NUVEM
+  FISICO
+  OUTRO
+}
+
+enum TipoHospedagem {
+  ON_PREMISE
+  NUVEM
+}
+
+model SistemaInventario {
+  id                     String              @id @default(cuid())
+  organizacaoId          String
+  organizacao            Organizacao         @relation(fields: [organizacaoId], references: [id])
+  nome                   String
+  tipo                   TipoSistema
+  finalidade             String?
+  responsavelId          String?
+  responsavel            Usuario?            @relation("SistemaResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  terceiroId             String?
+  terceiro               Terceiro?           @relation(fields: [terceiroId], references: [id], onDelete: SetNull)
+  categoriasDados        String[]
+  formasCompartilhamento String?
+  tipoHospedagem         TipoHospedagem?
+  paisHospedagem         String?
+  regiaoHospedagem       String?
+  ativo                  Boolean             @default(true)
+  criadoEm               DateTime            @default(now())
+  atualizadoEm           DateTime            @updatedAt
+
+  integracoesSaida       IntegracaoSistema[] @relation("IntegracaoOrigem")
+  integracoesEntrada     IntegracaoSistema[] @relation("IntegracaoDestino")
+  tratamentos            TratamentoSistema[]
+
+  @@index([organizacaoId, ativo])
+}
+
+// Integracao entre sistemas. Gravada a partir do sistema de origem; a
+// tela mostra as duas direcoes.
+model IntegracaoSistema {
+  origemId  String
+  origem    SistemaInventario @relation("IntegracaoOrigem", fields: [origemId], references: [id], onDelete: Cascade)
+  destinoId String
+  destino   SistemaInventario @relation("IntegracaoDestino", fields: [destinoId], references: [id], onDelete: Cascade)
+
+  @@id([origemId, destinoId])
+  @@index([destinoId])
+}
+
+model TratamentoSistema {
+  tratamentoId String
+  tratamento   Tratamento        @relation(fields: [tratamentoId], references: [id], onDelete: Cascade)
+  sistemaId    String
+  sistema      SistemaInventario @relation(fields: [sistemaId], references: [id], onDelete: Cascade)
+
+  @@id([tratamentoId, sistemaId])
+  @@index([sistemaId])
+}
+
+enum PapelTerceiro {
+  OPERADOR
+  CONTROLADOR_CONJUNTO
+  SUBOPERADOR
+}
+
+enum RiscoTerceiro {
+  BAIXO
+  MEDIO
+  ALTO
+}
+
+enum RespostaQuestionario {
+  SIM
+  PARCIAL
+  NAO
+  NA
+}
+
+enum SituacaoAcao {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDA
+}
+
+// risco: calculado pelo questionario (src/services/questionarioTerceiro.js)
+// ou definido manualmente (riscoManual + riscoJustificativa). null =
+// ainda nao avaliado.
+model Terceiro {
+  id                  String                         @id @default(cuid())
+  organizacaoId       String
+  organizacao         Organizacao                    @relation(fields: [organizacaoId], references: [id])
+  razaoSocial         String
+  cnpj                String?
+  contatoNome         String?
+  contatoEmail        String?
+  papel               PapelTerceiro                  @default(OPERADOR)
+  descricaoServico    String?
+  contratoVigente     Boolean                        @default(false)
+  contratoCritico     Boolean                        @default(false)
+  aditivoLgpdAssinado Boolean                        @default(false)
+  dataAditivo         DateTime?
+  risco               RiscoTerceiro?
+  riscoManual         Boolean                        @default(false)
+  riscoJustificativa  String?
+  ativo               Boolean                        @default(true)
+  criadoEm            DateTime                       @default(now())
+  atualizadoEm        DateTime                       @updatedAt
+
+  respostas           RespostaQuestionarioTerceiro[]
+  acoes               AcaoTerceiro[]
+  sistemas            SistemaInventario[]
+  compartilhamentos   CompartilhamentoTratamento[]
+
+  @@index([organizacaoId, ativo])
+  @@index([organizacaoId, risco])
+}
+
+// Uma linha por pergunta (perguntaId do questionario fixo no codigo).
+// Reenvio atualiza a linha; o HistoricoRegistro do terceiro guarda o
+// antes/depois de cada resposta.
+model RespostaQuestionarioTerceiro {
+  id              String               @id @default(cuid())
+  organizacaoId   String
+  organizacao     Organizacao          @relation(fields: [organizacaoId], references: [id])
+  terceiroId      String
+  terceiro        Terceiro             @relation(fields: [terceiroId], references: [id], onDelete: Cascade)
+  perguntaId      String
+  resposta        RespostaQuestionario
+  observacao      String?
+  respondidoPorId String
+  respondidoPor   Usuario              @relation("RespostaTerceiroAutor", fields: [respondidoPorId], references: [id])
+  respondidoEm    DateTime             @default(now())
+
+  @@unique([terceiroId, perguntaId])
+}
+
+model AcaoTerceiro {
+  id            String       @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao  @relation(fields: [organizacaoId], references: [id])
+  terceiroId    String
+  terceiro      Terceiro     @relation(fields: [terceiroId], references: [id], onDelete: Cascade)
+  descricao     String
+  responsavelId String?
+  responsavel   Usuario?     @relation("AcaoTerceiroResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  prazo         DateTime?
+  situacao      SituacaoAcao @default(PENDENTE)
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+
+  @@index([terceiroId])
+  @@index([organizacaoId, situacao])
 }

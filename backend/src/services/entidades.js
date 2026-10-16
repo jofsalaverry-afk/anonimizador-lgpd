@@ -21,6 +21,19 @@ const ENTIDADES = {
   CHECKLIST_ITEM: {
     modulo: 'checklist',
     buscar: (db, id) => db.itemChecklist.findUnique({ where: { id }, select: { id: true } })
+  },
+  SISTEMA: {
+    modulo: 'inventario',
+    buscar: (db, id, organizacaoId) => db.sistemaInventario.findFirst({ where: { id, organizacaoId }, select: { id: true } })
+  },
+  TERCEIRO: {
+    modulo: 'terceiros',
+    buscar: (db, id, organizacaoId) => db.terceiro.findFirst({ where: { id, organizacaoId }, select: { id: true } })
+  },
+  // Setor e cadastro transversal (sem modulo).
+  SETOR: {
+    modulo: null,
+    buscar: (db, id, organizacaoId) => db.setor.findFirst({ where: { id, organizacaoId }, select: { id: true } })
   }
 };
 
@@ -31,7 +44,8 @@ async function verificarRegistro(db, { entidade, registroId, organizacaoId }) {
   if (!def) return { status: 400, erro: 'Entidade inválida' };
   if (!registroId || typeof registroId !== 'string') return { status: 400, erro: 'registroId obrigatório' };
   const org = await db.organizacao.findUnique({ where: { id: organizacaoId }, select: { modulosAtivos: true } });
-  if (!org || !org.modulosAtivos.includes(def.modulo)) {
+  if (!org) return { status: 403, erro: 'Organização não encontrada' };
+  if (def.modulo && !org.modulosAtivos.includes(def.modulo)) {
     return { status: 403, erro: `Módulo "${def.modulo}" não está ativo para sua organização.` };
   }
   const registro = await def.buscar(db, registroId, organizacaoId);
@@ -50,4 +64,13 @@ async function responsavelValido(db, responsavelId, organizacaoId) {
   return !!u;
 }
 
-module.exports = { ENTIDADES, verificarRegistro, responsavelValido };
+// Confere que todos os ids pertencem a organizacao (setor, terceiro,
+// sistemas...). Vazio/null passa. Retorna true/false.
+async function idsDaOrganizacao(delegate, ids, organizacaoId) {
+  const lista = [...new Set([].concat(ids || []).filter(Boolean))];
+  if (lista.length === 0) return true;
+  const achados = await delegate.findMany({ where: { id: { in: lista }, organizacaoId }, select: { id: true } });
+  return achados.length === lista.length;
+}
+
+module.exports = { ENTIDADES, verificarRegistro, responsavelValido, idsDaOrganizacao };

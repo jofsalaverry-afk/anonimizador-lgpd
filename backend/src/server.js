@@ -166,6 +166,13 @@ app.use('/historico', crudLimiter);
 app.use('/historico', require('./routes/historico'));
 app.use('/usuarios', crudLimiter);
 app.use('/usuarios', require('./routes/usuarios'));
+// Etapa 2 PoC: setores (transversal), inventario de sistemas e terceiros
+app.use('/setores', crudLimiter);
+app.use('/setores', require('./routes/setores'));
+app.use('/inventario', crudLimiter);
+app.use('/inventario', require('./routes/inventario'));
+app.use('/terceiros', crudLimiter);
+app.use('/terceiros', require('./routes/terceiros'));
 
 // Healthcheck. Deve ser monitorado externamente por um uptime monitor
 // gratuito (UptimeRobot, BetterStack, Healthchecks.io) apontando para

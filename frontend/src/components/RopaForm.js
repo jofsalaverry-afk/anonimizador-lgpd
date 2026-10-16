@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import SeletorResponsavel from './SeletorResponsavel';
+import { TIPO_SISTEMA_LABEL } from './rotulos';
 
 const BASE_LEGAL_OPTIONS = [
   { value: 'CONSENTIMENTO', label: 'Consentimento' },
@@ -17,7 +18,7 @@ const BASE_LEGAL_OPTIONS = [
 const CATEGORIAS_DADOS = ['Nome', 'CPF', 'RG', 'E-mail', 'Telefone', 'Endereco', 'Dados Bancarios', 'Dados de Saude', 'Outros'];
 const CATEGORIAS_TITULARES = ['Servidores', 'Vereadores', 'Fornecedores', 'Cidadaos', 'Menores', 'Outros'];
 
-const COMPARTILHAMENTO_VAZIO = { terceiroNome: '', terceiroCNPJ: '', finalidadeCompartilhamento: '', paisDestino: 'Brasil', baseLegalTransferencia: '' };
+const COMPARTILHAMENTO_VAZIO = { terceiroId: '', terceiroNome: '', terceiroCNPJ: '', finalidadeCompartilhamento: '', paisDestino: 'Brasil', baseLegalTransferencia: '' };
 
 export default function RopaForm({ token, tratamentoId, onVoltar }) {
   const [passo, setPasso] = useState(1);
@@ -31,8 +32,19 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
     categoriasDados: [], categoriasTitulares: [],
     compartilhamentos: [],
     retencaoDias: '', formaDescarte: '', medidasSeguranca: '',
-    responsavelId: ''
+    responsavelId: '', setorId: '', outrosMeios: '', sistemaIds: []
   });
+  // Opcoes dos vinculos. null = modulo desligado (o campo some e nao e enviado).
+  const [setores, setSetores] = useState([]);
+  const [sistemas, setSistemas] = useState(null);
+  const [terceiros, setTerceiros] = useState(null);
+
+  useEffect(() => {
+    const headers = { Authorization: `Bearer ${token}` };
+    axios.get(`${API}/setores`, { headers }).then(res => setSetores(res.data)).catch(() => setSetores([]));
+    axios.get(`${API}/inventario/sistemas`, { headers }).then(res => setSistemas(res.data)).catch(() => setSistemas(null));
+    axios.get(`${API}/terceiros`, { headers }).then(res => setTerceiros(res.data)).catch(() => setTerceiros(null));
+  }, [token]);
 
   useEffect(() => {
     if (!tratamentoId) return;
@@ -47,13 +59,16 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
             nome: t.nome || '', finalidade: t.finalidade || '', baseLegal: t.baseLegal || '',
             categoriasDados: t.categoriasDados || [], categoriasTitulares: t.categoriasTitulares || [],
             compartilhamentos: (t.compartilhamentos || []).map(c => ({
+              terceiroId: c.terceiroId || '',
               terceiroNome: c.terceiroNome, terceiroCNPJ: c.terceiroCNPJ || '',
               finalidadeCompartilhamento: c.finalidadeCompartilhamento,
               paisDestino: c.paisDestino || 'Brasil', baseLegalTransferencia: c.baseLegalTransferencia || ''
             })),
             retencaoDias: t.retencaoDias != null ? String(t.retencaoDias) : '',
             formaDescarte: t.formaDescarte || '', medidasSeguranca: t.medidasSeguranca || '',
-            responsavelId: t.responsavelId || ''
+            responsavelId: t.responsavelId || '',
+            setorId: t.setorId || '', outrosMeios: t.outrosMeios || '',
+            sistemaIds: (t.sistemas || []).map(v => v.sistemaId)
           });
         }
       } catch (err) {
@@ -77,6 +92,19 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
     setForm({ ...form, compartilhamentos: [...form.compartilhamentos, { ...COMPARTILHAMENTO_VAZIO }] });
   };
 
+  // Escolher um terceiro cadastrado preenche nome e CNPJ (o backend
+  // tambem copia, para manter o formato antigo dos compartilhamentos).
+  const escolherTerceiro = (idx, terceiroId) => {
+    const t = (terceiros || []).find(x => x.id === terceiroId);
+    const novos = [...form.compartilhamentos];
+    novos[idx] = {
+      ...novos[idx],
+      terceiroId,
+      ...(t && { terceiroNome: t.razaoSocial, terceiroCNPJ: t.cnpj || '' })
+    };
+    setForm({ ...form, compartilhamentos: novos });
+  };
+
   const removeCompartilhamento = (idx) => {
     setForm({ ...form, compartilhamentos: form.compartilhamentos.filter((_, i) => i !== idx) });
   };
@@ -90,10 +118,16 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
     setLoading(true);
     setErro('');
     try {
+      const { sistemaIds, ...resto } = form;
       const payload = {
-        ...form,
+        ...resto,
         retencaoDias: form.retencaoDias ? parseInt(form.retencaoDias, 10) : null,
-        compartilhamentos: form.compartilhamentos.filter(c => c.terceiroNome.trim())
+        compartilhamentos: form.compartilhamentos
+          .filter(c => c.terceiroNome.trim())
+          .map(c => ({ ...c, terceiroId: c.terceiroId || null })),
+        // So envia sistemas se o modulo inventario esta ativo; senao
+        // os vinculos existentes ficam como estao.
+        ...(sistemas && { sistemaIds })
       };
       if (tratamentoId) {
         await axios.put(`${API}/ropa/tratamentos/${tratamentoId}`, payload, {
@@ -118,7 +152,7 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
     <div className="steps mb-20">
       {[1, 2, 3, 4].map(n => (
         <button key={n} onClick={() => setPasso(n)} className={`step ${passo === n ? 'step-active' : ''}`}>
-          {n}. {['Dados básicos', 'Categorias', 'Compartilhamentos', 'Retenção'][n - 1]}
+          {n}. {['Dados básicos', 'Dados e meios', 'Compartilhamentos', 'Retenção'][n - 1]}
         </button>
       ))}
     </div>
@@ -158,6 +192,14 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
               <label>Responsável pelo tratamento</label>
               <SeletorResponsavel token={token} value={form.responsavelId} onChange={v => setForm({ ...form, responsavelId: v })} className="mb-12" />
             </div>
+            <div className="form-group">
+              <label>Setor responsável</label>
+              <select value={form.setorId} onChange={e => setForm({ ...form, setorId: e.target.value })} className="mb-12">
+                <option value="">Não informado</option>
+                {setores.filter(x => x.ativo || x.id === form.setorId).map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
+              </select>
+              {setores.length === 0 && <p className="text-muted text-xs">Cadastre os setores em Configurações.</p>}
+            </div>
           </div>
         )}
 
@@ -170,11 +212,26 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
               ))}
             </div>
             <label className="mb-8">Categorias de titulares</label>
-            <div className="chip-row">
+            <div className="chip-row mb-20">
               {CATEGORIAS_TITULARES.map(c => (
                 <button key={c} type="button" onClick={() => setForm({ ...form, categoriasTitulares: toggleChip(form.categoriasTitulares, c) })} className={`chip ${form.categoriasTitulares.includes(c) ? 'chip-active' : ''}`}>{c}</button>
               ))}
             </div>
+            {sistemas && (
+              <>
+                <label className="mb-8">Sistemas utilizados (inventário)</label>
+                <div className="chip-row mb-20">
+                  {sistemas.filter(x => x.ativo || form.sistemaIds.includes(x.id)).map(x => (
+                    <button key={x.id} type="button" title={TIPO_SISTEMA_LABEL[x.tipo]}
+                      onClick={() => setForm({ ...form, sistemaIds: toggleChip(form.sistemaIds, x.id) })}
+                      className={`chip ${form.sistemaIds.includes(x.id) ? 'chip-active' : ''}`}>{x.nome}</button>
+                  ))}
+                  {sistemas.length === 0 && <span className="text-muted text-sm">Nenhum sistema no inventário ainda.</span>}
+                </div>
+              </>
+            )}
+            <label>Outros meios (físico, papel, etc.)</label>
+            <textarea rows={2} value={form.outrosMeios} onChange={e => setForm({ ...form, outrosMeios: e.target.value })} placeholder="Ex: fichas em papel arquivadas no setor de protocolo" />
           </div>
         )}
 
@@ -193,6 +250,15 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
                   <span className="terceiro-num">Terceiro {i + 1}</span>
                   <button type="button" onClick={() => removeCompartilhamento(i)} className="terceiro-remove">Remover</button>
                 </div>
+                {terceiros && (
+                  <div className="form-group mb-8">
+                    <label>Terceiro cadastrado</label>
+                    <select value={c.terceiroId || ''} onChange={e => escolherTerceiro(i, e.target.value)}>
+                      <option value="">Não vinculado (informar nome abaixo)</option>
+                      {terceiros.filter(t => t.ativo || t.id === c.terceiroId).map(t => <option key={t.id} value={t.id}>{t.razaoSocial}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div className="grid-2 gap-8">
                   <div className="form-group">
                     <label>Nome</label>

@@ -19,7 +19,9 @@ const MODULOS_DISPONIVEIS = [
   { id: 'repositorio', nome: 'Repositório' },
   { id: 'treinamento', nome: 'Treinamento' },
   { id: 'checklist', nome: 'Checklist' },
-  { id: 'pesquisa', nome: 'Pesquisa de Satisfação' }
+  { id: 'pesquisa', nome: 'Pesquisa de Satisfação' },
+  { id: 'inventario', nome: 'Inventário de Sistemas' },
+  { id: 'terceiros', nome: 'Terceiros/Operadores' }
 ];
 
 const CATEGORIAS_REPO = [

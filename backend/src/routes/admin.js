@@ -145,7 +145,9 @@ router.patch('/camaras/:id/toggle', adminAuth, async (req, res) => {
 router.patch('/camaras/:id/modulos', adminAuth, async (req, res) => {
   try {
     const { modulosAtivos } = req.body;
-    const MODULOS_VALIDOS = ['anonimizador', 'ropa', 'dsar', 'repositorio', 'treinamento', 'checklist'];
+    // 'pesquisa' faltava aqui: o Admin oferecia o modulo, mas este filtro o
+    // descartava em qualquer alteracao de modulos da organizacao.
+    const MODULOS_VALIDOS = ['anonimizador', 'ropa', 'dsar', 'repositorio', 'treinamento', 'checklist', 'pesquisa', 'inventario', 'terceiros'];
     const validos = (modulosAtivos || []).filter(m => MODULOS_VALIDOS.includes(m));
     const org = await prisma.organizacao.update({
       where: { id: req.params.id },
@@ -418,7 +420,10 @@ router.delete('/camaras/:id/excluir', adminAuth, async (req, res) => {
             respostasChecklist: true,
             alertas: true,
             anexos: true,
-            historicos: true
+            historicos: true,
+            setores: true,
+            sistemas: true,
+            terceiros: true
           }
         }
       }

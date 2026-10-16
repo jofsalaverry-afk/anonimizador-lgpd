@@ -17,8 +17,20 @@ const CAMPO_LABEL = {
   tipoIncidente: 'Tipo', dataOcorrencia: 'Data da ocorrência', dataDescoberta: 'Data da descoberta',
   dadosAfetados: 'Dados afetados', qtdTitulares: 'Titulares afetados', notificadoANPD: 'Notificado à ANPD',
   planoAcao: 'Plano de ação / providências', autorId: 'Autor', observacao: 'Observação',
-  evidenciaUrl: 'Evidência (link)', validadoPor: 'Validado por', proximaRevisao: 'Próxima revisão / prazo'
+  evidenciaUrl: 'Evidência (link)', validadoPor: 'Validado por', proximaRevisao: 'Próxima revisão / prazo',
+  setor: 'Setor', sistemas: 'Sistemas utilizados', outrosMeios: 'Outros meios (físico/papel)',
+  tipo: 'Tipo', fornecedor: 'Fornecedor', integracoes: 'Integrações', formasCompartilhamento: 'Compartilhamento',
+  tipoHospedagem: 'Hospedagem', paisHospedagem: 'País de hospedagem', regiaoHospedagem: 'Região de hospedagem',
+  razaoSocial: 'Razão social', cnpj: 'CNPJ', contatoNome: 'Contato', contatoEmail: 'E-mail de contato',
+  papel: 'Papel', descricaoServico: 'Serviço prestado', contratoVigente: 'Contrato vigente',
+  contratoCritico: 'Contrato crítico', aditivoLgpdAssinado: 'Aditivo LGPD assinado', dataAditivo: 'Data do aditivo',
+  risco: 'Risco', riscoManual: 'Risco definido manualmente', riscoJustificativa: 'Justificativa do risco'
 };
+
+function rotuloCampo(campo) {
+  if (campo.startsWith('questionario.')) return `Questionário ${campo.slice('questionario.'.length)}`;
+  return CAMPO_LABEL[campo] || campo;
+}
 const CAMPOS_USUARIO = new Set(['responsavelId', 'validadoPor', 'autorId']);
 const ISO_DATA = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
@@ -72,7 +84,7 @@ export default function Historico({ token, entidade, registroId, versao = 0 }) {
                   <tbody>
                     {Object.entries(h.diff || {}).map(([campo, { antes, depois }]) => (
                       <tr key={campo}>
-                        <td style={{ padding: '2px 8px 2px 0', color: '#64748b', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{CAMPO_LABEL[campo] || campo}</td>
+                        <td style={{ padding: '2px 8px 2px 0', color: '#64748b', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{rotuloCampo(campo)}</td>
                         {h.acao === 'CRIAR' ? (
                           <td style={{ padding: '2px 0' }}>{formatar(campo, depois, dados.usuarios)}</td>
                         ) : (

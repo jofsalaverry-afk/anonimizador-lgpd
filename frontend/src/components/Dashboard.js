@@ -9,6 +9,8 @@ import Repositorio from './Repositorio';
 import ChecklistPage from './ChecklistPage';
 import Treinamento from './Treinamento';
 import AlertasCenter from './AlertasCenter';
+import Inventario from './Inventario';
+import Terceiros from './Terceiros';
 
 const PERFIL_LABEL = {
   ENCARREGADO_LGPD: 'DPO',
@@ -27,6 +29,8 @@ const PAGE_TITLES = {
   incidentes: 'Gestão de Incidentes',
   conformidade: 'Checklist de Conformidade',
   treinamento: 'Treinamentos LGPD',
+  inventario: 'Inventário de Sistemas',
+  terceiros: 'Terceiros e Operadores',
   configuracoes: 'Configurações e Segurança'
 };
 
@@ -60,6 +64,16 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
             {modulos.includes('ropa') && (
               <button onClick={() => setPagina('ropa')} className={`nav-item ${pagina === 'ropa' ? 'nav-item-active' : ''}`}>
                 <span className="nav-icon">📋</span> Mapeamento ROPA
+              </button>
+            )}
+            {modulos.includes('inventario') && (
+              <button onClick={() => setPagina('inventario')} className={`nav-item ${pagina === 'inventario' ? 'nav-item-active' : ''}`}>
+                <span className="nav-icon">🖥️</span> Inventário
+              </button>
+            )}
+            {modulos.includes('terceiros') && (
+              <button onClick={() => setPagina('terceiros')} className={`nav-item ${pagina === 'terceiros' ? 'nav-item-active' : ''}`}>
+                <span className="nav-icon">🤝</span> Terceiros
               </button>
             )}
             {modulos.includes('dsar') && (
@@ -133,6 +147,8 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           {pagina === 'incidentes' && <Repositorio token={token} subpagina="incidentes" />}
           {pagina === 'conformidade' && <ChecklistPage token={token} />}
           {pagina === 'treinamento' && <Treinamento token={token} />}
+          {pagina === 'inventario' && <Inventario token={token} />}
+          {pagina === 'terceiros' && <Terceiros token={token} usuario={usuario} />}
           {pagina === 'configuracoes' && <Configuracoes token={token} usuario={usuario} />}
         </div>
       </div>

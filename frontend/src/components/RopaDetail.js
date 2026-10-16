@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API } from '../config';
 import Anexos from './Anexos';
 import Historico from './Historico';
+import { TIPO_SISTEMA_LABEL, BadgeRisco } from './rotulos';
 
 const BASE_LEGAL_LABEL = {
   CONSENTIMENTO: 'Consentimento',
@@ -68,6 +69,7 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
             <Campo label="Finalidade" valor={tratamento.finalidade} />
             <Campo label="Base legal" valor={BASE_LEGAL_LABEL[tratamento.baseLegal] || tratamento.baseLegal} />
             <Campo label="Responsável" valor={tratamento.responsavelNome || 'Não designado'} />
+            <Campo label="Setor responsável" valor={tratamento.setor?.nome || 'Não informado'} />
             <Campo label="Retenção" valor={tratamento.retencaoDias ? `${tratamento.retencaoDias} dias` : null} />
             <Campo label="Forma de descarte" valor={tratamento.formaDescarte} />
           </div>
@@ -91,6 +93,16 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
                 {(tratamento.categoriasTitulares || []).length === 0 && <span className="text-muted">-</span>}
               </div>
             </div>
+            <div className="mb-8">
+              <div className="detail-label">Sistemas utilizados</div>
+              <div className="badge-row">
+                {(tratamento.sistemas || []).map(v => (
+                  <span key={v.sistemaId} className="badge badge-info" title={TIPO_SISTEMA_LABEL[v.sistema?.tipo]}>{v.sistema?.nome}</span>
+                ))}
+                {(tratamento.sistemas || []).length === 0 && <span className="text-muted">-</span>}
+              </div>
+            </div>
+            <Campo label="Outros meios (físico, papel)" valor={tratamento.outrosMeios} />
           </div>
         </div>
 
@@ -103,6 +115,7 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
                 {c.terceiroCNPJ && <span className="comp-detail"> ({c.terceiroCNPJ})</span>}
                 <span className="comp-detail"> — {c.finalidadeCompartilhamento}</span>
                 <span className="comp-country"> [{c.paisDestino}]</span>
+                {c.terceiro && <span style={{ marginLeft: 6 }}><BadgeRisco risco={c.terceiro.risco} /></span>}
               </div>
             ))}
           </div>

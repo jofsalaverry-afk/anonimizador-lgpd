@@ -23,6 +23,9 @@ function criarApp() {
   app.use('/anexos', require('../../src/routes/anexos'));
   app.use('/historico', require('../../src/routes/historico'));
   app.use('/usuarios', require('../../src/routes/usuarios'));
+  app.use('/setores', require('../../src/routes/setores'));
+  app.use('/inventario', require('../../src/routes/inventario'));
+  app.use('/terceiros', require('../../src/routes/terceiros'));
   return app;
 }
 
@@ -36,7 +39,7 @@ function subir() {
   });
 }
 
-const TODOS_MODULOS = ['anonimizador', 'ropa', 'dsar', 'repositorio', 'treinamento', 'checklist', 'pesquisa'];
+const TODOS_MODULOS = ['anonimizador', 'ropa', 'dsar', 'repositorio', 'treinamento', 'checklist', 'pesquisa', 'inventario', 'terceiros'];
 
 async function semear() {
   db.__limpar();
