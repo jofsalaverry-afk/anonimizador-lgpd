@@ -95,7 +95,7 @@ CREATE INDEX "RegistroDescarte_organizacaoId_tratamentoId_idx" ON "RegistroDesca
 CREATE INDEX "ItemChecklist_organizacaoId_idx" ON "ItemChecklist"("organizacaoId");
 
 -- AddForeignKey
-ALTER TABLE "ItemChecklist" ADD CONSTRAINT "ItemChecklist_organizacaoId_fkey" FOREIGN KEY ("organizacaoId") REFERENCES "Organizacao"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "ItemChecklist" ADD CONSTRAINT "ItemChecklist_organizacaoId_fkey" FOREIGN KEY ("organizacaoId") REFERENCES "Organizacao"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ItemChecklist" ADD CONSTRAINT "ItemChecklist_responsavelId_fkey" FOREIGN KEY ("responsavelId") REFERENCES "Usuario"("id") ON DELETE SET NULL ON UPDATE CASCADE;

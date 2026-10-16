@@ -407,7 +407,7 @@ model ItemChecklist {
   // Etapa 3 PoC: organizacaoId null = catalogo global; preenchido =
   // atividade propria daquela organizacao (com responsavel e prazo).
   organizacaoId       String?
-  organizacao         Organizacao?       @relation(fields: [organizacaoId], references: [id])
+  organizacao         Organizacao?       @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
   responsavelId       String?
   responsavel         Usuario?           @relation("ItemChecklistResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
   prazo               DateTime?
