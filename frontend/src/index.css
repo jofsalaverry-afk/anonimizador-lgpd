@@ -572,6 +572,12 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em;
 }
 
+/* Citacoes legais (fundamento do checklist, leis aplicaveis, base legal do
+   ROPA): sem maiusculas forcadas — "arts.", "§ 2º" e "e" como no texto. Os
+   demais selos continuam em caixa alta. */
+.badge-legal,
+.badge.badge-citacao { text-transform: none; letter-spacing: 0.01em; }
+
 .badge-row { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ============ Stat Cards ============ */

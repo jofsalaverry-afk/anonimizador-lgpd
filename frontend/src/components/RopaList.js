@@ -129,8 +129,8 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
                   </td>
                   <td className="table-cell-truncate">{t.finalidade}</td>
                   <td>
-                    <span className="badge badge-purple" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}</span>
-                    {t.baseLegalSensivel && <div className="mt-4"><span className="badge badge-purple" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegalSensivel]}</span></div>}
+                    <span className="badge badge-purple badge-citacao" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}</span>
+                    {t.baseLegalSensivel && <div className="mt-4"><span className="badge badge-purple badge-citacao" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegalSensivel]}</span></div>}
                   </td>
                   <td className="text-muted">{normalizarCategorias(t.categoriasTitulares).join(', ') || '-'}</td>
                   <td>
