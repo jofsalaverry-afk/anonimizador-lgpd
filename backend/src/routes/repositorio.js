@@ -5,6 +5,29 @@ const { authUsuario } = require('../middlewares/authUsuario');
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido } = require('../services/entidades');
 const { responderExport } = require('../services/exportadores');
+const { dataPura, hojeSP, fmtData } = require('../services/datas');
+const { comPrazo, RISCOS } = require('../services/incidentes');
+const { normalizarCategorias } = require('../services/basesLegais');
+
+// Datas puras do incidente: AAAA-MM-DD, gravadas a meia-noite UTC.
+const DATAS_INCIDENTE = ['dataOcorrencia', 'dataCiencia', 'dataComunicacaoANPD', 'dataComunicacaoTitulares'];
+// Le os campos de data/risco presentes no corpo. Retorna { data } ou { erro }.
+function lerDatasIncidente(b) {
+  const data = {};
+  for (const c of DATAS_INCIDENTE) {
+    if (b[c] === undefined) continue;
+    const d = dataPura(b[c]);
+    if (d === undefined) return { erro: `Data inválida em ${c} (use AAAA-MM-DD)` };
+    data[c] = d;
+  }
+  if (b.riscoRelevante !== undefined) {
+    if (b.riscoRelevante && !RISCOS.includes(b.riscoRelevante)) return { erro: 'Risco relevante inválido (SIM, NAO ou EM_AVALIACAO)' };
+    data.riscoRelevante = b.riscoRelevante || null;
+  }
+  // Compatibilidade: "notificadoANPD" passa a refletir a data de comunicacao
+  if (data.dataComunicacaoANPD !== undefined) data.notificadoANPD = !!data.dataComunicacaoANPD;
+  return { data };
+}
 
 const INCIDENTE_INCLUDE = { responsavel: { select: { id: true, nome: true } } };
 
@@ -22,7 +45,7 @@ function erroClassificacao({ severidade, tipoRegistro }) {
 }
 
 function resumoProvidencia(p) {
-  const data = new Date(p.data).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  const data = fmtData(p.data);
   return `${data} — ${p.descricao}${p.responsavel?.nome ? ` (${p.responsavel.nome})` : ''}`;
 }
 
@@ -248,7 +271,7 @@ router.get('/incidentes', async (req, res) => {
       include: INCIDENTE_INCLUDE,
       orderBy: { criadoEm: 'desc' }
     });
-    res.json(incidentes);
+    res.json(incidentes.map(i => comPrazo(i)));
   } catch (err) {
     console.error('[GET /repositorio/incidentes]', err);
     res.status(500).json({ erro: 'Erro ao listar incidentes' });
@@ -275,7 +298,7 @@ router.get('/incidentes/:id', async (req, res) => {
       }
     });
     if (!inc) return res.status(404).json({ erro: 'Incidente não encontrado' });
-    res.json(inc);
+    res.json(comPrazo(inc));
   } catch (err) {
     res.status(500).json({ erro: 'Erro ao buscar incidente' });
   }
@@ -292,6 +315,8 @@ router.post('/incidentes', async (req, res) => {
     }
     const erroCls = erroClassificacao({ severidade, tipoRegistro });
     if (erroCls) return res.status(400).json({ erro: erroCls });
+    const datas = lerDatasIncidente(req.body);
+    if (datas.erro) return res.status(400).json({ erro: datas.erro });
     if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
@@ -300,8 +325,8 @@ router.post('/incidentes', async (req, res) => {
         data: {
           organizacaoId: req.usuario.organizacaoId,
           titulo, tipoIncidente, descricao,
-          dataOcorrencia: new Date(dataOcorrencia),
-          dadosAfetados: dadosAfetados || [],
+          ...datas.data,
+          dadosAfetados: normalizarCategorias(dadosAfetados),
           qtdTitulares: qtdTitulares || 0,
           planoAcao: planoAcao || null,
           responsavelId: responsavelId || null,
@@ -317,7 +342,7 @@ router.post('/incidentes', async (req, res) => {
       });
       return criado;
     });
-    res.status(201).json(inc);
+    res.status(201).json(comPrazo(inc));
   } catch (err) {
     console.error('[POST /repositorio/incidentes]', err);
     res.status(500).json({ erro: 'Erro ao registrar incidente' });
@@ -337,6 +362,9 @@ router.put('/incidentes/:id', async (req, res) => {
     const { titulo, status, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, notificadoANPD, responsavelId, severidade, tipoRegistro } = req.body;
     const erroCls = erroClassificacao({ severidade, tipoRegistro });
     if (erroCls) return res.status(400).json({ erro: erroCls });
+    const datas = lerDatasIncidente(req.body);
+    if (datas.erro) return res.status(400).json({ erro: datas.erro });
+    if (datas.data.dataOcorrencia === null) return res.status(400).json({ erro: 'A data de ocorrência é obrigatória' });
     if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
@@ -347,11 +375,12 @@ router.put('/incidentes/:id', async (req, res) => {
           ...(titulo !== undefined && { titulo }),
           ...(status !== undefined && { status }),
           ...(tipoIncidente !== undefined && { tipoIncidente }),
-          ...(dadosAfetados !== undefined && { dadosAfetados }),
+          ...(dadosAfetados !== undefined && { dadosAfetados: normalizarCategorias(dadosAfetados) }),
           ...(qtdTitulares !== undefined && { qtdTitulares }),
           ...(descricao !== undefined && { descricao }),
           ...(planoAcao !== undefined && { planoAcao }),
-          ...(notificadoANPD !== undefined && { notificadoANPD }),
+          ...(notificadoANPD !== undefined && datas.data.dataComunicacaoANPD === undefined && { notificadoANPD }),
+          ...datas.data,
           ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
           ...(severidade !== undefined && { severidade: severidade || null }),
           ...(tipoRegistro !== undefined && { tipoRegistro })
@@ -364,7 +393,7 @@ router.put('/incidentes/:id', async (req, res) => {
       });
       return atualizado;
     });
-    res.json(inc);
+    res.json(comPrazo(inc));
   } catch (err) {
     console.error('[PUT /repositorio/incidentes/:id]', err);
     res.status(500).json({ erro: 'Erro ao atualizar incidente' });
@@ -383,8 +412,8 @@ router.post('/incidentes/:id/providencias', async (req, res) => {
     const { descricao, data, responsavelId } = req.body || {};
     const desc = typeof descricao === 'string' ? descricao.trim() : '';
     if (!desc) return res.status(400).json({ erro: 'Descreva a providência' });
-    const quando = data ? new Date(data) : new Date();
-    if (isNaN(quando)) return res.status(400).json({ erro: 'Data inválida' });
+    const quando = data ? dataPura(data) : hojeSP();
+    if (!quando) return res.status(400).json({ erro: 'Data inválida (use AAAA-MM-DD)' });
     if (!(await responsavelValido(prisma, responsavelId, orgId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }

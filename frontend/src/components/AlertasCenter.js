@@ -6,7 +6,8 @@ const TIPO_ICON = {
   CHECKLIST_REVISAO: '📋',
   INCIDENTE_ABERTO: '⚠️',
   ROPA_DESATUALIZADO: '📁',
-  RETENCAO_VENCIDA: '🗑️'
+  RETENCAO_VENCIDA: '🗑️',
+  INCIDENTE_COMUNICACAO: '📣'
 };
 
 const TIPO_LABEL = {
@@ -14,7 +15,8 @@ const TIPO_LABEL = {
   CHECKLIST_REVISAO: 'Revisão de checklist',
   INCIDENTE_ABERTO: 'Incidente em aberto',
   ROPA_DESATUALIZADO: 'ROPA desatualizado',
-  RETENCAO_VENCIDA: 'Retenção vencida'
+  RETENCAO_VENCIDA: 'Retenção vencida',
+  INCIDENTE_COMUNICACAO: 'Comunicação de incidente (ANPD)'
 };
 
 const CRIT_BADGE = {
@@ -69,6 +71,7 @@ function AlertasCenter({ token }) {
 
   const formatarData = (iso) =>
     new Date(iso).toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',

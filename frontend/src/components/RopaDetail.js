@@ -5,7 +5,7 @@ import Anexos from './Anexos';
 import Historico from './Historico';
 import Descartes from './Descartes';
 import { TIPO_SISTEMA_LABEL, BadgeRisco } from './rotulos';
-import { rotuloBaseLegal, ROTULO_CAMPO_BASE_LEGAL, textoRetencao } from '../basesLegais';
+import { rotuloBaseLegal, ROTULO_CAMPO_BASE_LEGAL, textoRetencao, normalizarCategorias } from '../basesLegais';
 
 
 function Campo({ label, valor }) {
@@ -64,7 +64,7 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
             <div className="mb-8">
               <div className="detail-label">Categorias de dados</div>
               <div className="badge-row">
-                {(tratamento.categoriasDados || []).map(c => (
+                {normalizarCategorias(tratamento.categoriasDados).map(c => (
                   <span key={c} className="badge badge-purple">{c}</span>
                 ))}
                 {(tratamento.categoriasDados || []).length === 0 && <span className="text-muted">-</span>}
@@ -73,7 +73,7 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
             <div className="mb-8">
               <div className="detail-label">Categorias de titulares</div>
               <div className="badge-row">
-                {(tratamento.categoriasTitulares || []).map(c => (
+                {normalizarCategorias(tratamento.categoriasTitulares).map(c => (
                   <span key={c} className="badge badge-success">{c}</span>
                 ))}
                 {(tratamento.categoriasTitulares || []).length === 0 && <span className="text-muted">-</span>}

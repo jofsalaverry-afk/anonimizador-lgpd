@@ -1,8 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+// Substitui o teste padrao do Create React App ("learn react"), que nunca
+// passou neste projeto: sem sessao, o App abre a tela de login.
+test('sem sessao, abre a tela de login', () => {
+  localStorage.clear();
+  window.location.hash = '';
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /entrar/i })).toBeInTheDocument();
 });

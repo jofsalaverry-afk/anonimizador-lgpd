@@ -55,8 +55,8 @@ async function jobSlaDSAR() {
               organizacaoId: org.id,
               tipo: 'DSAR_PRAZO',
               mensagem: s.cor === 'vencido'
-                ? `Solicitacao ${s.protocolo} vencida ha ${Math.abs(s.diasRestantes)} dia(s)`
-                : `Solicitacao ${s.protocolo} vence em ${s.diasRestantes} dia(s)`,
+                ? `Solicitação ${s.protocolo} vencida há ${Math.abs(s.diasRestantes)} dia(s)`
+                : `Solicitação ${s.protocolo} vence em ${s.diasRestantes} dia(s)`,
               criticidade: (s.cor === 'vermelho' || s.cor === 'vencido') ? 'ALTA' : 'MEDIA',
               referenciaId: s.id
             }

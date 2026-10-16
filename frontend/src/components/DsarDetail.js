@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { TIPO_DIREITO_LABEL } from './rotulos';
 import Anexos from './Anexos';
 import Historico from './Historico';
+import { fmtDataHora, fmtDiaSP, fmtData, hojeInput } from '../datas';
 
-const TIPO_LABEL = {
-  ACESSO: 'Acesso aos dados', CORRECAO: 'Correção', ELIMINACAO: 'Eliminação',
-  PORTABILIDADE: 'Portabilidade', OPOSICAO: 'Oposição', REVOGACAO: 'Revogação',
-  INFORMACAO: 'Informação', PETICAO: 'Petição à ANPD'
-};
+const METODO_TEXTO = { CODIGO_EMAIL: 'código no e-mail', DOCUMENTO: 'documento apresentado', CODIGO: 'código', OUTRO: 'outro meio' };
+const MEIO_ENVIO_TEXTO = { PESSOALMENTE: 'Entregue pessoalmente', CORREIOS: 'Correios', TELEFONE: 'Telefone', EMAIL_INSTITUCIONAL: 'E-mail institucional (fora do sistema)', OUTRO: 'Outro meio' };
+
+const TIPO_LABEL = TIPO_DIREITO_LABEL;
 
 const STATUS_LABEL = {
   RECEBIDA: 'Recebida', AGUARDANDO_VERIFICACAO: 'Aguardando verificação',
@@ -40,6 +41,8 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   const [showEvidForm, setShowEvidForm] = useState(false);
   const [salvandoEvid, setSalvandoEvid] = useState(false);
   const [observacaoVerif, setObservacaoVerif] = useState('');
+  const [metodoVerif, setMetodoVerif] = useState('DOCUMENTO');
+  const [envioForm, setEnvioForm] = useState(null); // { meio, data, observacao }
   const [showVerifForm, setShowVerifForm] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState('');
@@ -133,9 +136,10 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
     try {
       await axios.patch(
         `${API}/dsar/solicitacoes/${solicitacaoId}/verificar-identidade`,
-        { observacao: observacaoVerif.trim() || undefined },
+        { metodo: metodoVerif, observacao: observacaoVerif.trim() || undefined },
         { headers }
       );
+      setVersaoHistorico(v => v + 1);
       setShowVerifForm(false);
       setObservacaoVerif('');
       carregar();
@@ -145,8 +149,20 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
     setVerificando(false);
   };
 
+  const registrarEnvio = async () => {
+    try {
+      await axios.post(`${API}/dsar/solicitacoes/${solicitacaoId}/envio`, envioForm, { headers });
+      setEnvioForm(null);
+      setVersaoHistorico(v => v + 1);
+      carregar();
+    } catch (err) {
+      setErro(err.response?.data?.erro || 'Erro ao registrar envio');
+    }
+  };
+
   if (loading) return <p className="text-muted">Carregando...</p>;
   if (!sol) return <div className="alert-error">Solicitação não encontrada.</div>;
+  const ident = sol.identidade || { verificada: false };
 
   const encerrada = ['ENCERRADA', 'CANCELADA', 'RESPONDIDA'].includes(sol.status);
 
@@ -178,11 +194,11 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
             <div className="detail-label">Tipo de direito</div>
             <div className="detail-value"><span className="badge badge-purple">{TIPO_LABEL[sol.tipoDireito]}</span></div>
             <div className="detail-label">Data de recebimento</div>
-            <div className="detail-value">{new Date(sol.dataRecebimento).toLocaleDateString('pt-BR')}</div>
+            <div className="detail-value">{fmtDataHora(sol.dataRecebimento)}</div>
             <div className="detail-label">Data limite</div>
             <div className="detail-value">
               {sol.dataLimite
-                ? new Date(sol.dataLimite).toLocaleDateString('pt-BR')
+                ? fmtDiaSP(sol.dataLimite)
                 : <span className="text-muted">Aguardando verificação de identidade</span>}
             </div>
           </div>
@@ -190,13 +206,62 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
         <div className="detail-label">Descrição</div>
         <div className="detail-value">{sol.descricao}</div>
 
+        <div className="detail-label">Identidade</div>
+        <div className="detail-value flex-center gap-8">
+          {ident.verificada ? (
+            <span className="badge badge-success">
+              Verificada{ident.metodo ? ` por ${METODO_TEXTO[ident.metodo]}` : ''} em {fmtDataHora(ident.em)}
+            </span>
+          ) : <span className="badge badge-warning">Não verificada</span>}
+          {ident.observacao && <span className="text-xs text-muted">{ident.observacao}</span>}
+          {!['ENCERRADA', 'CANCELADA'].includes(sol.status) && (
+            <button onClick={() => setShowVerifForm(!showVerifForm)} className="btn-ghost btn-sm acao-escrita">
+              {showVerifForm ? 'Cancelar' : 'Registrar verificação de identidade'}
+            </button>
+          )}
+        </div>
+
         {sol.respostaTexto && (
           <>
             <hr className="card-divider" />
             <div className="detail-label">Resposta</div>
             <div className="detail-value">{sol.respostaTexto}</div>
             {sol.dataResposta && (
-              <div className="text-muted text-xs">Respondida em {new Date(sol.dataResposta).toLocaleString('pt-BR')}</div>
+              <div className="text-muted text-xs">Respondida em {fmtDataHora(sol.dataResposta)}</div>
+            )}
+            <div className="mt-8 flex-center gap-8">
+              {sol.respostaEnviadaEmailEm ? (
+                <span className="badge badge-success">Enviada por e-mail em {fmtDataHora(sol.respostaEnviadaEmailEm)}</span>
+              ) : sol.respostaEnvioMeio ? (
+                <span className="badge badge-success">{MEIO_ENVIO_TEXTO[sol.respostaEnvioMeio]} em {fmtData(sol.respostaEnvioData)}{sol.respostaEnvioObservacao ? ` — ${sol.respostaEnvioObservacao}` : ''}</span>
+              ) : (
+                <>
+                  <span className="badge badge-warning">Não enviada por e-mail — registre o envio por outro meio</span>
+                  {!envioForm && <button className="btn-secondary btn-sm acao-escrita" onClick={() => setEnvioForm({ meio: 'PESSOALMENTE', data: hojeInput(), observacao: '' })}>Registrar envio</button>}
+                </>
+              )}
+            </div>
+            {envioForm && (
+              <div className="card-flush mt-8" style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12 }}>
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>Meio de envio</label>
+                    <select value={envioForm.meio} onChange={e => setEnvioForm({ ...envioForm, meio: e.target.value })}>
+                      {Object.entries(MEIO_ENVIO_TEXTO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Data do envio</label>
+                    <input type="date" value={envioForm.data} onChange={e => setEnvioForm({ ...envioForm, data: e.target.value })} />
+                  </div>
+                </div>
+                <label>Observação {envioForm.meio === 'OUTRO' ? '(obrigatória)' : '(opcional)'}</label>
+                <input value={envioForm.observacao} onChange={e => setEnvioForm({ ...envioForm, observacao: e.target.value })} placeholder="Ex.: AR nº ..., entregue no protocolo" />
+                <div className="btn-row mt-8">
+                  <button className="btn-primary btn-sm" onClick={registrarEnvio}>Salvar envio</button>
+                  <button className="btn-secondary btn-sm" onClick={() => setEnvioForm(null)}>Cancelar</button>
+                </div>
+              </div>
             )}
           </>
         )}
@@ -205,7 +270,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
           <div className="btn-row mt-20">
             {sol.status === 'AGUARDANDO_VERIFICACAO' ? (
               <button onClick={() => setShowVerifForm(!showVerifForm)} className="btn-primary btn-sm">
-                {showVerifForm ? 'Cancelar' : 'Verificar identidade'}
+                {showVerifForm ? 'Cancelar' : 'Registrar verificação de identidade'}
               </button>
             ) : (
               <>
@@ -226,11 +291,19 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
 
       {showVerifForm && (
         <div className="card mb-16">
-          <div className="card-header">Verificar identidade do titular</div>
-          <p className="text-muted text-xs mb-16">
-            Ao verificar, o status muda para "Em análise" e o prazo legal de 15 dias começa a contar.
-          </p>
-          <label>Observação (opcional)</label>
+          <div className="card-header">Registrar verificação de identidade</div>
+          {sol.status === 'AGUARDANDO_VERIFICACAO' && (
+            <p className="text-muted text-xs mb-16">
+              Ao registrar, o status muda para "Em análise" e o prazo legal de 15 dias começa a contar.
+            </p>
+          )}
+          <label>Método</label>
+          <select value={metodoVerif} onChange={e => setMetodoVerif(e.target.value)}>
+            <option value="DOCUMENTO">Documento apresentado</option>
+            <option value="CODIGO">Código</option>
+            <option value="OUTRO">Outro</option>
+          </select>
+          <label>Observação {metodoVerif === 'OUTRO' ? '(obrigatória)' : '(opcional)'}</label>
           <textarea
             value={observacaoVerif}
             onChange={e => setObservacaoVerif(e.target.value)}
@@ -295,7 +368,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
               <div key={ev.id} className="timeline-item">
                 <div className={`timeline-dot ${i === 0 ? 'timeline-dot-active' : ''}`} />
                 <div className="timeline-date">
-                  {new Date(ev.criadoEm).toLocaleString('pt-BR')} — {ev.tipo}
+                  {fmtDataHora(ev.criadoEm)} — {ev.tipo}
                 </div>
                 <div className="timeline-content">
                   <div>{ev.descricao}</div>

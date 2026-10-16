@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import { rotuloValor, PERFIL_LABEL } from './rotulos';
-import { rotuloBaseLegal } from '../basesLegais';
+import { rotuloBaseLegal, normalizarCategoria } from '../basesLegais';
+import { fmtData, fmtDataHora, CAMPOS_DATA_PURA } from '../datas';
+
+const CAMPOS_CATEGORIA = new Set(['categoriasDados', 'categoriasTitulares', 'dadosAfetados']);
 
 const ACAO_LABEL = { CRIAR: 'Criou', EDITAR: 'Editou', EXCLUIR: 'Excluiu', STATUS: 'Mudou a situação' };
 
@@ -11,16 +14,22 @@ const CAMPO_LABEL = {
   nome: 'Nome', titulo: 'Título', finalidade: 'Finalidade', baseLegal: 'Base legal (LGPD, art. 7º)',
   baseLegalSensivel: 'Base legal para dados sensíveis (LGPD, art. 11)', perfil: 'Perfil', situacao: 'Situação',
   evidenciaRequerida: 'Evidência requerida', modelo: 'Modelo', versao: 'Versão', faqPortal: 'FAQ do portal',
+  dataCiencia: 'Data da ciência', riscoRelevante: 'Pode acarretar risco ou dano relevante', dataComunicacaoANPD: 'Comunicação à ANPD',
+  dataComunicacaoTitulares: 'Comunicação aos titulares', identidadeVerificadaEm: 'Identidade verificada em', identidadeMetodo: 'Método de verificação',
+  identidadeObservacao: 'Observação da verificação', respostaEnviadaEmailEm: 'Resposta enviada por e-mail em', respostaEnvioMeio: 'Meio de envio da resposta',
+  respostaEnvioData: 'Data do envio da resposta', respostaEnvioObservacao: 'Observação do envio', envioResposta: 'Envio da resposta',
+  alteradoPorAdmin: 'Alterado pelo administrador', enderecoSede: 'Endereço da sede', municipio: 'Município', uf: 'UF',
+  encarregadoNome: 'Nome do encarregado', encarregadoEmail: 'E-mail do encarregado', encarregadoTelefone: 'Telefone do encarregado',
   categoriasDados: 'Categorias de dados', categoriasTitulares: 'Categorias de titulares',
   retencaoDias: 'Retenção (dias)', formaDescarte: 'Forma de descarte', medidasSeguranca: 'Medidas de segurança',
   compartilhamentos: 'Compartilhamentos', ativo: 'Ativo', responsavelId: 'Responsável',
   status: 'Situação', descricao: 'Descrição', respostaTexto: 'Resposta', dataResposta: 'Data da resposta',
   dataLimite: 'Prazo', dataRecebimento: 'Recebimento', protocolo: 'Protocolo', tipoDireito: 'Direito solicitado',
   titularNome: 'Nome do titular', titularEmail: 'E-mail do titular', titularCpf: 'CPF do titular',
-  evidencia: 'Evidência', verificacaoIdentidade: 'Verificação de identidade', anexo: 'Anexo',
+  evidencia: 'Providência', verificacaoIdentidade: 'Verificação de identidade', anexo: 'Anexo',
   tipoIncidente: 'Tipo', dataOcorrencia: 'Data da ocorrência', dataDescoberta: 'Data da descoberta',
-  dadosAfetados: 'Dados afetados', qtdTitulares: 'Titulares afetados', notificadoANPD: 'Notificado à ANPD',
-  planoAcao: 'Plano de ação / providências', autorId: 'Autor', observacao: 'Observação',
+  dadosAfetados: 'Dados afetados', qtdTitulares: 'Titulares afetados', notificadoANPD: 'Comunicado à ANPD',
+  planoAcao: 'Medidas para evitar recorrência', autorId: 'Autor', observacao: 'Observação',
   evidenciaUrl: 'Evidência (link)', validadoPor: 'Validado por', proximaRevisao: 'Próxima revisão / prazo',
   setor: 'Setor', sistemas: 'Sistemas utilizados', outrosMeios: 'Outros meios (físico/papel)',
   tipo: 'Tipo', fornecedor: 'Fornecedor', integracoes: 'Integrações', formasCompartilhamento: 'Compartilhamento',
@@ -56,7 +65,9 @@ function formatar(campo, valor, usuarios, entidade) {
   const rot = rotuloValor(campo, valor, entidade, rotuloBaseLegal);
   if (rot) return rot;
   if (typeof valor === 'string' && CODIGO_ENUM.test(valor) && !CAMPOS_TEXTO_LIVRE.has(campo)) return humanizar(valor);
-  if (typeof valor === 'string' && ISO_DATA.test(valor)) return new Date(valor).toLocaleString('pt-BR');
+  // data pura (ocorrencia, prazo...) em UTC; instante em Sao Paulo
+  if (typeof valor === 'string' && ISO_DATA.test(valor)) return CAMPOS_DATA_PURA.has(campo) ? fmtData(valor) : fmtDataHora(valor);
+  if (CAMPOS_CATEGORIA.has(campo) && typeof valor === 'string') return normalizarCategoria(valor);
   if (typeof valor === 'object') return JSON.stringify(valor);
   return String(valor);
 }
@@ -102,7 +113,7 @@ export default function Historico({ token, entidade, registroId, versao = 0 }) {
             <div key={h.id} className="timeline-item">
               <div className={`timeline-dot ${i === 0 ? 'timeline-dot-active' : ''}`} />
               <div className="timeline-date">
-                {new Date(h.criadoEm).toLocaleString('pt-BR')} — <strong>{h.usuarioId ? quem(h.usuarioId) : 'Canal público / sistema'}</strong> · {ACAO_LABEL[h.acao] || h.acao}
+                {fmtDataHora(h.criadoEm)} — <strong>{h.usuarioId ? quem(h.usuarioId) : h.diff?.alteradoPorAdmin ? 'Administrador da plataforma' : 'Canal público / sistema'}</strong> · {ACAO_LABEL[h.acao] || h.acao}
               </div>
               <div className="timeline-content">
                 <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>

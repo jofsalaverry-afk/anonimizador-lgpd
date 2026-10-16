@@ -2,6 +2,7 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { gerarCodigo, gerarCertificadoPdf } = require('../services/certificado');
+const { isoDiaSP } = require('../services/datas');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -26,58 +27,12 @@ const requireModulo = async (req, res, next) => {
   }
 };
 
-// ---------- Conteudo base (hardcoded) ----------
-// Trilhas base — o admin pode sobrescrever youtubeId e titulo via
-// tabela TrilhaOverride sem alterar codigo. Cada modulo tem um
-// moduloId estavel para ser referenciado nos overrides.
-const PLACEHOLDER_VIDEO = 'pdk8lyemxn4';
-
-const TRILHAS_BASE = [
-  {
-    id: 'introducao-lgpd',
-    titulo: 'Introdução à LGPD',
-    descricao: 'Entenda os conceitos fundamentais da Lei Geral de Proteção de Dados Pessoais e como ela impacta órgãos públicos e empresas.',
-    nivel: 'Básico',
-    modulos: [
-      {
-        moduloId: 'o-que-e-lgpd',
-        titulo: 'O que é a LGPD?',
-        descricao: 'Visão geral da Lei 13.709/2018, seus objetivos e aplicabilidade no setor público.',
-        youtubeId: 'pdk8lyemxn4',
-        duracaoMin: 8
-      },
-      {
-        moduloId: 'principios-lgpd',
-        titulo: 'Princípios da LGPD',
-        descricao: 'Os 10 princípios fundamentais: finalidade, adequação, necessidade, livre acesso, qualidade, transparência, segurança, prevenção, não discriminação e responsabilização.',
-        youtubeId: PLACEHOLDER_VIDEO,
-        duracaoMin: 12
-      }
-    ]
-  },
-  {
-    id: 'direitos-titulares',
-    titulo: 'Direitos dos Titulares',
-    descricao: 'Conheça os direitos garantidos pelo Art. 18 da LGPD e como responder às solicitações dos titulares no prazo correto.',
-    nivel: 'Intermediário',
-    modulos: [
-      {
-        moduloId: 'direitos-do-titular',
-        titulo: 'Quais são os direitos do titular?',
-        descricao: 'Detalhamento dos 9 direitos do Art. 18: confirmação, acesso, correção, anonimização, portabilidade, eliminação, informação, revogação e petição à ANPD.',
-        youtubeId: PLACEHOLDER_VIDEO,
-        duracaoMin: 10
-      },
-      {
-        moduloId: 'responder-15-dias',
-        titulo: 'Como responder solicitações dentro do prazo de 15 dias',
-        descricao: 'Fluxo completo de atendimento: recebimento, validação de identidade, análise, resposta e registro de evidências.',
-        youtubeId: PLACEHOLDER_VIDEO,
-        duracaoMin: 14
-      }
-    ]
-  }
-];
+// ---------- Conteudo base ----------
+// Texto + questionario por modulo (src/data/trilhasTreinamento.js). O
+// admin pode trocar o titulo e informar um link de material complementar
+// (TrilhaOverride) sem alterar codigo.
+const TRILHAS_BASE = require('../data/trilhasTreinamento');
+const MIN_ACERTOS = 2;
 
 // ---------- Merge com overrides ----------
 
@@ -94,8 +49,8 @@ async function getTrilhasComOverrides() {
       if (!ov) return m;
       return {
         ...m,
-        youtubeId: ov.youtubeId || m.youtubeId,
-        titulo: ov.titulo || m.titulo
+        titulo: ov.titulo || m.titulo,
+        linkComplementar: ov.linkComplementar || null
       };
     })
   }));
@@ -111,10 +66,15 @@ async function getTrilhaBase(trilhaId) {
 
 router.use(authMiddleware, requireModulo);
 
+// Remove o gabarito ("correta") antes de enviar ao navegador
+function semGabarito(t) {
+  return { ...t, modulos: t.modulos.map(m => ({ ...m, minAcertos: MIN_ACERTOS, quiz: (m.quiz || []).map(({ correta, ...q }) => q) })) };
+}
+
 router.get('/trilhas', async (req, res) => {
   try {
     const trilhas = await getTrilhasComOverrides();
-    res.json(trilhas);
+    res.json(trilhas.map(semGabarito));
   } catch (err) {
     console.error('[GET /treinamento/trilhas]', err);
     res.status(500).json({ erro: 'Erro ao listar trilhas' });
@@ -126,7 +86,7 @@ router.get('/trilhas/:id', async (req, res) => {
     const trilhas = await getTrilhasComOverrides();
     const trilha = trilhas.find(t => t.id === req.params.id);
     if (!trilha) return res.status(404).json({ erro: 'Trilha não encontrada' });
-    res.json(trilha);
+    res.json(semGabarito(trilha));
   } catch (err) {
     res.status(500).json({ erro: 'Erro ao buscar trilha' });
   }
@@ -205,18 +165,31 @@ router.get('/progresso', async (req, res) => {
   }
 });
 
-// POST /treinamento/progresso { trilhaId, moduloId } — marca modulo concluido
+// POST /treinamento/progresso { trilhaId, moduloId, respostas: [indice, ...] }
+// Corrige o questionario e grava a tentativa. O modulo so conta como
+// concluido com MIN_ACERTOS acertos ou mais. Devolve o status da trilha +
+// { tentativa: { acertos, total, aprovado, corretas: [bool] } } (sem o gabarito).
 router.post('/progresso', async (req, res) => {
   try {
-    const { trilhaId, moduloId } = req.body || {};
+    const { trilhaId, moduloId, respostas } = req.body || {};
     const trilhas = await getTrilhasComOverrides();
     const trilha = trilhas.find(t => t.id === trilhaId);
-    if (!trilha || !trilha.modulos.some(m => m.moduloId === moduloId)) {
-      return res.status(400).json({ erro: 'Trilha ou módulo inválido' });
+    const modulo = trilha?.modulos.find(m => m.moduloId === moduloId);
+    if (!modulo) return res.status(400).json({ erro: 'Trilha ou módulo inválido' });
+    const quiz = modulo.quiz || [];
+    if (!Array.isArray(respostas) || respostas.length !== quiz.length || respostas.some(r => !Number.isInteger(r))) {
+      return res.status(400).json({ erro: `Responda as ${quiz.length} perguntas do questionário` });
     }
+    const corretas = quiz.map((q, i) => respostas[i] === q.correta);
+    const acertos = corretas.filter(Boolean).length;
+    const aprovado = acertos >= MIN_ACERTOS;
     const usuarioId = req.usuario.id;
+    await prisma.tentativaQuizTreinamento.create({
+      data: { usuarioId, organizacaoId: req.usuario.organizacaoId, trilhaId, moduloId, respostas, acertos, total: quiz.length, aprovado }
+    });
+    const tentativa = { acertos, total: quiz.length, aprovado, corretas, minAcertos: MIN_ACERTOS };
     const ja = await prisma.progressoTreinamento.findFirst({ where: { usuarioId, trilhaId, moduloId } });
-    if (!ja) {
+    if (aprovado && !ja) {
       await prisma.progressoTreinamento.create({
         data: { usuarioId, organizacaoId: req.usuario.organizacaoId, trilhaId, moduloId }
       });
@@ -227,7 +200,7 @@ router.post('/progresso', async (req, res) => {
     ]);
     const status = statusDasTrilhas([trilha], progressos, certificados)[0];
     status.certificadoCodigo = await emitirCertificadoSeConcluida(usuarioId, req.usuario.organizacaoId, trilha, status);
-    res.json(status);
+    res.json({ ...status, tentativa });
   } catch (err) {
     console.error('[POST /treinamento/progresso]', err);
     res.status(500).json({ erro: 'Erro ao registrar progresso' });
@@ -244,7 +217,11 @@ router.get('/certificados/:codigo/pdf', async (req, res) => {
     if (!cert || (cert.usuarioId !== req.usuario.id && !gestor)) {
       return res.status(404).json({ erro: 'Certificado não encontrado' });
     }
-    const pdf = await gerarCertificadoPdf(cert);
+    const org = await prisma.organizacao.findUnique({
+      where: { id: cert.organizacaoId },
+      select: { nome: true, municipio: true, uf: true, encarregadoNome: true, logoBase64: true }
+    });
+    const pdf = await gerarCertificadoPdf(cert, org || {});
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="certificado-${cert.codigo}.pdf"`);
     res.send(pdf);
@@ -283,6 +260,15 @@ router.get('/relatorio', async (req, res) => {
         });
       }
     }
+    // Resumo antes dos filtros: trilha obrigatoria (nivel Basico) e total
+    const obrigatoria = trilhas.find(t => t.nivel === 'Básico');
+    const resumo = {
+      trilhaObrigatoria: obrigatoria ? obrigatoria.titulo : null,
+      servidores: usuarios.length,
+      concluiramObrigatoria: obrigatoria ? linhas.filter(l => l.trilhaId === obrigatoria.id && l.situacao === 'CONCLUIDA').length : 0,
+      trilhasConcluidas: linhas.filter(l => l.situacao === 'CONCLUIDA').length,
+      trilhasTotal: linhas.length
+    };
     if (req.query.trilhaId) linhas = linhas.filter(l => l.trilhaId === req.query.trilhaId);
     // NAO_CONCLUIDA = nao iniciada + em andamento (link do painel)
     if (req.query.situacao === 'NAO_CONCLUIDA') linhas = linhas.filter(l => l.situacao !== 'CONCLUIDA');
@@ -293,12 +279,14 @@ router.get('/relatorio', async (req, res) => {
       const cab = 'usuario,perfil,trilha,modulosConcluidos,totalModulos,situacao,concluidoEm,certificado';
       const rows = linhas.map(l => [
         q(l.usuarioNome), l.perfil, q(l.trilhaTitulo), l.modulosConcluidos, l.totalModulos,
-        q(SITUACAO_LABEL[l.situacao]), l.concluidoEm ? l.concluidoEm.toISOString().slice(0, 10) : '', l.certificadoCodigo || ''
+        q(SITUACAO_LABEL[l.situacao]), l.concluidoEm ? isoDiaSP(l.concluidoEm) : '', l.certificadoCodigo || ''
       ].join(','));
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename=relatorio-treinamento.csv');
       return res.send('﻿' + [cab, ...rows].join('\n'));
     }
+    // ?resumo=1 devolve { resumo, linhas }; sem ele, a lista (formato antigo)
+    if (req.query.resumo) return res.json({ resumo, linhas });
     res.json(linhas);
   } catch (err) {
     console.error('[GET /treinamento/relatorio]', err);

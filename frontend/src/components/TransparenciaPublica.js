@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { normalizarCategorias } from '../basesLegais';
 
 // Pagina publica #transparencia/:slug — informacao ao titular (art. 9 e
 // 23 da LGPD) puxada do ROPA e dos dados do encarregado.
@@ -55,8 +56,8 @@ export default function TransparenciaPublica({ slug }) {
                     <td><strong>{t.nome}</strong></td>
                     <td>{t.finalidade}</td>
                     <td>{t.baseLegal}{t.baseLegalSensivel && <div className="text-xs mt-4">{t.baseLegalSensivel}</div>}</td>
-                    <td>{(t.categoriasDados || []).join(', ') || '—'}</td>
-                    <td>{(t.categoriasTitulares || []).join(', ') || '—'}</td>
+                    <td>{normalizarCategorias(t.categoriasDados).join(', ') || '—'}</td>
+                    <td>{normalizarCategorias(t.categoriasTitulares).join(', ') || '—'}</td>
                   </tr>
                 ))}
               </tbody>

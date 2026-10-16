@@ -16,7 +16,7 @@
 // Nunca deixe chaves {assim} no texto: o teste acusa variavel sobrando.
 
 // Rotulos das bases legais: fonte unica em src/data/basesLegais.json
-const { ROTULO_BASE_LEGAL: BASE_LEGAL_LABEL, rotuloBaseLegal } = require('../services/basesLegais');
+const { ROTULO_BASE_LEGAL: BASE_LEGAL_LABEL, rotuloBaseLegal, normalizarCategorias } = require('../services/basesLegais');
 
 function dataPorExtenso(d) {
   return new Date(d).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
@@ -60,8 +60,8 @@ function criarContexto(dados) {
       finalidade: t.finalidade,
       // art. 7 e, havendo dado sensivel, a hipotese do art. 11
       baseLegal: [rotuloBaseLegal(t.baseLegal), rotuloBaseLegal(t.baseLegalSensivel)].filter(Boolean).join(' / '),
-      dados: (t.categoriasDados || []).join(', ') || 'não informado',
-      titulares: (t.categoriasTitulares || []).join(', ') || 'não informado',
+      dados: normalizarCategorias(t.categoriasDados).join(', ') || 'não informado',
+      titulares: normalizarCategorias(t.categoriasTitulares).join(', ') || 'não informado',
       retencao: retencaoTexto(t.retencaoDias),
       descarte: t.formaDescarte || null,
       compartilhamentos: (t.compartilhamentos || []).map(c => ({

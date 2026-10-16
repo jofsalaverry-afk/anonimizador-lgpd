@@ -93,11 +93,11 @@ export default function Admin() {
   const salvarModulo = async (trilhaId, moduloId) => {
     const key = `${trilhaId}:${moduloId}`;
     const edit = edicaoModulo[key];
-    if (!edit || !edit.youtubeId) return;
+    if (!edit || edit.linkComplementar === undefined) return;
     try {
       await axios.put(
         `${API}/admin/treinamento/trilhas/${trilhaId}/modulos/${moduloId}`,
-        { youtubeId: edit.youtubeId, titulo: edit.titulo || null },
+        { linkComplementar: edit.linkComplementar.trim() },
         { headers }
       );
       setEdicaoModulo(prev => {
@@ -191,6 +191,18 @@ export default function Admin() {
       carregar();
     } catch (err) {
       alert(err.response?.data?.erro || 'Erro ao alterar perfil');
+    }
+  };
+
+  // Corrige o nome da pessoa (ex.: Gestor criado com o nome da camara)
+  const editarNome = async (u) => {
+    const nome = window.prompt('Nome da pessoa', u.nome || '');
+    if (nome === null || !nome.trim() || nome.trim() === u.nome) return;
+    try {
+      await axios.patch(`${API}/admin/usuarios/${u.id}/nome`, { nome: nome.trim() }, { headers });
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao alterar nome');
     }
   };
 
@@ -518,6 +530,7 @@ export default function Admin() {
                           <span className={u.mfaAtivo ? 'badge badge-success' : 'badge badge-muted'}>{u.mfaAtivo ? 'MFA ativo' : 'sem MFA'}</span>
                         </div>
                         <div className="flex-center gap-8">
+                          <button type="button" onClick={() => editarNome(u)} className="btn-ghost" title="Corrigir o nome da pessoa">Editar nome</button>
                           <button
                             type="button"
                             onClick={() => toggleUsuario(u.id)}
@@ -564,8 +577,8 @@ export default function Admin() {
 
         {/* ========== Treinamento ========== */}
         <div className="card mt-20">
-          <h2 className="card-header">Treinamentos — curadoria de vídeos</h2>
-          <p className="text-muted mb-16">Cole o ID ou a URL completa do YouTube para cada módulo. Os vídeos são compartilhados entre todas as organizações com o módulo treinamento ativo.</p>
+          <h2 className="card-header">Treinamentos — material complementar</h2>
+          <p className="text-muted mb-16">Os módulos são textos curtos com questionário (iguais para todas as organizações). Aqui você pode indicar, por módulo, um link opcional para material complementar externo (https://), que aparece abaixo do texto. Deixe em branco para não exibir.</p>
 
           {trilhas.length === 0 && <p className="text-muted">Carregando trilhas...</p>}
 
@@ -579,35 +592,24 @@ export default function Admin() {
               {trilha.modulos.map(modulo => {
                 const key = `${trilha.id}:${modulo.moduloId}`;
                 const edit = edicaoModulo[key] || {};
-                const valorInput = edit.youtubeId !== undefined ? edit.youtubeId : modulo.youtubeId;
+                const atual = modulo.linkComplementar || '';
+                const valorInput = edit.linkComplementar !== undefined ? edit.linkComplementar : atual;
                 return (
                   <div key={modulo.moduloId} className="user-row" style={{ display: 'block', padding: '12px 0' }}>
-                    <div className="flex-center gap-8 mb-8">
-                      <img
-                        src={`https://img.youtube.com/vi/${modulo.youtubeId}/mqdefault.jpg`}
-                        alt=""
-                        style={{ width: 80, height: 45, borderRadius: 6, objectFit: 'cover' }}
-                      />
-                      <div style={{ flex: 1 }}>
-                        <div className="text-sm" style={{ fontWeight: 600 }}>{modulo.titulo}</div>
-                        <div className="text-muted text-xs">{modulo.duracaoMin} min · ID atual: {modulo.youtubeId}</div>
-                      </div>
-                    </div>
+                    <div className="text-sm" style={{ fontWeight: 600 }}>{modulo.titulo}</div>
+                    <div className="text-muted text-xs mb-8">{modulo.duracaoMin} min · {modulo.quiz?.length || 0} perguntas · {atual ? 'com material complementar' : 'sem material complementar'}</div>
                     <div className="flex gap-8">
                       <input
-                        type="text"
-                        placeholder="Cole o ID ou URL do YouTube"
+                        type="url"
+                        placeholder="https://... (opcional)"
                         value={valorInput}
-                        onChange={e => setEdicaoModulo(prev => ({
-                          ...prev,
-                          [key]: { ...prev[key], youtubeId: e.target.value }
-                        }))}
+                        onChange={e => setEdicaoModulo(prev => ({ ...prev, [key]: { ...prev[key], linkComplementar: e.target.value } }))}
                         style={{ marginBottom: 0, flex: 1 }}
                       />
                       <button
                         onClick={() => salvarModulo(trilha.id, modulo.moduloId)}
                         className="btn-primary btn-sm"
-                        disabled={!edit.youtubeId || edit.youtubeId === modulo.youtubeId}
+                        disabled={edit.linkComplementar === undefined || edit.linkComplementar.trim() === atual}
                       >
                         Salvar
                       </button>

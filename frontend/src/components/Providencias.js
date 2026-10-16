@@ -2,6 +2,7 @@ import { useState } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import SeletorResponsavel from './SeletorResponsavel';
+import { fmtData } from '../datas';
 
 const VAZIA = { descricao: '', data: '', responsavelId: '' };
 
@@ -37,7 +38,7 @@ export default function Providencias({ token, incidenteId, providencias, onAdici
             <div key={p.id} className="timeline-item">
               <div className="timeline-dot" />
               <div className="timeline-date">
-                {new Date(p.data).toLocaleDateString('pt-BR', { timeZone: 'UTC' })} — {p.responsavel?.nome || 'sem responsável'}
+                {fmtData(p.data)} — {p.responsavel?.nome || 'sem responsável'}
               </div>
               <div className="timeline-content">{p.descricao}</div>
             </div>

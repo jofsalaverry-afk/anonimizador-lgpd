@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { TIPO_DIREITO_LABEL } from './rotulos';
 import { BotoesExportar, BotaoPdfA } from './download';
 
 // Mes AAAA-MM em horario de Brasilia (mesma regra do painel).
@@ -9,11 +10,7 @@ const mesBrt = d => {
   return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, '0')}`;
 };
 
-const TIPO_LABEL = {
-  ACESSO: 'Acesso', CORRECAO: 'Correção', ELIMINACAO: 'Eliminação',
-  PORTABILIDADE: 'Portabilidade', OPOSICAO: 'Oposição', REVOGACAO: 'Revogação',
-  INFORMACAO: 'Informação', PETICAO: 'Petição'
-};
+const TIPO_LABEL = TIPO_DIREITO_LABEL;
 
 const STATUS_LABEL = {
   RECEBIDA: 'Recebida', AGUARDANDO_VERIFICACAO: 'Aguardando verificação',
@@ -33,7 +30,7 @@ const SLA_BADGE = {
   vermelho: 'badge badge-danger', vencido: 'badge badge-danger'
 };
 
-export default function DsarList({ token, onNova, onVer, filtroInicial }) {
+export default function DsarList({ token, onNova, onVer, filtroInicial, onModelos }) {
   const [solicitacoes, setSolicitacoes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
@@ -70,6 +67,7 @@ export default function DsarList({ token, onNova, onVer, filtroInicial }) {
         <div className="btn-row">
           <BotoesExportar token={token} caminho="/dsar/export" nome="dsar-solicitacoes" onErro={setErro} />
           <BotaoPdfA token={token} tipo="dsar" onErro={setErro} />
+          <button onClick={onModelos} className="btn-secondary btn-sm">Modelos de resposta</button>
           <button onClick={onNova} className="btn-primary btn-sm">+ Nova solicitação</button>
         </div>
       </div>

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import { BotoesExportar, BotaoPdfA } from './download';
-import { ROTULO_BASE_LEGAL as BASE_LEGAL_LABEL, ROTULO_CAMPO_BASE_LEGAL } from '../basesLegais';
+import { ROTULO_BASE_LEGAL as BASE_LEGAL_LABEL, ROTULO_CAMPO_BASE_LEGAL, normalizarCategorias } from '../basesLegais';
 
 export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial }) {
   const [tratamentos, setTratamentos] = useState([]);
@@ -132,7 +132,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
                     <span className="badge badge-purple" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}</span>
                     {t.baseLegalSensivel && <div className="mt-4"><span className="badge badge-purple" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegalSensivel]}</span></div>}
                   </td>
-                  <td className="text-muted">{(t.categoriasTitulares || []).join(', ') || '-'}</td>
+                  <td className="text-muted">{normalizarCategorias(t.categoriasTitulares).join(', ') || '-'}</td>
                   <td>
                     <span className={t.ativo ? 'badge badge-success' : 'badge badge-danger'}>
                       {t.ativo ? 'ativo' : 'inativo'}

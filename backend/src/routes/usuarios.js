@@ -115,6 +115,33 @@ router.patch('/:id/perfil', async (req, res) => {
   }
 });
 
+// PATCH /usuarios/:id/nome { nome } — Gestor/DPO corrigem o nome de
+// qualquer usuario da organizacao (inclusive o proprio). Ex.: Gestores
+// antigos que receberam o nome da camara na criacao.
+router.patch('/:id/nome', async (req, res) => {
+  try {
+    if (!exigirGestao(req, res)) return;
+    const nome = typeof req.body?.nome === 'string' ? req.body.nome.trim().normalize('NFC') : '';
+    if (nome.length < 2 || nome.length > 200) return res.status(400).json({ erro: 'Informe o nome (2 a 200 caracteres)' });
+    const orgId = req.usuario.organizacaoId;
+    const alvo = await usuarioDaOrg(req.params.id, orgId);
+    if (!alvo) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    if (alvo.nome === nome) return res.json(alvo);
+    const atualizado = await prisma.$transaction(async (tx) => {
+      const u = await tx.usuario.update({ where: { id: alvo.id }, data: { nome }, select: SELECT_GESTAO });
+      await registrarHistorico(tx, {
+        organizacaoId: orgId, entidade: 'USUARIO', registroId: alvo.id, acao: 'EDITAR', usuarioId: req.usuario.id,
+        diff: { nome: { antes: alvo.nome, depois: nome } }
+      });
+      return u;
+    });
+    res.json(atualizado);
+  } catch (err) {
+    console.error('[PATCH /usuarios/:id/nome]', err);
+    res.status(500).json({ erro: 'Erro ao alterar nome' });
+  }
+});
+
 // PATCH /usuarios/:id/ativo { ativo: true|false }
 // Obs.: sessoes ja abertas do usuario desativado valem ate expirar (8h);
 // novo login e bloqueado imediatamente.

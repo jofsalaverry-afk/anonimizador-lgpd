@@ -137,19 +137,19 @@ function validar(req, res, next) {
 
 // Validators reutilizaveis (cadeia pronta pra aplicar em rotas)
 const validarEmail = (campo = 'email') =>
-  body(campo).isEmail().withMessage('Email invalido').normalizeEmail();
+  body(campo).isEmail().withMessage('E-mail inválido').normalizeEmail();
 
 const validarCpf = (campo = 'titularCpf', { opcional = false } = {}) => {
   let chain = body(campo).trim();
   if (opcional) chain = chain.optional({ checkFalsy: true });
   return chain
     .matches(/^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$|^\d{11}$/)
-    .withMessage('CPF invalido — use 11 digitos');
+    .withMessage('CPF inválido — use 11 dígitos');
 };
 
 const validarCuid = (campo, loc = 'body') => {
   const chain = loc === 'param' ? param(campo) : body(campo);
-  return chain.trim().isLength({ min: 20, max: 40 }).matches(/^[a-z0-9]+$/i).withMessage(`${campo} invalido`);
+  return chain.trim().isLength({ min: 20, max: 40 }).matches(/^[a-z0-9]+$/i).withMessage(`${campo} inválido`);
 };
 
 // Texto livre: trim + escape de < > & " '. Nao bloqueia entrada valida,

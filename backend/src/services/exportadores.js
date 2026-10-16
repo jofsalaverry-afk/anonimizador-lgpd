@@ -10,9 +10,14 @@
 // e o dicionario-de-dados.md e montado a partir das colunas.
 
 const { pendenciasMapeamento } = require('./indicadores');
-const { rotuloBaseLegal } = require('./basesLegais');
+const { rotuloBaseLegal, normalizarCategorias } = require('./basesLegais');
 
+const { prazoComunicacao } = require('./incidentes');
+const { codigosExibicao } = require('./checklistCodigos');
+
+// Data-hora: ISO 8601 completo (instante, em UTC). Data pura: AAAA-MM-DD.
 const iso = d => (d ? new Date(d).toISOString() : '');
+const isoData = d => (d ? new Date(d).toISOString().slice(0, 10) : '');
 const lista = arr => (arr || []).join('; ');
 
 // Cache por exportacao: nomes de usuarios da org (resolve ids).
@@ -45,7 +50,7 @@ const EXPORTADORES = {
         const pend = pendenciasMapeamento(t);
         return {
           id: t.id, nome: t.nome, finalidade: t.finalidade, baseLegal: rotuloBaseLegal(t.baseLegal), baseLegalSensivel: rotuloBaseLegal(t.baseLegalSensivel),
-          categoriasDados: lista(t.categoriasDados), categoriasTitulares: lista(t.categoriasTitulares),
+          categoriasDados: lista(normalizarCategorias(t.categoriasDados)), categoriasTitulares: lista(normalizarCategorias(t.categoriasTitulares)),
           setor: t.setor?.nome || '', responsavel: ctx.nome(t.responsavelId), retencaoDias: t.retencaoDias ?? '',
           formaDescarte: t.formaDescarte || '', medidasSeguranca: t.medidasSeguranca || '',
           sistemas: lista((t.sistemas || []).map(v => v.sistema?.nome)), outrosMeios: t.outrosMeios || '',
@@ -62,7 +67,7 @@ const EXPORTADORES = {
     descricao: 'Descartes de dados por tratamento do ROPA (retenção e descarte). As evidências estão em anexos/DESCARTE/.',
     colunas: [
       ['id', 'Identificador do descarte'], ['tratamentoId', 'Tratamento (id em ropa-tratamentos)'], ['tratamento', 'Nome do tratamento'],
-      ['dataDescarte', 'Data do descarte (ISO 8601)'], ['metodo', 'Método'], ['quantidade', 'Quantidade de registros'],
+      ['dataDescarte', 'Data do descarte (AAAA-MM-DD)'], ['metodo', 'Método'], ['quantidade', 'Quantidade de registros'],
       ['descricao', 'Descrição'], ['responsavel', 'Responsável (nome)'], ['criadoEm', 'Registro no sistema (ISO 8601)']
     ],
     async gerar(db, org, ctx) {
@@ -70,7 +75,7 @@ const EXPORTADORES = {
       const trats = await db.tratamento.findMany({ where: { organizacaoId: org }, select: { id: true, nome: true } });
       const nomeTrat = Object.fromEntries(trats.map(t => [t.id, t.nome]));
       const linhas = ds.map(d => ({
-        id: d.id, tratamentoId: d.tratamentoId, tratamento: nomeTrat[d.tratamentoId] || '', dataDescarte: iso(d.dataDescarte),
+        id: d.id, tratamentoId: d.tratamentoId, tratamento: nomeTrat[d.tratamentoId] || '', dataDescarte: isoData(d.dataDescarte),
         metodo: d.metodo, quantidade: d.quantidade ?? '', descricao: d.descricao, responsavel: ctx.nome(d.responsavelId), criadoEm: iso(d.criadoEm)
       }));
       return { linhas, json: ds };
@@ -106,19 +111,26 @@ const EXPORTADORES = {
     descricao: 'Incidentes reais e simulados, com severidade, providências e responsáveis. Evidências em anexos/INCIDENTE/.',
     colunas: [
       ['id', 'Identificador'], ['titulo', 'Título'], ['tipoRegistro', 'REAL ou SIMULADO'], ['tipoIncidente', 'Tipo'],
-      ['severidade', 'Severidade (ALTA/MEDIA/BAIXA)'], ['status', 'Situação'], ['dataOcorrencia', 'Ocorrência (ISO 8601)'],
-      ['dataDescoberta', 'Descoberta (ISO 8601)'], ['dadosAfetados', 'Dados afetados'], ['qtdTitulares', 'Titulares afetados'],
-      ['notificadoANPD', 'Comunicado à ANPD'], ['descricao', 'Descrição'], ['planoAcao', 'Plano de ação'],
+      ['severidade', 'Severidade (ALTA/MEDIA/BAIXA)'], ['status', 'Situação'], ['dataOcorrencia', 'Ocorrência (AAAA-MM-DD)'],
+      ['dataDescoberta', 'Registro no sistema (ISO 8601)'], ['dataCiencia', 'Ciência pela câmara (AAAA-MM-DD)'],
+      ['riscoRelevante', 'Pode acarretar risco ou dano relevante aos titulares (SIM/NAO/EM_AVALIACAO)'],
+      ['prazoComunicacao', 'Prazo de comunicação à ANPD e aos titulares: 3 dias úteis da ciência (AAAA-MM-DD), só para REAL com risco SIM'],
+      ['dataComunicacaoANPD', 'Comunicação à ANPD (AAAA-MM-DD)'], ['dataComunicacaoTitulares', 'Comunicação aos titulares (AAAA-MM-DD)'],
+      ['dadosAfetados', 'Dados afetados'], ['qtdTitulares', 'Titulares afetados'],
+      ['notificadoANPD', 'Comunicado à ANPD'], ['descricao', 'Descrição'], ['planoAcao', 'Medidas para evitar recorrência'],
       ['responsavel', 'Responsável (nome)'], ['providencias', 'Providências: data — descrição (responsável)']
     ],
     async gerar(db, org, ctx) {
       const is = await db.incidente.findMany({ where: { organizacaoId: org }, include: { providencias: true }, orderBy: { dataOcorrencia: 'desc' } });
       const linhas = is.map(i => ({
         id: i.id, titulo: i.titulo, tipoRegistro: i.tipoRegistro, tipoIncidente: i.tipoIncidente, severidade: i.severidade || '',
-        status: i.status, dataOcorrencia: iso(i.dataOcorrencia), dataDescoberta: iso(i.dataDescoberta), dadosAfetados: lista(i.dadosAfetados),
+        status: i.status, dataOcorrencia: isoData(i.dataOcorrencia), dataDescoberta: iso(i.dataDescoberta),
+        dataCiencia: isoData(i.dataCiencia), riscoRelevante: i.riscoRelevante || '', prazoComunicacao: prazoComunicacao(i)?.prazo || '',
+        dataComunicacaoANPD: isoData(i.dataComunicacaoANPD), dataComunicacaoTitulares: isoData(i.dataComunicacaoTitulares),
+        dadosAfetados: lista(normalizarCategorias(i.dadosAfetados)),
         qtdTitulares: i.qtdTitulares, notificadoANPD: i.notificadoANPD, descricao: i.descricao, planoAcao: i.planoAcao || '',
         responsavel: ctx.nome(i.responsavelId),
-        providencias: lista((i.providencias || []).map(p => `${iso(p.data).slice(0, 10)} — ${p.descricao}${p.responsavelId ? ` (${ctx.nome(p.responsavelId)})` : ''}`))
+        providencias: lista((i.providencias || []).map(p => `${isoData(p.data)} — ${p.descricao}${p.responsavelId ? ` (${ctx.nome(p.responsavelId)})` : ''}`))
       }));
       return { linhas, json: is };
     }
@@ -128,25 +140,25 @@ const EXPORTADORES = {
     arquivo: 'checklist-conformidade', titulo: 'Checklist de conformidade',
     descricao: 'Itens do catálogo global e atividades próprias da organização, com situação, responsável, prazo e evidência. Evidências em anexos/CHECKLIST_ITEM/.',
     colunas: [
-      ['itemId', 'Identificador do item'], ['codigo', 'Código'], ['origem', 'GLOBAL (catálogo) ou PROPRIA (da organização)'],
+      ['itemId', 'Identificador do item'], ['codigo', 'Código (catálogo) ou AP-nnn (atividade própria)'], ['origem', 'GLOBAL (catálogo) ou PROPRIA (da organização)'],
       ['categoria', 'Categoria'], ['titulo', 'Atividade'], ['descricao', 'Descrição'], ['fundamentoLegal', 'Fundamento legal'],
-      ['criticidade', 'Criticidade'], ['responsavelAtividade', 'Responsável pela atividade própria'], ['prazoAtividade', 'Prazo da atividade própria (ISO 8601)'],
+      ['criticidade', 'Criticidade'], ['responsavelAtividade', 'Responsável pela atividade própria'], ['prazoAtividade', 'Prazo da atividade própria (AAAA-MM-DD)'],
       ['status', 'Situação (CONFORME, PARCIAL, NAO_CONFORME, NAO_APLICAVEL ou vazio)'], ['observacao', 'Observação'],
       ['evidenciaUrl', 'Evidência (link/referência)'], ['responsavelResposta', 'Responsável pela resposta'],
-      ['proximaRevisao', 'Próxima revisão (ISO 8601)'], ['respondidoEm', 'Última resposta (ISO 8601)']
+      ['proximaRevisao', 'Próxima revisão (AAAA-MM-DD)'], ['respondidoEm', 'Última resposta (ISO 8601)']
     ],
     async gerar(db, org, ctx) {
-      const itens = await db.itemChecklist.findMany({ where: { OR: [{ organizacaoId: null }, { organizacaoId: org }] }, orderBy: { codigo: 'asc' } });
+      const itens = codigosExibicao(await db.itemChecklist.findMany({ where: { OR: [{ organizacaoId: null }, { organizacaoId: org }] }, orderBy: { codigo: 'asc' } }));
       const resps = await db.respostaChecklist.findMany({ where: { organizacaoId: org } });
       const porItem = Object.fromEntries(resps.map(r => [r.itemId, r]));
       const linhas = itens.map(it => {
         const r = porItem[it.id];
         return {
-          itemId: it.id, codigo: it.codigo, origem: it.organizacaoId ? 'PROPRIA' : 'GLOBAL', categoria: it.categoria, titulo: it.titulo,
+          itemId: it.id, codigo: it.codigoExibicao, origem: it.organizacaoId ? 'PROPRIA' : 'GLOBAL', categoria: it.categoria, titulo: it.titulo,
           descricao: it.descricao, fundamentoLegal: it.fundamentoLegal, criticidade: it.criticidade,
-          responsavelAtividade: ctx.nome(it.responsavelId), prazoAtividade: iso(it.prazo),
+          responsavelAtividade: ctx.nome(it.responsavelId), prazoAtividade: isoData(it.prazo),
           status: r?.status || '', observacao: r?.observacao || '', evidenciaUrl: r?.evidenciaUrl || '',
-          responsavelResposta: ctx.nome(r?.responsavelId), proximaRevisao: iso(r?.proximaRevisao), respondidoEm: iso(r?.atualizadoEm)
+          responsavelResposta: ctx.nome(r?.responsavelId), proximaRevisao: isoData(r?.proximaRevisao), respondidoEm: iso(r?.atualizadoEm)
         };
       });
       return { linhas, json: itens.map(it => ({ ...it, resposta: porItem[it.id] || null })) };
@@ -176,7 +188,7 @@ const EXPORTADORES = {
         const integ = new Set([...(s.integracoesSaida || []).map(i => i.destinoId), ...(s.integracoesEntrada || []).map(i => i.origemId)]);
         return {
           id: s.id, nome: s.nome, tipo: s.tipo, finalidade: s.finalidade || '', responsavel: ctx.nome(s.responsavelId),
-          fornecedor: s.terceiro?.razaoSocial || '', categoriasDados: lista(s.categoriasDados), formasCompartilhamento: s.formasCompartilhamento || '',
+          fornecedor: s.terceiro?.razaoSocial || '', categoriasDados: lista(normalizarCategorias(s.categoriasDados)), formasCompartilhamento: s.formasCompartilhamento || '',
           integracoes: lista([...integ].map(id => nomeSis[id]).filter(Boolean)), tipoHospedagem: s.tipoHospedagem || '',
           paisHospedagem: s.paisHospedagem || '', regiaoHospedagem: s.regiaoHospedagem || '',
           tratamentos: lista(vinc.filter(v => v.sistemaId === s.id).map(v => nomeTrat[v.tratamentoId]).filter(Boolean)), ativo: s.ativo
@@ -192,7 +204,7 @@ const EXPORTADORES = {
     colunas: [
       ['id', 'Identificador'], ['razaoSocial', 'Razão social'], ['cnpj', 'CNPJ'], ['contatoNome', 'Contato'], ['contatoEmail', 'E-mail de contato'],
       ['papel', 'Papel na LGPD'], ['descricaoServico', 'Serviço prestado'], ['contratoVigente', 'Contrato vigente'], ['contratoCritico', 'Contrato crítico'],
-      ['aditivoLgpdAssinado', 'Aditivo LGPD assinado'], ['dataAditivo', 'Data do aditivo (ISO 8601)'], ['risco', 'Risco (BAIXO/MEDIO/ALTO ou vazio)'],
+      ['aditivoLgpdAssinado', 'Aditivo LGPD assinado'], ['dataAditivo', 'Data do aditivo (AAAA-MM-DD)'], ['risco', 'Risco (BAIXO/MEDIO/ALTO ou vazio)'],
       ['riscoManual', 'Risco definido manualmente'], ['riscoJustificativa', 'Justificativa do risco manual'],
       ['respostasQuestionario', 'Respostas: PERGUNTA=RESPOSTA (ver dicionário do questionário no JSON)'],
       ['planoAcao', 'Ações: descrição — situação — prazo — responsável'], ['ativo', 'Ativo']
@@ -202,7 +214,7 @@ const EXPORTADORES = {
       const linhas = ts.map(t => ({
         id: t.id, razaoSocial: t.razaoSocial, cnpj: t.cnpj || '', contatoNome: t.contatoNome || '', contatoEmail: t.contatoEmail || '',
         papel: t.papel, descricaoServico: t.descricaoServico || '', contratoVigente: t.contratoVigente, contratoCritico: t.contratoCritico,
-        aditivoLgpdAssinado: t.aditivoLgpdAssinado, dataAditivo: iso(t.dataAditivo), risco: t.risco || '', riscoManual: t.riscoManual,
+        aditivoLgpdAssinado: t.aditivoLgpdAssinado, dataAditivo: isoData(t.dataAditivo), risco: t.risco || '', riscoManual: t.riscoManual,
         riscoJustificativa: t.riscoJustificativa || '',
         respostasQuestionario: lista([...(t.respostas || [])].sort((a, b) => a.perguntaId.localeCompare(b.perguntaId)).map(r => `${r.perguntaId}=${r.resposta}`)),
         planoAcao: lista((t.acoes || []).map(a => `${a.descricao} — ${a.situacao} — ${iso(a.prazo).slice(0, 10) || 'sem prazo'} — ${ctx.nome(a.responsavelId) || 'sem responsável'}`)),

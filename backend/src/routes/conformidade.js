@@ -6,6 +6,9 @@ const { registrarHistorico } = require('../services/historico');
 const { responsavelValido } = require('../services/entidades');
 const { calcularRetencao, ultimosDescartes } = require('../services/retencao');
 const { responderExport } = require('../services/exportadores');
+const { prazoComunicacao } = require('../services/incidentes');
+const { dataPura, fmtData } = require('../services/datas');
+const { codigosExibicao } = require('../services/checklistCodigos');
 
 // Itens visiveis para a organizacao: catalogo global (organizacaoId null)
 // + atividades proprias dela. Atividade de outra org nunca aparece.
@@ -55,7 +58,10 @@ router.get('/checklist', requireChecklistModulo, async (req, res) => {
       include: { responsavel: { select: { id: true, nome: true } } }
     });
     const respostaPorItem = Object.fromEntries(respostas.map(r => [r.itemId, r]));
-    const resultado = itens.map(it => ({ ...it, resposta: respostaPorItem[it.id] || null }));
+    // Catalogo pelo codigo; atividades proprias depois, como AP-001, AP-002...
+    const resultado = codigosExibicao(itens)
+      .map(it => ({ ...it, resposta: respostaPorItem[it.id] || null }))
+      .sort((a, b) => (!!a.organizacaoId - !!b.organizacaoId) || a.codigoExibicao.localeCompare(b.codigoExibicao));
     res.json(resultado);
   } catch (err) {
     console.error('[GET /conformidade/checklist]', err);
@@ -70,7 +76,8 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
       return res.status(403).json({ erro: 'Sem permissão para responder checklist' });
     }
 
-    const { status, observacao, evidenciaUrl, proximaRevisao, responsavelId } = req.body;
+    const { status, observacao, evidenciaUrl, proximaRevisao } = req.body;
+    let { responsavelId } = req.body;
     const STATUS_VALIDOS = ['CONFORME', 'PARCIAL', 'NAO_CONFORME', 'NAO_APLICAVEL'];
     if (!STATUS_VALIDOS.includes(status)) {
       return res.status(400).json({ erro: 'status inválido' });
@@ -80,9 +87,15 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
       where: { id: req.params.itemId, ...itensDaOrg(req.usuario.organizacaoId) }
     });
     if (!item) return res.status(404).json({ erro: 'Item não encontrado' });
+    // Atividade propria tem UM responsavel (o da atividade, editado em
+    // "Editar atividade"); a resposta herda dele. Item do catalogo: o
+    // responsavel e o da resposta.
+    if (item.organizacaoId) responsavelId = item.responsavelId || '';
     if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
+    const revisao = dataPura(proximaRevisao);
+    if (revisao === undefined) return res.status(400).json({ erro: 'Próxima revisão inválida (use AAAA-MM-DD)' });
 
     const chave = {
       organizacaoId_itemId: {
@@ -109,7 +122,7 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
           evidenciaHash,
           validadoPor: req.usuario.id,
           responsavelId: responsavelId || null,
-          proximaRevisao: proximaRevisao ? new Date(proximaRevisao) : null
+          proximaRevisao: revisao
         },
         update: {
           status,
@@ -118,7 +131,7 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
           evidenciaHash,
           validadoPor: req.usuario.id,
           ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
-          ...(proximaRevisao && { proximaRevisao: new Date(proximaRevisao) })
+          ...(revisao && { proximaRevisao: revisao })
         },
         include: { responsavel: { select: { id: true, nome: true } } }
       });
@@ -166,8 +179,9 @@ async function lerAtividade(b, orgId, { parcial }) {
     data.criticidade = b.criticidade;
   }
   if (b.prazo !== undefined) {
-    if (b.prazo && isNaN(new Date(b.prazo))) return { erro: 'Prazo inválido' };
-    data.prazo = b.prazo ? new Date(b.prazo) : null;
+    const prazo = dataPura(b.prazo);
+    if (prazo === undefined) return { erro: 'Prazo inválido (use AAAA-MM-DD)' };
+    data.prazo = prazo;
   }
   if (b.responsavelId !== undefined) {
     if (!(await responsavelValido(prisma, b.responsavelId, orgId))) return { erro: 'Responsável inválido' };
@@ -290,6 +304,8 @@ router.get('/score', requireChecklistModulo, async (req, res) => {
     res.json({
       score,
       totalItens: itens.length,
+      // "X de Y itens respondidos"
+      respondidos: itens.length - porStatus.SEM_RESPOSTA,
       porStatus,
       porCategoria: scoreCategoria
     });
@@ -366,6 +382,35 @@ router.get('/alertas', async (req, res) => {
       }
     }
 
+    // INCIDENTE_COMUNICACAO: 3 dias uteis da ciencia (Res. CD/ANPD 15/2024).
+    // Um alerta por etapa (vespera, dia, vencido): referenciaId = id:ETAPA.
+    if (modulos.includes('repositorio')) {
+      const reais = await prisma.incidente.findMany({
+        where: { organizacaoId: orgId, tipoRegistro: 'REAL', riscoRelevante: 'SIM', dataCiencia: { not: null } },
+        select: { id: true, titulo: true, tipoRegistro: true, riscoRelevante: true, dataCiencia: true, dataComunicacaoANPD: true, dataComunicacaoTitulares: true }
+      });
+      const vigentes = [];
+      for (const i of reais) {
+        const p = prazoComunicacao(i);
+        if (!p || !['VESPERA', 'HOJE', 'VENCIDO'].includes(p.situacao)) continue;
+        const quando = fmtData(p.prazo);
+        const texto = { VESPERA: `vence no próximo dia útil (${quando})`, HOJE: `vence hoje (${quando})`, VENCIDO: `venceu em ${quando}` }[p.situacao];
+        const referenciaId = `${i.id}:${p.situacao}`;
+        vigentes.push(referenciaId);
+        alertasGerados.push({
+          tipo: 'INCIDENTE_COMUNICACAO',
+          criticidade: 'ALTA',
+          mensagem: `Incidente "${i.titulo}": comunicação à ANPD e aos titulares ${texto}`,
+          referenciaId
+        });
+      }
+      // Comunicado (ou fora do caso): alertas antigos deixam de valer
+      await prisma.alertaConformidade.updateMany({
+        where: { organizacaoId: orgId, tipo: 'INCIDENTE_COMUNICACAO', lido: false, referenciaId: { notIn: vigentes } },
+        data: { lido: true }
+      });
+    }
+
     // CHECKLIST_REVISAO: itens com proximaRevisao vencida ou proxima
     if (modulos.includes('checklist')) {
       const revisoes = await prisma.respostaChecklist.findMany({
@@ -429,7 +474,7 @@ router.get('/alertas', async (req, res) => {
         alertasGerados.push({
           tipo: 'RETENCAO_VENCIDA',
           criticidade: 'ALTA',
-          mensagem: `Prazo de retenção do tratamento "${t.nome}" venceu em ${r.venceEm.toLocaleDateString('pt-BR', { timeZone: 'UTC' })} — registre o descarte`,
+          mensagem: `Prazo de retenção do tratamento "${t.nome}" venceu em ${fmtData(r.venceEm)} — registre o descarte`,
           referenciaId: t.id
         });
       }

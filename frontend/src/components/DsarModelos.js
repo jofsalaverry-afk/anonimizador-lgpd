@@ -1,14 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { TIPO_DIREITO_LABEL } from './rotulos';
 import Historico from './Historico';
 
-const TIPO_LABEL = {
-  CONFIRMACAO: 'Confirmação de tratamento', ACESSO: 'Acesso aos dados', CORRECAO: 'Correção',
-  ANONIMIZACAO: 'Anonimização/bloqueio/eliminação', PORTABILIDADE: 'Portabilidade', ELIMINACAO: 'Eliminação',
-  INFORMACAO: 'Informação sobre compartilhamento', REVOGACAO: 'Revogação do consentimento',
-  OPOSICAO: 'Oposição', PETICAO: 'Petição à ANPD', OUTRO: 'Outro'
-};
+const TIPO_LABEL = TIPO_DIREITO_LABEL;
 const VAZIO = { tipoDireito: 'ACESSO', titulo: '', conteudo: '', padrao: false };
 
 // CRUD dos modelos de resposta DSAR. Todos veem; Gestor/DPO editam.
@@ -62,7 +58,7 @@ export default function DsarModelos({ token, usuario }) {
       </div>
       {erro && <div className="alert-error mb-12">{erro}</div>}
       <div className="alert-info mb-16">
-        Use as variáveis <code>{'{nome_titular}'}</code>, <code>{'{protocolo}'}</code> e <code>{'{nome_organizacao}'}</code>.
+        Variáveis: <code>{'{nome_titular}'}</code> <code>{'{protocolo}'}</code> <code>{'{data_pedido}'}</code> <code>{'{nome_organizacao}'}</code> <code>{'{providencias}'}</code> (providências registradas no pedido) <code>{'{encarregado_nome}'}</code> <code>{'{encarregado_email}'}</code> <code>{'{encarregado_telefone}'}</code> <code>{'{data_resposta}'}</code>. Os modelos marcados "MINUTA — revisar" foram criados pelo sistema, um para cada direito do art. 18: revise antes de usar.
         Elas são trocadas automaticamente quando o modelo é usado em uma solicitação.
       </div>
 

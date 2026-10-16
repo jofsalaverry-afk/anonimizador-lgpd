@@ -7,11 +7,16 @@ export const OPCOES_ART7 = dados.art7.map(b => ({ value: b.codigo, label: b.rotu
 export const OPCOES_ART11 = dados.art11.map(b => ({ value: b.codigo, label: b.rotulo }));
 export const ROTULO_BASE_LEGAL = Object.fromEntries([...dados.art7, ...dados.art11].map(b => [b.codigo, b.rotulo]));
 export const CATEGORIAS_SENSIVEIS = dados.categoriasSensiveis;
+export const CATEGORIAS_DADOS = dados.categoriasDados;
+export const CATEGORIAS_TITULARES = dados.categoriasTitulares;
+// Valores antigos gravados sem acento ("Endereco", "Cidadaos") -> rotulo atual
+export const normalizarCategoria = c => dados.rotulosLegado[c] || c;
+export const normalizarCategorias = lista => [...new Set((lista || []).map(normalizarCategoria))];
 const SENSIVEIS = new Set([...dados.categoriasSensiveis, ...dados.categoriasSensiveisLegado]);
 
 export const ROTULO_CAMPO_BASE_LEGAL = 'Base legal (LGPD, art. 7º ou art. 11)';
 export const rotuloBaseLegal = codigo => (codigo ? ROTULO_BASE_LEGAL[codigo] || codigo : '');
-export const temDadoSensivel = categorias => (categorias || []).some(c => SENSIVEIS.has(c));
+export const temDadoSensivel = categorias => (categorias || []).some(c => SENSIVEIS.has(c) || SENSIVEIS.has(normalizarCategoria(c)));
 
 // 1825 -> "1825 dias (5 anos)"; 180 -> "180 dias (6 meses)"; 45 -> "45 dias".
 // So converte quando a conta e exata (ano = 365 dias, mes = 30 dias).

@@ -8,11 +8,24 @@
 //   - admin nao existe: cria.
 // Para trocar a senha do admin use trocar-senha-admin.js, nao o seed.
 //
+// Etapa 6c: tambem roda as cargas iniciais (so criam o que falta, nunca
+// alteram): catalogo global do checklist e modelos padrao de resposta
+// DSAR de cada organizacao. Rodam com ou sem as variaveis do admin.
+//
 // Uso manual:
 //   SEED_ADMIN_EMAIL=admin@dominio.com SEED_ADMIN_SENHA=SenhaForte node src/seed.js
 
 require('dotenv').config();
 const bcrypt = require('bcrypt');
+const { garantirCatalogoChecklist, garantirModelosDsarTodas } = require('./services/cargaInicial');
+
+async function executarCargas(prisma) {
+  const cat = await garantirCatalogoChecklist(prisma);
+  console.log(`[seed] Catálogo do checklist: ${cat.criados.length} item(ns) criado(s), ${cat.existentes} já existia(m).`);
+  const dsar = await garantirModelosDsarTodas(prisma);
+  console.log(`[seed] Modelos DSAR padrão: ${dsar.criados} criado(s) em ${dsar.organizacoes} organização(ões).`);
+  return { catalogo: cat, modelosDsar: dsar };
+}
 
 // Retorna { acao: 'ignorado' | 'existente' | 'criado', email? }.
 async function executarSeed(prisma, env = process.env) {
@@ -44,12 +57,13 @@ async function executarSeed(prisma, env = process.env) {
   return { acao: 'criado', email: adminEmail };
 }
 
-module.exports = { executarSeed };
+module.exports = { executarSeed, executarCargas };
 
 if (require.main === module) {
   const { PrismaClient } = require('@prisma/client');
   const prisma = new PrismaClient();
-  executarSeed(prisma)
+  executarCargas(prisma)
+    .then(() => executarSeed(prisma))
     .catch(e => { console.error('[seed] ERRO:', e.message); process.exitCode = 1; })
     .finally(() => prisma.$disconnect());
 }

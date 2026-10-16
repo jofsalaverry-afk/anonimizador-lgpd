@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import { PAPEL_TERCEIRO_LABEL } from './rotulos';
+import { paraInputData } from '../datas';
 
 const VAZIO = {
   razaoSocial: '', cnpj: '', contatoNome: '', contatoEmail: '', papel: 'OPERADOR',
@@ -22,7 +23,7 @@ export default function TerceiroForm({ token, terceiroId, onVoltar, onSalvo }) {
         razaoSocial: t.razaoSocial, cnpj: t.cnpj || '', contatoNome: t.contatoNome || '',
         contatoEmail: t.contatoEmail || '', papel: t.papel, descricaoServico: t.descricaoServico || '',
         contratoVigente: t.contratoVigente, contratoCritico: t.contratoCritico,
-        aditivoLgpdAssinado: t.aditivoLgpdAssinado, dataAditivo: t.dataAditivo ? t.dataAditivo.substring(0, 10) : ''
+        aditivoLgpdAssinado: t.aditivoLgpdAssinado, dataAditivo: paraInputData(t.dataAditivo)
       }))
       .catch(err => setErro(err.response?.data?.erro || 'Erro ao carregar terceiro'))
       .finally(() => setLoading(false));

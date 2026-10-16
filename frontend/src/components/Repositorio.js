@@ -3,7 +3,9 @@ import axios from 'axios';
 import { API } from '../config';
 import IncidenteList from './IncidenteList';
 import IncidenteForm from './IncidenteForm';
+import IncidenteDetail from './IncidenteDetail';
 import GeradorDocumentos from './GeradorDocumentos';
+import { fmtDiaSP } from '../datas';
 
 // Mapa das categorias do repositorio para rotulos legiveis. POLITICA e
 // MODELO sao legados (mantidos para documentos antigos). TERMO e ADITIVO
@@ -175,7 +177,7 @@ function RepositorioArquivos({ token, usuario }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.titulo}</div>
                     <div className="text-muted text-xs">
-                      {new Date(d.criadoEm).toLocaleDateString('pt-BR')}
+                      {fmtDiaSP(d.criadoEm)}
                       {d.tamanhoBytes ? ` · ${(d.tamanhoBytes / 1024).toFixed(0)} KB` : ''}
                     </div>
                   </div>
@@ -221,14 +223,12 @@ export default function Repositorio({ token, usuario, subpagina, filtroInicial }
     if (tela === 'novo') {
       return <IncidenteForm token={token} onVoltar={() => setTela('list')} />;
     }
+    // "Ver" abre a leitura; "Editar" e um botao separado (item 25)
     if (tela === 'ver') {
-      return (
-        <IncidenteForm
-          token={token}
-          incidenteId={itemId}
-          onVoltar={() => setTela('list')}
-        />
-      );
+      return <IncidenteDetail token={token} incidenteId={itemId} onVoltar={() => setTela('list')} onEditar={() => setTela('editar')} />;
+    }
+    if (tela === 'editar') {
+      return <IncidenteForm token={token} incidenteId={itemId} onVoltar={() => setTela('ver')} />;
     }
     return (
       <IncidenteList
@@ -236,6 +236,7 @@ export default function Repositorio({ token, usuario, subpagina, filtroInicial }
         filtroInicial={filtroInicial}
         onNovo={() => setTela('novo')}
         onVer={(id) => { setItemId(id); setTela('ver'); }}
+        onEditar={(id) => { setItemId(id); setTela('editar'); }}
       />
     );
   }

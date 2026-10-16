@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { fmtDataHora } from '../datas';
 
 const ACEITOS = '.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.webp';
 const LIMITE_MB = 20;
@@ -103,7 +104,7 @@ export default function Anexos({ token, entidade, registroId, somenteLeitura = f
                 📎 {a.nomeArquivo}
               </button>
               <div className="text-muted text-xs">
-                {tamanhoLegivel(a.tamanho)} · enviado por {a.enviadoPor?.nome || '—'} em {new Date(a.criadoEm).toLocaleString('pt-BR')}
+                {tamanhoLegivel(a.tamanho)} · enviado por {a.enviadoPor?.nome || '—'} em {fmtDataHora(a.criadoEm)}
               </div>
               <div className="text-muted text-xs" title={a.hashSha256}>SHA-256: {a.hashSha256.slice(0, 16)}…</div>
             </div>

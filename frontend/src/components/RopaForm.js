@@ -3,12 +3,12 @@ import axios from 'axios';
 import { API } from '../config';
 import SeletorResponsavel from './SeletorResponsavel';
 import { TIPO_SISTEMA_LABEL } from './rotulos';
-import { OPCOES_ART7, OPCOES_ART11, CATEGORIAS_SENSIVEIS, ROTULO_CAMPO_BASE_LEGAL, temDadoSensivel, textoRetencao } from '../basesLegais';
+import { OPCOES_ART7, OPCOES_ART11, CATEGORIAS_SENSIVEIS, CATEGORIAS_DADOS, CATEGORIAS_TITULARES, ROTULO_CAMPO_BASE_LEGAL, temDadoSensivel, textoRetencao, normalizarCategorias } from '../basesLegais';
 
 // Dados sensiveis (art. 5, II) ficam num grupo proprio; "Dados de Saude"
 // (categoria antiga) continua aparecendo nos registros que ja a usam.
-const CATEGORIAS_DADOS = ['Nome', 'CPF', 'RG', 'E-mail', 'Telefone', 'Endereco', 'Dados Bancarios', 'Outros'];
-const CATEGORIAS_TITULARES = ['Servidores', 'Vereadores', 'Fornecedores', 'Cidadaos', 'Menores', 'Outros'];
+// Listas com acento (basesLegais.json); valores antigos sem acento sao
+// convertidos ao abrir o registro.
 
 const COMPARTILHAMENTO_VAZIO = { terceiroId: '', terceiroNome: '', terceiroCNPJ: '', finalidadeCompartilhamento: '', paisDestino: 'Brasil', baseLegalTransferencia: '' };
 
@@ -49,7 +49,7 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
         if (t) {
           setForm({
             nome: t.nome || '', finalidade: t.finalidade || '', baseLegal: t.baseLegal || '', baseLegalSensivel: t.baseLegalSensivel || '',
-            categoriasDados: t.categoriasDados || [], categoriasTitulares: t.categoriasTitulares || [],
+            categoriasDados: normalizarCategorias(t.categoriasDados), categoriasTitulares: normalizarCategorias(t.categoriasTitulares),
             compartilhamentos: (t.compartilhamentos || []).map(c => ({
               terceiroId: c.terceiroId || '',
               terceiroNome: c.terceiroNome, terceiroCNPJ: c.terceiroCNPJ || '',

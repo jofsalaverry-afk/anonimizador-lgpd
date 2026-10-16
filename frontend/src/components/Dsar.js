@@ -31,12 +31,10 @@ export default function Dsar({ token, usuario, filtroInicial }) {
 
   return (
     <div>
-      <div className="btn-row mb-12" style={{ justifyContent: 'flex-end' }}>
-        <button onClick={() => setTela('modelos')} className="btn-secondary btn-sm">Modelos de resposta</button>
-      </div>
       <DsarList
         token={token}
         filtroInicial={filtroInicial}
+        onModelos={() => setTela('modelos')}
         onNova={() => setTela('nova')}
         onVer={(id) => { setSolicitacaoId(id); setTela('ver'); }}
       />

@@ -3,12 +3,63 @@ import axios from 'axios';
 import { API } from '../config';
 import TreinamentoRelatorio from './TreinamentoRelatorio';
 import { baixarCertificado } from './certificadoDownload';
+import { fmtDiaSP } from '../datas';
 
 const NIVEL_BADGE = {
-  Basico: 'badge badge-success',
-  Intermediario: 'badge badge-warning',
-  Avancado: 'badge badge-danger'
+  'Básico': 'badge badge-success',
+  'Intermediário': 'badge badge-warning',
+  'Avançado': 'badge badge-danger'
 };
+
+// Texto do modulo: paragrafos, listas e dicas (src/data/trilhasTreinamento.js)
+function ConteudoModulo({ conteudo }) {
+  return (conteudo || []).map((b, i) => {
+    if (b.tipo === 'lista') {
+      return (
+        <div key={i} className="mb-12">
+          {b.titulo && <div className="detail-label mb-4">{b.titulo}</div>}
+          <ul style={{ paddingLeft: 20, lineHeight: 1.6 }}>{b.itens.map((it, j) => <li key={j}>{it}</li>)}</ul>
+        </div>
+      );
+    }
+    if (b.tipo === 'dica') return <div key={i} className="alert-info mb-12">💡 {b.texto}</div>;
+    return <p key={i} className="mb-12" style={{ lineHeight: 1.6 }}>{b.texto}</p>;
+  });
+}
+
+// Questionario de 3 perguntas; conclui com minAcertos ou mais
+function Questionario({ modulo, enviando, resultado, onEnviar }) {
+  const [resp, setResp] = useState({});
+  useEffect(() => { setResp({}); }, [modulo.moduloId]);
+  const completo = modulo.quiz.every((_, i) => resp[i] !== undefined);
+  return (
+    <div className="card-flush mt-16" style={{ borderTop: '1px solid #eef0f4', paddingTop: 16 }}>
+      <div className="card-header mb-8">Questionário</div>
+      <p className="text-sm text-muted mb-12">Acerte pelo menos {modulo.minAcertos} de {modulo.quiz.length} perguntas para concluir o módulo. Você pode tentar quantas vezes quiser.</p>
+      {modulo.quiz.map((q, i) => (
+        <div key={i} className="mb-12">
+          <div className="mb-4"><strong>{i + 1}.</strong> {q.pergunta}
+            {resultado && <span className={resultado.corretas[i] ? 'badge badge-success' : 'badge badge-danger'} style={{ marginLeft: 6 }}>{resultado.corretas[i] ? 'acertou' : 'errou'}</span>}
+          </div>
+          {q.alternativas.map((alt, j) => (
+            <label key={j} className="text-sm" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', margin: '4px 0', cursor: 'pointer', fontWeight: 400 }}>
+              <input type="radio" name={`q${modulo.moduloId}-${i}`} checked={resp[i] === j} onChange={() => setResp({ ...resp, [i]: j })} style={{ width: 'auto', marginTop: 3 }} />
+              <span>{alt}</span>
+            </label>
+          ))}
+        </div>
+      ))}
+      {resultado && (
+        <div className={resultado.aprovado ? 'alert-success mb-8' : 'alert-error mb-8'}>
+          {resultado.acertos} de {resultado.total} acertos — {resultado.aprovado ? 'módulo concluído.' : `faltou pouco: são necessários ${resultado.minAcertos} acertos. Revise o texto e tente de novo.`}
+        </div>
+      )}
+      <button className="btn-primary btn-sm" disabled={!completo || enviando} onClick={() => onEnviar(modulo.quiz.map((_, i) => resp[i]))}>
+        {enviando ? 'Corrigindo...' : 'Enviar respostas'}
+      </button>
+    </div>
+  );
+}
 
 const SITUACAO_BADGE = {
   NAO_INICIADA: ['badge badge-muted', 'Não iniciada'],
@@ -26,6 +77,7 @@ export default function Treinamento({ token, usuario, filtroInicial }) {
   const veioDoPainel = filtroInicial?.filtro === 'obrigatoria-pendente';
   const [aba, setAba] = useState(veioDoPainel && ['GESTOR', 'ENCARREGADO_LGPD'].includes(usuario?.perfil) ? 'relatorio' : 'trilhas');
   const [marcando, setMarcando] = useState(false);
+  const [resultado, setResultado] = useState(null); // ultima tentativa do modulo aberto
   const podeVerRelatorio = ['GESTOR', 'ENCARREGADO_LGPD'].includes(usuario?.perfil);
 
   const carregarProgresso = useCallback(async () => {
@@ -59,14 +111,17 @@ export default function Treinamento({ token, usuario, filtroInicial }) {
     setModuloIdx(0);
   };
 
-  const marcarConcluido = async (trilhaId, moduloId) => {
+  // Envia o questionario; o backend corrige e grava a tentativa
+  const enviarQuiz = async (trilhaId, moduloId, respostas) => {
     setMarcando(true);
     setErro('');
     try {
-      const res = await axios.post(`${API}/treinamento/progresso`, { trilhaId, moduloId }, { headers: { Authorization: `Bearer ${token}` } });
-      setProgresso(p => ({ ...p, [trilhaId]: res.data }));
+      const res = await axios.post(`${API}/treinamento/progresso`, { trilhaId, moduloId, respostas }, { headers: { Authorization: `Bearer ${token}` } });
+      const { tentativa, ...status } = res.data;
+      setProgresso(p => ({ ...p, [trilhaId]: status }));
+      setResultado({ ...tentativa, moduloId });
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao registrar conclusão');
+      setErro(err.response?.data?.erro || 'Erro ao enviar respostas');
     }
     setMarcando(false);
   };
@@ -95,7 +150,7 @@ export default function Treinamento({ token, usuario, filtroInicial }) {
 
         {prog.situacao === 'CONCLUIDA' && prog.certificadoCodigo && (
           <div className="alert-success mb-16 flex-between">
-            <span>Trilha concluída em {new Date(prog.concluidoEm).toLocaleDateString('pt-BR')}. Código do certificado: <strong>{prog.certificadoCodigo}</strong></span>
+            <span>Trilha concluída em {fmtDiaSP(prog.concluidoEm)}. Código do certificado: <strong>{prog.certificadoCodigo}</strong></span>
             <button className="btn-primary btn-sm" onClick={() => certificado(prog.certificadoCodigo)}>Baixar certificado (PDF)</button>
           </div>
         )}
@@ -109,27 +164,21 @@ export default function Treinamento({ token, usuario, filtroInicial }) {
             <span className="badge badge-info">{modulo.duracaoMin} min</span>
           </div>
 
-          <div className="video-wrapper mb-16">
-            <iframe
-              src={`https://www.youtube.com/embed/${modulo.youtubeId}?rel=0&modestbranding=1`}
-              title={modulo.titulo}
-              frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
-          </div>
+          {modulo.minuta && <div className="alert-info mb-12 text-sm">MINUTA — conteúdo para revisão pela Câmara antes do uso oficial.</div>}
+          <p className="text-muted mb-12">{modulo.descricao}</p>
+          <ConteudoModulo conteudo={modulo.conteudo} />
+          {modulo.linkComplementar && (
+            <p className="text-sm mb-12">
+              Material complementar: <a href={modulo.linkComplementar} target="_blank" rel="noopener noreferrer">{modulo.linkComplementar}</a>
+            </p>
+          )}
 
-          <p className="text-muted">{modulo.descricao}</p>
-
-          <div className="mt-16">
-            {feito ? (
-              <span className="badge badge-success">✓ Módulo concluído</span>
-            ) : (
-              <button onClick={() => marcarConcluido(trilhaAberta.id, modulo.moduloId)} disabled={marcando} className="btn-primary btn-sm">
-                {marcando ? 'Registrando...' : '✓ Marcar módulo como concluído'}
-              </button>
-            )}
-          </div>
+          {feito && <span className="badge badge-success">✓ Módulo concluído</span>}
+          {!feito && (
+            <Questionario modulo={modulo} enviando={marcando}
+              resultado={resultado?.moduloId === modulo.moduloId ? resultado : null}
+              onEnviar={respostas => enviarQuiz(trilhaAberta.id, modulo.moduloId, respostas)} />
+          )}
 
           <div className="btn-row-spread mt-20">
             <button
@@ -192,8 +241,7 @@ export default function Treinamento({ token, usuario, filtroInicial }) {
       ) : (
         <>
           <div className="alert-info mb-24">
-            Conteúdo curado em conformidade com a LGPD Art. 50, I, g —
-            capacitação periódica obrigatória de colaboradores que tratam dados pessoais.
+            Capacitação de servidores e colaboradores que tratam dados pessoais, em apoio às atribuições do encarregado (art. 41, § 2º, III, da LGPD) e às medidas de segurança do art. 46.
           </div>
 
           {trilhas.length === 0 && !erro && (

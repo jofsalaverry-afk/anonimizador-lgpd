@@ -3,13 +3,11 @@ import axios from 'axios';
 import { API } from '../config';
 import Historico from './Historico';
 
+// Municipio, UF e endereco da sede ficam em "Dados da Câmara" (um lugar so)
 const CAMPOS = [
   ['encarregadoNome', 'Nome do encarregado (DPO)'],
   ['encarregadoEmail', 'E-mail público do encarregado'],
-  ['encarregadoTelefone', 'Telefone'],
-  ['enderecoSede', 'Endereço da sede'],
-  ['municipio', 'Município'],
-  ['uf', 'UF']
+  ['encarregadoTelefone', 'Telefone']
 ];
 
 // Dados do encarregado e da sede: aparecem na pagina publica e nas minutas.
@@ -33,7 +31,7 @@ export default function DadosEncarregado({ token, usuario }) {
       const r = await axios.put(`${API}/organizacao/dados`, corpo, { headers: { Authorization: `Bearer ${token}` } });
       setDados(r.data);
       setVersao(v => v + 1);
-      setMsg('Dados salvos.');
+      setMsg('Salvo.');
     } catch (err) {
       setErro(err.response?.data?.erro || 'Erro ao salvar');
     }
@@ -43,8 +41,8 @@ export default function DadosEncarregado({ token, usuario }) {
 
   return (
     <div className="card mb-16">
-      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Encarregado e dados públicos</h2>
-      <p className="text-sm text-muted mb-12">Usados na página pública de transparência e nas minutas geradas (art. 41 da LGPD: identidade e contato do encarregado divulgados publicamente).</p>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Encarregado (DPO)</h2>
+      <p className="text-sm text-muted mb-12">Identidade e contato do encarregado divulgados publicamente (art. 41 da LGPD): aparecem na página de transparência, nas minutas, nos modelos de resposta e no certificado.</p>
       {erro && <div className="alert-error mb-8">{erro}</div>}
       {msg && <div className="alert-success mb-8">{msg}</div>}
       <div className="form-grid">

@@ -1,7 +1,7 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const { FAQ_PADRAO } = require('../services/faqPadrao');
-const { rotuloBaseLegal } = require('../services/basesLegais');
+const { rotuloBaseLegal, normalizarCategorias } = require('../services/basesLegais');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -54,8 +54,8 @@ router.get('/publico/:slug', async (req, res) => {
         finalidade: t.finalidade,
         baseLegal: rotuloBaseLegal(t.baseLegal),
         baseLegalSensivel: rotuloBaseLegal(t.baseLegalSensivel) || null,
-        categoriasDados: t.categoriasDados,
-        categoriasTitulares: t.categoriasTitulares,
+        categoriasDados: normalizarCategorias(t.categoriasDados),
+        categoriasTitulares: normalizarCategorias(t.categoriasTitulares),
         compartilhamentos: t.compartilhamentos.map(c => {
           const pais = c.paisDestino || 'Brasil';
           return { destinatario: c.terceiroNome, finalidade: c.finalidadeCompartilhamento, pais, transferenciaInternacional: pais.trim().toLowerCase() !== 'brasil' };

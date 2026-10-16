@@ -5,6 +5,7 @@ const { requireModulo, podeEscrever, ehGestorOuDpo } = require('../middlewares/r
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido, idsDaOrganizacao } = require('../services/entidades');
 const { responderExport } = require('../services/exportadores');
+const { normalizarCategorias } = require('../services/basesLegais');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -65,7 +66,7 @@ async function lerCorpo(req, { parcial }) {
   set('tipoHospedagem', b.tipoHospedagem || null);
   set('paisHospedagem', b.paisHospedagem || null);
   set('regiaoHospedagem', b.regiaoHospedagem || null);
-  set('categoriasDados', Array.isArray(b.categoriasDados) ? b.categoriasDados.map(String) : []);
+  set('categoriasDados', Array.isArray(b.categoriasDados) ? normalizarCategorias(b.categoriasDados.map(String)) : []);
   set('ativo', !!b.ativo);
   if (!parcial && data.categoriasDados === undefined) data.categoriasDados = [];
 

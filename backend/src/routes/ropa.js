@@ -5,7 +5,7 @@ const { registrarHistorico } = require('../services/historico');
 const { responsavelValido, idsDaOrganizacao } = require('../services/entidades');
 const { calcularRetencao } = require('../services/retencao');
 const { pendenciasMapeamento } = require('../services/indicadores');
-const { ART7, ART11, rotuloBaseLegal } = require('../services/basesLegais');
+const { ART7, ART11, rotuloBaseLegal, normalizarCategorias } = require('../services/basesLegais');
 
 // baseLegal so aceita art. 7; baseLegalSensivel so aceita art. 11 (ou vazio).
 function erroBaseLegal({ baseLegal, baseLegalSensivel }, { exigir }) {
@@ -16,6 +16,7 @@ function erroBaseLegal({ baseLegal, baseLegalSensivel }, { exigir }) {
   return null;
 }
 const { responderExport } = require('../services/exportadores');
+const { dataPura, hojeSP } = require('../services/datas');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -187,8 +188,8 @@ router.post('/tratamentos', async (req, res) => {
           organizacaoId: req.usuario.organizacaoId,
           nome, finalidade, baseLegal,
           baseLegalSensivel: baseLegalSensivel || null,
-          categoriasDados: categoriasDados || [],
-          categoriasTitulares: categoriasTitulares || [],
+          categoriasDados: normalizarCategorias(categoriasDados),
+          categoriasTitulares: normalizarCategorias(categoriasTitulares),
           retencaoDias: retencaoDias || null,
           formaDescarte: formaDescarte || null,
           responsavelId: responsavelId || null,
@@ -263,8 +264,8 @@ router.put('/tratamentos/:id', async (req, res) => {
           ...(finalidade !== undefined && { finalidade }),
           ...(baseLegal !== undefined && { baseLegal }),
           ...(baseLegalSensivel !== undefined && { baseLegalSensivel: baseLegalSensivel || null }),
-          ...(categoriasDados !== undefined && { categoriasDados }),
-          ...(categoriasTitulares !== undefined && { categoriasTitulares }),
+          ...(categoriasDados !== undefined && { categoriasDados: normalizarCategorias(categoriasDados) }),
+          ...(categoriasTitulares !== undefined && { categoriasTitulares: normalizarCategorias(categoriasTitulares) }),
           ...(retencaoDias !== undefined && { retencaoDias }),
           ...(formaDescarte !== undefined && { formaDescarte }),
           ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
@@ -372,9 +373,10 @@ router.post('/tratamentos/:id/descartes', async (req, res) => {
     if (!t) return res.status(404).json({ erro: 'Tratamento não encontrado' });
 
     const { dataDescarte, descricao, quantidade, metodo, responsavelId } = req.body || {};
-    const data = new Date(dataDescarte);
-    if (!dataDescarte || isNaN(data)) return res.status(400).json({ erro: 'Data do descarte inválida' });
-    if (data.getTime() > Date.now() + 24 * 60 * 60 * 1000) return res.status(400).json({ erro: 'Data do descarte não pode ser futura' });
+    // data pura (AAAA-MM-DD); "futura" comparada com hoje em Sao Paulo
+    const data = dataPura(dataDescarte);
+    if (!data) return res.status(400).json({ erro: 'Data do descarte inválida (use AAAA-MM-DD)' });
+    if (data > hojeSP()) return res.status(400).json({ erro: 'Data do descarte não pode ser futura' });
     const desc = typeof descricao === 'string' ? descricao.trim() : '';
     const met = typeof metodo === 'string' ? metodo.trim() : '';
     if (!desc || !met) return res.status(400).json({ erro: 'Descrição e método são obrigatórios' });
@@ -453,8 +455,8 @@ router.get('/export', async (req, res) => {
           `"${(t.nome || '').replace(/"/g, '""')}"`,
           `"${(t.finalidade || '').replace(/"/g, '""')}"`,
           q(rotuloBaseLegal(t.baseLegal)),
-          `"${(t.categoriasDados || []).join('; ')}"`,
-          `"${(t.categoriasTitulares || []).join('; ')}"`,
+          `"${normalizarCategorias(t.categoriasDados).join('; ')}"`,
+          `"${normalizarCategorias(t.categoriasTitulares).join('; ')}"`,
           t.retencaoDias || '',
           `"${(t.formaDescarte || '').replace(/"/g, '""')}"`,
           `"${(t.medidasSeguranca || '').replace(/"/g, '""')}"`,

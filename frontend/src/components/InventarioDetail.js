@@ -4,6 +4,7 @@ import { API } from '../config';
 import Anexos from './Anexos';
 import Historico from './Historico';
 import { TIPO_SISTEMA_LABEL, HOSPEDAGEM_LABEL } from './rotulos';
+import { normalizarCategorias } from '../basesLegais';
 
 function Campo({ label, children }) {
   return (
@@ -51,7 +52,7 @@ export default function InventarioDetail({ token, sistemaId, onVoltar, onEditar,
           <div>
             <Campo label="Categorias de dados">
               {(s.categoriasDados || []).length > 0 && (
-                <div className="badge-row">{s.categoriasDados.map(c => <span key={c} className="badge badge-purple">{c}</span>)}</div>
+                <div className="badge-row">{normalizarCategorias(s.categoriasDados).map(c => <span key={c} className="badge badge-purple">{c}</span>)}</div>
               )}
             </Campo>
             <Campo label="Compartilhamento">{s.formasCompartilhamento}</Campo>

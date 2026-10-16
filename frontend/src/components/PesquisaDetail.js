@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { fmtDataHora } from '../datas';
 
 export default function PesquisaDetail({ token, pesquisaId, onVoltar }) {
   const [pesquisa, setPesquisa] = useState(null);
@@ -44,12 +45,12 @@ export default function PesquisaDetail({ token, pesquisaId, onVoltar }) {
         <div className="detail-value">{pesquisa.setor}</div>
 
         <div className="detail-label">Recebida em</div>
-        <div className="detail-value">{new Date(pesquisa.criadoEm).toLocaleString('pt-BR')}</div>
+        <div className="detail-value">{fmtDataHora(pesquisa.criadoEm)}</div>
 
         {pesquisa.anonimizadoEm && (
           <>
             <div className="detail-label">Anonimizada em</div>
-            <div className="detail-value text-muted">{new Date(pesquisa.anonimizadoEm).toLocaleString('pt-BR')}</div>
+            <div className="detail-value text-muted">{fmtDataHora(pesquisa.anonimizadoEm)}</div>
           </>
         )}
       </div>

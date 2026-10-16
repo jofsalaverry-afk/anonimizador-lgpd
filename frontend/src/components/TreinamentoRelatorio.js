@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import { baixarCertificado } from './certificadoDownload';
+import { fmtDiaSP } from '../datas';
 
 const SITUACAO = {
   NAO_INICIADA: ['badge badge-muted', 'Não iniciada'],
@@ -12,6 +13,7 @@ const SITUACAO = {
 // Relatorio usuarios x trilhas (Gestor/DPO), com filtro e exportacao.
 export default function TreinamentoRelatorio({ token, trilhas, trilhaInicial = '', situacaoInicial = '' }) {
   const [linhas, setLinhas] = useState([]);
+  const [resumo, setResumo] = useState(null);
   const [trilhaId, setTrilhaId] = useState(trilhaInicial);
   const [situacao, setSituacao] = useState(situacaoInicial);
   const [loading, setLoading] = useState(true);
@@ -21,8 +23,8 @@ export default function TreinamentoRelatorio({ token, trilhas, trilhaInicial = '
 
   useEffect(() => {
     setLoading(true);
-    axios.get(`${API}/treinamento/relatorio`, { params: { ...(trilhaId && { trilhaId }), ...(situacao && { situacao }) }, headers: { Authorization: `Bearer ${token}` } })
-      .then(res => setLinhas(res.data))
+    axios.get(`${API}/treinamento/relatorio`, { params: { resumo: 1, ...(trilhaId && { trilhaId }), ...(situacao && { situacao }) }, headers: { Authorization: `Bearer ${token}` } })
+      .then(res => { setLinhas(res.data.linhas); setResumo(res.data.resumo); })
       .catch(err => setErro(err.response?.data?.erro || 'Erro ao carregar relatório'))
       .finally(() => setLoading(false));
   }, [token, trilhaId, situacao]);
@@ -47,8 +49,6 @@ export default function TreinamentoRelatorio({ token, trilhas, trilhaInicial = '
     }
   };
 
-  const total = linhas.length;
-  const concluidas = linhas.filter(l => l.situacao === 'CONCLUIDA').length;
 
   return (
     <div>
@@ -70,7 +70,12 @@ export default function TreinamentoRelatorio({ token, trilhas, trilhaInicial = '
           <button className="btn-secondary btn-sm" onClick={() => exportar('json')}>Exportar JSON</button>
         </div>
       </div>
-      <p className="text-sm text-muted mb-12">{concluidas}/{total} concluídas nesta seleção.</p>
+      {resumo && (
+        <p className="mb-12">
+          <strong>{resumo.concluiramObrigatoria} de {resumo.servidores}</strong> servidores concluíram a trilha obrigatória
+          {resumo.trilhaObrigatoria ? ` (${resumo.trilhaObrigatoria})` : ''} · <strong>{resumo.trilhasConcluidas} de {resumo.trilhasTotal}</strong> trilhas concluídas
+        </p>
+      )}
       {loading ? (
         <p className="text-muted">Carregando...</p>
       ) : (
@@ -93,7 +98,7 @@ export default function TreinamentoRelatorio({ token, trilhas, trilhaInicial = '
                   <td>{l.trilhaTitulo}</td>
                   <td>{l.modulosConcluidos}/{l.totalModulos}</td>
                   <td><span className={SITUACAO[l.situacao][0]}>{SITUACAO[l.situacao][1]}</span></td>
-                  <td>{l.concluidoEm ? new Date(l.concluidoEm).toLocaleDateString('pt-BR') : '-'}</td>
+                  <td>{l.concluidoEm ? fmtDiaSP(l.concluidoEm) : '-'}</td>
                   <td>
                     {l.certificadoCodigo
                       ? <button className="btn-ghost btn-sm" onClick={() => baixarCertificado(token, l.certificadoCodigo).catch(() => setErro('Erro ao baixar certificado'))}>{l.certificadoCodigo}</button>

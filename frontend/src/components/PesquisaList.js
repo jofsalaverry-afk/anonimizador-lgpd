@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { fmtDiaSP } from '../datas';
 
 function Estrelas({ n }) {
   return (
@@ -101,7 +102,7 @@ export default function PesquisaList({ token, onVer, onMetricas, onConfig }) {
               <tbody>
                 {pesquisas.map(p => (
                   <tr key={p.id}>
-                    <td className="text-xs text-muted">{new Date(p.criadoEm).toLocaleDateString('pt-BR')}</td>
+                    <td className="text-xs text-muted">{fmtDiaSP(p.criadoEm)}</td>
                     <td><Estrelas n={p.avaliacao} /></td>
                     <td><span className="badge badge-muted">{p.setor}</span></td>
                     <td style={{ maxWidth: 400 }}>

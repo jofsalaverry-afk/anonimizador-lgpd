@@ -104,7 +104,7 @@ Sua solicitação de direitos LGPD foi registrada.
 Protocolo: ${protocolo}
 Prazo para resposta: ${prazo}
 
-O prazo legal é de 15 dias corridos a partir do recebimento (LGPD Art. 19, parágrafo 1).
+O prazo de referência para a resposta é de 15 dias a partir do recebimento (para pedidos de acesso, art. 19, II, da LGPD).
 Guarde o número do protocolo para acompanhamento.
 
 --
@@ -120,7 +120,7 @@ ${orgNome}`;
 <tr><td style="padding: 8px; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; border-top: 1px solid #f1f5f9;">Prazo para resposta</td></tr>
 <tr><td style="padding: 0 8px 8px; font-size: 16px; font-weight: 600; color: #1e293b;">${prazo}</td></tr>
 </table>
-<p style="color: #64748b; font-size: 13px;">O prazo legal é de 15 dias corridos a partir do recebimento conforme o Art. 19, parágrafo 1 da LGPD. Guarde o número do protocolo para acompanhamento.</p>
+<p style="color: #64748b; font-size: 13px;">O prazo de referência para a resposta é de 15 dias a partir do recebimento (para pedidos de acesso, art. 19, II, da LGPD). Guarde o número do protocolo para acompanhamento.</p>
 <p style="color: #94a3b8; font-size: 12px; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 16px;">${orgNome}</p>
 </body></html>`;
 

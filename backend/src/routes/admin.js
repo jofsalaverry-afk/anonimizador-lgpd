@@ -8,6 +8,8 @@ const { auditarLogin } = require('../middlewares/auditoria');
 const { validar, validarEmail } = require('../middlewares/seguranca');
 const { getTrilhasComOverrides, TRILHAS_BASE } = require('./treinamento');
 const { slugUnico, slugValido } = require('../services/slug');
+const { registrarHistorico } = require('../services/historico');
+const { garantirModelosDsar } = require('../services/cargaInicial');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -126,6 +128,9 @@ router.post('/camaras', adminAuth, validadoresCriarCamara, async (req, res) => {
       });
       return { org, usuario };
     });
+    // Modelos padrao de resposta DSAR (Etapa 6c). Falha aqui nao desfaz a
+    // organizacao: o seed do proximo deploy completa o que faltar.
+    await garantirModelosDsar(prisma, result.org.id).catch(e => console.error('[admin] modelos DSAR:', e.message));
     res.status(201).json({ id: result.org.id, nome: result.org.nome, slug: result.org.slug, email: result.usuario.email });
   } catch (err) {
     if (err.code === 'P2002') {
@@ -267,6 +272,31 @@ router.patch('/usuarios/:id/perfil', adminAuth, async (req, res) => {
   }
 });
 
+// PATCH /admin/usuarios/:id/nome { nome } — correcao de nome pelo admin,
+// registrada no historico do usuario (sem usuario da organizacao: aparece
+// como "Administrador da plataforma").
+router.patch('/usuarios/:id/nome', adminAuth, async (req, res) => {
+  try {
+    const nome = typeof req.body?.nome === 'string' ? req.body.nome.trim().normalize('NFC') : '';
+    if (nome.length < 2 || nome.length > 200) return res.status(400).json({ erro: 'Informe o nome (2 a 200 caracteres)' });
+    const alvo = await prisma.usuario.findFirst({ where: { id: req.params.id, deletedAt: null }, select: { id: true, nome: true, organizacaoId: true } });
+    if (!alvo) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    const atualizado = await prisma.$transaction(async (tx) => {
+      const u = await tx.usuario.update({ where: { id: alvo.id }, data: { nome }, select: { id: true, nome: true, email: true, perfil: true } });
+      await registrarHistorico(tx, {
+        organizacaoId: alvo.organizacaoId, entidade: 'USUARIO', registroId: alvo.id, acao: 'EDITAR', usuarioId: null,
+        diff: { nome: { antes: alvo.nome, depois: nome }, alteradoPorAdmin: { antes: null, depois: req.admin?.email || 'admin' } }
+      });
+      return u;
+    });
+    console.log('[AUDIT] admin alterou nome do usuario', alvo.id);
+    res.json(atualizado);
+  } catch (err) {
+    console.error('[PATCH /admin/usuarios/:id/nome]', err);
+    res.status(500).json({ erro: 'Erro ao alterar nome' });
+  }
+});
+
 // Soft delete: mantem a linha no banco com deletedAt preenchido para
 // preservar rastreabilidade (logs, DSAR respondidos, etc.) — requisito
 // de compliance LGPD. Usuario soft-deletado some da listagem mas referencias
@@ -304,18 +334,6 @@ router.get('/stats', adminAuth, async (req, res) => {
 
 // ---------- Treinamento — gestao de trilhas ----------
 
-// Extrai ID do video de uma URL do YouTube ou retorna o proprio ID se
-// ja for um ID (11 chars alfanumerico/underscore/hifen).
-function extrairYoutubeId(entrada) {
-  if (!entrada) return null;
-  const s = entrada.trim();
-  // Se ja e um ID valido (11 chars, [A-Za-z0-9_-])
-  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
-  // Tenta extrair de URL
-  const match = s.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-  return match ? match[1] : null;
-}
-
 router.get('/treinamento/trilhas', adminAuth, async (req, res) => {
   try {
     const trilhas = await getTrilhasComOverrides();
@@ -329,7 +347,7 @@ router.get('/treinamento/trilhas', adminAuth, async (req, res) => {
 router.put('/treinamento/trilhas/:trilhaId/modulos/:moduloId', adminAuth, async (req, res) => {
   try {
     const { trilhaId, moduloId } = req.params;
-    const { youtubeId: entradaRaw, titulo } = req.body;
+    const { titulo, linkComplementar } = req.body || {};
 
     // Valida que a trilha e modulo existem no hardcoded base
     const trilhaBase = TRILHAS_BASE.find(t => t.id === trilhaId);
@@ -337,15 +355,18 @@ router.put('/treinamento/trilhas/:trilhaId/modulos/:moduloId', adminAuth, async 
     const moduloBase = trilhaBase.modulos.find(m => m.moduloId === moduloId);
     if (!moduloBase) return res.status(404).json({ erro: 'Módulo não encontrado' });
 
-    // Extrai/valida o youtubeId (aceita URL completa)
-    const youtubeId = extrairYoutubeId(entradaRaw);
-    if (!youtubeId) return res.status(400).json({ erro: 'youtubeId inválido (informe o ID de 11 chars ou a URL do YouTube)' });
+    // Etapa 6c: os modulos sao texto + questionario. O admin configura so o
+    // titulo e um link opcional para material complementar externo.
+    const link = typeof linkComplementar === 'string' ? linkComplementar.trim() : '';
+    if (link && !/^https:\/\/[^\s]{4,}$/i.test(link)) return res.status(400).json({ erro: 'Link complementar inválido (use um endereço https://)' });
+    if (link.length > 500) return res.status(400).json({ erro: 'Link muito longo' });
+    const t = typeof titulo === 'string' ? titulo.trim().slice(0, 200) : '';
 
-    // Upsert no override
+    // youtubeId fica vazio (coluna antiga, sem uso)
     const override = await prisma.trilhaOverride.upsert({
       where: { trilhaId_moduloId: { trilhaId, moduloId } },
-      create: { trilhaId, moduloId, youtubeId, titulo: titulo || null },
-      update: { youtubeId, titulo: titulo || null }
+      create: { trilhaId, moduloId, youtubeId: '', titulo: t || null, linkComplementar: link || null },
+      update: { titulo: t || null, linkComplementar: link || null }
     });
 
     res.json(override);

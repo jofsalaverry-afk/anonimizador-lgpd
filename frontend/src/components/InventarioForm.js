@@ -2,7 +2,11 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import SeletorResponsavel from './SeletorResponsavel';
-import { TIPO_SISTEMA_LABEL, HOSPEDAGEM_LABEL, CATEGORIAS_DADOS } from './rotulos';
+import { TIPO_SISTEMA_LABEL, HOSPEDAGEM_LABEL } from './rotulos';
+import { CATEGORIAS_DADOS as CAT_COMUNS, CATEGORIAS_SENSIVEIS, normalizarCategorias } from '../basesLegais';
+
+// Mesma lista do ROPA, incluindo os dados sensiveis (art. 5º, II)
+const CATEGORIAS_DADOS = [...CAT_COMUNS, ...CATEGORIAS_SENSIVEIS];
 
 const VAZIO = {
   nome: '', tipo: '', finalidade: '', responsavelId: '', terceiroId: '',
@@ -27,7 +31,7 @@ export default function InventarioForm({ token, sistemaId, onVoltar }) {
       .then(({ data: s }) => setForm({
         nome: s.nome, tipo: s.tipo, finalidade: s.finalidade || '',
         responsavelId: s.responsavelId || '', terceiroId: s.terceiroId || '',
-        categoriasDados: s.categoriasDados || [], formasCompartilhamento: s.formasCompartilhamento || '',
+        categoriasDados: normalizarCategorias(s.categoriasDados), formasCompartilhamento: s.formasCompartilhamento || '',
         integracaoIds: (s.integracoesSaida || []).map(i => i.destinoId),
         tipoHospedagem: s.tipoHospedagem || '', paisHospedagem: s.paisHospedagem || '',
         regiaoHospedagem: s.regiaoHospedagem || '', ativo: s.ativo

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import SeletorResponsavel from './SeletorResponsavel';
+import { paraInputData } from '../datas';
 
 // Cadastro/edicao de atividade propria do checklist (alem do catalogo global).
 export default function AtividadeForm({ token, atividade, onSalvo, onCancelar }) {
@@ -9,7 +10,7 @@ export default function AtividadeForm({ token, atividade, onSalvo, onCancelar })
     titulo: atividade?.titulo || '',
     descricao: atividade?.descricao || '',
     responsavelId: atividade?.responsavelId || '',
-    prazo: atividade?.prazo ? String(atividade.prazo).substring(0, 10) : '',
+    prazo: paraInputData(atividade?.prazo),
     criticidade: atividade?.criticidade || 'MEDIA'
   });
   const [erro, setErro] = useState('');

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API } from '../config';
 import CampoSenha from './CampoSenha';
 import Historico from './Historico';
+import { fmtDataHora } from '../datas';
 
 export const PERFIS = [
   ['ENCARREGADO_LGPD', 'DPO (Encarregado)'],
@@ -18,6 +19,7 @@ export default function UsuariosOrganizacao({ token, usuario }) {
   const [usuarios, setUsuarios] = useState([]);
   const [form, setForm] = useState(null);
   const [historicoDe, setHistoricoDe] = useState(null);
+  const [versaoHist, setVersaoHist] = useState(0);
   const [erro, setErro] = useState('');
   const [msg, setMsg] = useState('');
   const headers = { Authorization: `Bearer ${token}` };
@@ -36,6 +38,13 @@ export default function UsuariosOrganizacao({ token, usuario }) {
   const executar = async (fn, sucesso) => {
     setErro(''); setMsg('');
     try { await fn(); setMsg(sucesso); await carregar(); return true; } catch (err) { setErro(err.response?.data?.erro || 'Erro ao salvar'); return false; }
+  };
+
+  // Corrige o nome da pessoa (fica no historico do usuario)
+  const editarNome = async (u) => {
+    const nome = window.prompt('Nome da pessoa', u.nome || '');
+    if (nome === null || !nome.trim() || nome.trim() === u.nome) return;
+    if (await executar(() => axios.patch(`${API}/usuarios/${u.id}/nome`, { nome: nome.trim() }, { headers }), 'Nome alterado.')) setVersaoHist(v => v + 1);
   };
 
   const criar = async () => {
@@ -90,7 +99,7 @@ export default function UsuariosOrganizacao({ token, usuario }) {
                     </select>
                   </td>
                   <td><span className={u.mfaAtivo ? 'badge badge-success' : 'badge badge-muted'}>{u.mfaAtivo ? 'ativo' : 'não'}</span></td>
-                  <td className="text-xs">{u.ultimoAcesso ? new Date(u.ultimoAcesso).toLocaleString('pt-BR') : 'nunca'}</td>
+                  <td className="text-xs">{u.ultimoAcesso ? fmtDataHora(u.ultimoAcesso) : 'nunca'}</td>
                   <td><span className={u.ativo ? 'badge badge-success' : 'badge badge-danger'}>{u.ativo ? 'ativo' : 'desativado'}</span></td>
                   <td>
                     <div className="btn-row">
@@ -100,12 +109,13 @@ export default function UsuariosOrganizacao({ token, usuario }) {
                           {u.ativo ? 'Desativar' : 'Reativar'}
                         </button>
                       )}
+                      <button className="btn-ghost btn-sm" onClick={() => editarNome(u)}>Editar nome</button>
                       <button className="btn-ghost btn-sm" onClick={() => setHistoricoDe(historicoDe === u.id ? null : u.id)}>Histórico</button>
                     </div>
                   </td>
                 </tr>,
                 historicoDe === u.id && (
-                  <tr key={`${u.id}-h`}><td colSpan={7}><Historico token={token} entidade="USUARIO" registroId={u.id} /></td></tr>
+                  <tr key={`${u.id}-h`}><td colSpan={7}><Historico token={token} entidade="USUARIO" registroId={u.id} versao={versaoHist} /></td></tr>
                 )
               ];
             })}

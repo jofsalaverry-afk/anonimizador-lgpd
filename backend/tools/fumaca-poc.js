@@ -12,6 +12,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const speakeasy = require('speakeasy');
+// Gabarito do questionario: o mesmo arquivo do commit em teste (a API nunca o expoe)
+const TRILHAS = require('../src/data/trilhasTreinamento');
+const gabarito = (trilhaId, moduloId) => TRILHAS.find(t => t.id === trilhaId).modulos.find(m => m.moduloId === moduloId).quiz.map(q => q.correta);
 
 const API = (process.env.FUMACA_API || '').replace(/\/$/, '');
 const SAIDA = process.env.FUMACA_SAIDA || path.join(__dirname, 'fumaca-saida');
@@ -185,6 +188,22 @@ async function main() {
   } }, 201);
   await passo('Incidentes', 'registrar providência', 'POST', `/repositorio/incidentes/${inc?.json?.id}/providencias`, { token: G, body: { descricao: 'Senhas trocadas' } }, 201);
   await passo('Incidentes', 'listar (filtro simulado)', 'GET', '/repositorio/incidentes?tipoRegistro=SIMULADO', { token: G });
+  await passo('Incidentes', 'simulado: sem prazo ANPD (coluna N/A)', 'GET', `/repositorio/incidentes/${inc?.json?.id}`, { token: G }, 200,
+    r => r.json.prazoComunicacao === null || 'simulado com prazo');
+  const real = await passo('Incidentes', 'real em 16/10 com ciência e risco SIM', 'POST', '/repositorio/incidentes', { token: G, body: {
+    titulo: `Vazamento de planilha ${Date.now()}`, dataOcorrencia: '2026-10-16', dataCiencia: '2026-10-16', riscoRelevante: 'SIM',
+    tipoIncidente: 'VAZAMENTO', descricao: 'Planilha enviada a destinatário errado', severidade: 'ALTA', tipoRegistro: 'REAL',
+    dadosAfetados: ['Nome', 'Endereço', 'Saúde'], planoAcao: 'Conferir destinatário antes do envio'
+  } }, 201, r => (r.json.dataOcorrencia === '2026-10-16T00:00:00.000Z' && r.json.prazoComunicacao?.prazo === '2026-10-21') || `data ${r.json.dataOcorrencia} / prazo ${r.json.prazoComunicacao?.prazo}`);
+  await passo('Incidentes', 'data 16/10 sem deslocar no CSV', 'GET', '/repositorio/incidentes/export?formato=csv', { token: G, binario: true }, 200,
+    r => (r.buf.toString('utf8').includes(',2026-10-16,') && r.buf.toString('utf8').includes('2026-10-21')) || 'data deslocada ou sem prazo');
+  await passo('Incidentes', 'registrar comunicação ANPD/titulares', 'PUT', `/repositorio/incidentes/${real?.json?.id}`, { token: G, body: {
+    dataComunicacaoANPD: '2026-10-19', dataComunicacaoTitulares: '2026-10-19'
+  } }, 200, r => (r.json.prazoComunicacao?.situacao === 'COMUNICADO' && r.json.notificadoANPD === true) || 'não marcou comunicado');
+  await passo('Incidentes', 'risco inválido recusado (400)', 'POST', '/repositorio/incidentes', { token: G, body: {
+    titulo: 'x', dataOcorrencia: '2026-10-16', tipoIncidente: 'PERDA', descricao: 'x', riscoRelevante: 'TALVEZ'
+  } }, 400);
+  await passo('Incidentes', 'alertas carregam (inclui comunicação ANPD)', 'GET', '/conformidade/alertas', { token: G });
   await passo('Incidentes', 'exportar CSV', 'GET', '/repositorio/incidentes/export?formato=csv', { token: G, binario: true });
 
   // ---------- DSAR ----------
@@ -196,23 +215,57 @@ async function main() {
   } }, 201);
   await passo('DSAR', 'usar modelo (variáveis trocadas)', 'GET', `/dsar/solicitacoes/${sol?.json?.id}/modelos/${mod?.json?.id}/preenchido`, { token: G }, 200,
     r => !/\{/.test(r.json.texto) || 'sobrou variável');
+  const modelos = await passo('DSAR', '9 modelos padrão (MINUTA) da carga inicial', 'GET', '/dsar/modelos', { token: G }, 200,
+    r => r.json.filter(m => m.padrao && m.titulo.startsWith('MINUTA')).length >= 9 || `só ${r.json.filter(m => m.padrao).length} padrão`);
+  const mAcesso = (modelos?.json || []).find(m => m.padrao && m.tipoDireito === 'ACESSO');
+  await passo('DSAR', 'identidade: registrar verificação (documento)', 'PATCH', `/dsar/solicitacoes/${sol?.json?.id}/verificar-identidade`, { token: G, body: { metodo: 'DOCUMENTO', observacao: 'RG conferido' } }, 200,
+    r => (r.json.identidade?.verificada && r.json.identidade.metodo === 'DOCUMENTO') || 'sem identidade');
+  await passo('DSAR', 'providência registrada', 'POST', `/dsar/solicitacoes/${sol?.json?.id}/evidencias`, { token: G, body: { tipo: 'Consulta', descricao: 'Dados levantados no protocolo' } }, 201);
+  await passo('DSAR', 'modelo padrão de acesso preenchido (providências e encarregado)', 'GET', `/dsar/solicitacoes/${sol?.json?.id}/modelos/${mAcesso?.id}/preenchido`, { token: G }, 200,
+    r => (r.json.texto.includes('Dados levantados no protocolo') && r.json.texto.includes('lgpd@demo-staging.local') && !/\{(providencias|protocolo|nome_titular)\}/.test(r.json.texto)) || 'variável não preenchida');
+  await passo('DSAR', 'responder (sem SMTP: não sai por e-mail)', 'POST', `/dsar/solicitacoes/${sol?.json?.id}/responder`, { token: G, body: { respostaTexto: 'Segue a declaração.' } }, 200,
+    r => r.json.respostaEnviadaEmailEm === null || 'marcou e-mail enviado sem SMTP');
+  await passo('DSAR', 'registrar envio por outro meio', 'POST', `/dsar/solicitacoes/${sol?.json?.id}/envio`, { token: G, body: { meio: 'PESSOALMENTE', data: '2026-10-16' } }, 200,
+    r => (r.json.respostaEnvioMeio === 'PESSOALMENTE' && r.json.respostaEnvioData === '2026-10-16T00:00:00.000Z') || 'envio não gravado');
   await passo('DSAR', 'exportar CSV', 'GET', '/dsar/export?formato=csv', { token: G, binario: true });
 
   // ---------- Checklist ----------
   const at = await passo('Checklist', 'criar atividade própria', 'POST', '/conformidade/atividades', { token: G, body: { titulo: 'Revisar contratos', prazo: '2026-12-15', responsavelId: me.json?.id } }, 201);
   await passo('Checklist', 'responder atividade', 'POST', `/conformidade/checklist/${at?.json?.id}/responder`, { token: G, body: { status: 'CONFORME', observacao: 'ok' } });
-  await passo('Checklist', 'listar checklist', 'GET', '/conformidade/checklist', { token: G });
+  await passo('Checklist', 'catálogo (20 itens) + atividade AP-nnn', 'GET', '/conformidade/checklist', { token: G }, 200, r => {
+    const globais = r.json.filter(i => !i.organizacaoId);
+    const ap = r.json.find(i => i.id === at?.json?.id);
+    if (globais.length < 20) return `catálogo com ${globais.length} itens`;
+    if (!/^AP-\d{3}$/.test(ap?.codigoExibicao || '')) return `código ${ap?.codigoExibicao}`;
+    if (/50, I, g/.test(globais.find(i => i.codigo === 'GOV-05')?.fundamentoLegal || '')) return 'GOV-05 ainda cita o art. 50';
+    return ap.resposta?.responsavelId === ap.responsavelId || 'dois responsáveis';
+  });
+  await passo('Checklist', 'score com itens respondidos', 'GET', '/conformidade/score', { token: G }, 200,
+    r => (Number.isInteger(r.json.respondidos) && r.json.respondidos >= 1) || 'sem respondidos');
   await passo('Checklist', 'exportar JSON', 'GET', '/conformidade/checklist/export?formato=json', { token: G });
 
   // ---------- Treinamento ----------
   let cert = null;
+  await passo('Treinamento', 'trilhas em texto + questionário, sem gabarito', 'GET', '/treinamento/trilhas', { token: D }, 200,
+    r => (r.json.length === 2 && r.json.every(t => t.modulos.every(m => m.quiz.length === 3 && m.conteudo.length)) && !JSON.stringify(r.json).includes('"correta"')) || 'conteúdo/gabarito');
+  const gab0 = gabarito('introducao-lgpd', 'o-que-e-lgpd');
+  await passo('Treinamento', '1 acerto não conclui o módulo', 'POST', '/treinamento/progresso', { token: ctx.t.AUDITOR, body: {
+    trilhaId: 'introducao-lgpd', moduloId: 'o-que-e-lgpd', respostas: gab0.map((c, i) => (i === 0 ? c : (c + 1) % 3))
+  } }, 200, r => (r.json.tentativa.aprovado === false && r.json.tentativa.acertos === 1) || 'aprovou com 1 acerto');
   for (const m of ['o-que-e-lgpd', 'principios-lgpd']) {
-    const r = await passo('Treinamento', `concluir módulo ${m}`, 'POST', '/treinamento/progresso', { token: D, body: { trilhaId: 'introducao-lgpd', moduloId: m } });
+    const r = await passo('Treinamento', `questionário ${m} (3 acertos)`, 'POST', '/treinamento/progresso', { token: D, body: { trilhaId: 'introducao-lgpd', moduloId: m, respostas: gabarito('introducao-lgpd', m) } }, 200,
+      x => x.json.tentativa?.aprovado === true || 'não aprovou');
     cert = r?.json?.certificadoCodigo || cert;
   }
   await passo('Treinamento', 'certificado PDF', 'GET', `/treinamento/certificados/${cert}/pdf`, { token: D, binario: true }, 200, r => pdf(r.buf));
-  await passo('Treinamento', 'verificação pública do certificado', 'GET', `/certificado/verificar/${cert}`, {}, 200, r => r.json.valido === true || 'inválido');
+  await passo('Treinamento', 'verificação pública com câmara e carga 0h20min', 'GET', `/certificado/verificar/${cert}`, {}, 200,
+    r => (r.json.valido === true && r.json.cargaHoraria === '0h20min' && r.json.organizacao?.nome === 'Camara Demo Staging') || 'dados incompletos');
+  await passo('Treinamento', 'relatório: "X de Y servidores"', 'GET', '/treinamento/relatorio?resumo=1', { token: G }, 200,
+    r => (r.json.resumo?.servidores >= 5 && r.json.resumo.concluiramObrigatoria >= 1 && r.json.resumo.trilhasTotal >= 10) || 'resumo incompleto');
   await passo('Treinamento', 'relatório CSV (Gestor)', 'GET', '/treinamento/relatorio?formato=csv', { token: G, binario: true });
+  await passo('Treinamento', 'admin: link de material complementar', 'PUT', '/admin/treinamento/trilhas/introducao-lgpd/modulos/o-que-e-lgpd', { token: ctx.admin, body: { linkComplementar: 'https://www.gov.br/anpd/pt-br' } }, 200);
+  await passo('Treinamento', 'link aparece no módulo', 'GET', '/treinamento/trilhas', { token: D }, 200,
+    r => r.json[0].modulos[0].linkComplementar === 'https://www.gov.br/anpd/pt-br' || 'sem link');
   await passo('Permissões', 'TREINANDO acessa trilhas', 'GET', '/treinamento/trilhas', { token: ctx.t.TREINANDO });
 
   // ---------- Indicadores ----------
@@ -262,11 +315,18 @@ async function main() {
   await passo('Usuários', 'TREINANDO desativado não entra (403)', 'POST', '/auth/login', { body: cred.TREINANDO }, 403);
   await passo('Usuários', 'reativar TREINANDO', 'PATCH', `/usuarios/${treinando?.id}/ativo`, { token: G, body: { ativo: true } });
   await passo('Usuários', 'OPERADOR não gerencia usuários (403)', 'GET', '/usuarios/gestao', { token: ctx.t.OPERADOR }, 403);
+  const gestorU = (lista?.json || []).find(u => u.email === cred.GESTOR.email);
+  await passo('Usuários', 'Gestor corrige o próprio nome', 'PATCH', `/usuarios/${gestorU?.id}/nome`, { token: G, body: { nome: 'Gestora de Teste' } }, 200, r => r.json.nome === 'Gestora de Teste' || 'nome não mudou');
+  await passo('Usuários', 'admin corrige nome do AUDITOR', 'PATCH', `/admin/usuarios/${(lista?.json || []).find(u => u.email === cred.AUDITOR.email)?.id}/nome`, { token: ctx.admin, body: { nome: 'Auditora de Teste' } }, 200);
 
   // ---------- MFA obrigatorio (com o OPERADOR; Gestor fica sem MFA) ----------
   await passo('MFA', 'ligar MFA obrigatório', 'PATCH', `/admin/camaras/${org.id}/mfa-obrigatorio`, { token: ctx.admin, body: { mfaObrigatorio: true } });
-  const l1 = await passo('MFA', 'login sem MFA pede configuração', 'POST', '/auth/login', { body: cred.OPERADOR }, 200,
-    r => (r.json.mfaSetupObrigatorio || r.json.mfaPendente) ? true : 'emitiu sessão sem MFA');
+  // Na 1a rodada o OPERADOR ainda nao tem autenticador (pede configuracao);
+  // nas seguintes ja tem (pede o codigo). O nome do passo diz qual caso e.
+  const jaConfigurado = !!cred.OPERADOR.mfaSecret;
+  const l1 = await passo('MFA', jaConfigurado ? 'login com MFA obrigatório pede o código (autenticador já configurado)' : 'login sem autenticador pede configuração',
+    'POST', '/auth/login', { body: cred.OPERADOR }, 200,
+    r => (jaConfigurado ? r.json.mfaPendente === true : r.json.mfaSetupObrigatorio === true) || 'emitiu sessão sem MFA');
   if (l1?.json?.mfaSetupObrigatorio) {
     await passo('MFA', 'setupToken não abre módulo (401)', 'GET', '/ropa/tratamentos', { token: l1.json.setupToken }, 401);
     const cfg = await passo('MFA', 'configurar autenticador', 'POST', '/auth/mfa/configurar', { token: l1.json.setupToken, body: {} });

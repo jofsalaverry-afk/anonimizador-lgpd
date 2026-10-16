@@ -35,4 +35,8 @@ test('historico: nenhum valor de enum cru nos campos com rotulo', () => {
   expect(r('tipo', 'BANCO_DADOS', 'SISTEMA')).toBe('Banco de dados');
   expect(r('tipo', 'POLITICA_PRIVACIDADE', 'DOCUMENTO')).toBe('Política de Privacidade');
   expect(r('tipoDireito', 'ANONIMIZACAO')).toBe('Anonimização, bloqueio ou eliminação');
+  expect(r('tipoDireito', 'INFORMACAO_NAO_CONSENTIR')).toBe('Informação sobre a possibilidade de não consentir');
+  expect(r('riscoRelevante', 'EM_AVALIACAO')).toBe('Em avaliação');
+  expect(r('identidadeMetodo', 'CODIGO_EMAIL')).toBe('Código enviado ao e-mail');
+  expect(r('respostaEnvioMeio', 'PESSOALMENTE')).toBe('Entregue pessoalmente');
 });

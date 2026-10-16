@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { fmtDiaSP, fmtHoraSP } from '../datas';
 
 // Os 9 direitos do Art. 18 da LGPD (Lei 13.709/2018). OUTRO abre um
 // campo livre para o titular descrever um direito especifico nao coberto
@@ -14,6 +15,7 @@ const TIPO_OPTIONS = [
   { value: 'PORTABILIDADE', label: 'Portabilidade dos dados' },
   { value: 'ELIMINACAO', label: 'Eliminação dos dados tratados com consentimento' },
   { value: 'INFORMACAO', label: 'Informação sobre compartilhamento com terceiros' },
+  { value: 'INFORMACAO_NAO_CONSENTIR', label: 'Informação sobre a possibilidade de não consentir e as consequências' },
   { value: 'REVOGACAO', label: 'Revogação do consentimento' },
   { value: 'OUTRO', label: 'Outro (descrever)' }
 ];
@@ -144,7 +146,6 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
   // Texto livre so usado quando tipoDireito === 'OUTRO'. Concatenado na
   // descricao no momento do envio para ficar visivel ao atendente.
   const [direitoCustom, setDireitoCustom] = useState('');
-  const [consentimento, setConsentimento] = useState(false);
   const [codigo, setCodigo] = useState('');
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState('');
@@ -184,9 +185,6 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
     }
     if (form.tipoDireito === 'OUTRO' && !direitoCustom.trim()) {
       return setErro('Descreva qual direito você deseja exercer');
-    }
-    if (!consentimento) {
-      return setErro('Você precisa confirmar o consentimento LGPD para continuar');
     }
     if (!org?.id) {
       return setErro('Organização não identificada');
@@ -288,7 +286,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
             <div className="detail-label">Protocolo</div>
             <div className="detail-value"><strong>{resultado.protocolo}</strong></div>
             <div className="detail-label">Prazo para resposta</div>
-            <div className="detail-value">{new Date(resultado.dataLimite).toLocaleDateString('pt-BR')}</div>
+            <div className="detail-value">{fmtDiaSP(resultado.dataLimite)}</div>
           </div>
           <div className="alert-info">{resultado.mensagem}</div>
           <p className="text-muted text-center">Guarde o número de protocolo para acompanhamento. Uma cópia foi enviada ao seu email.</p>
@@ -327,7 +325,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
 
             {otpInfo?.expiraEm && (
               <p className="text-muted text-xs text-center mb-16">
-                O código expira em 10 minutos (até {new Date(otpInfo.expiraEm).toLocaleTimeString('pt-BR')})
+                O código expira em 10 minutos (até {fmtHoraSP(otpInfo.expiraEm)})
               </p>
             )}
 
@@ -368,7 +366,8 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
           <input value={form.titularNome} onChange={e => setForm({ ...form, titularNome: e.target.value })} placeholder="Seu nome completo" required />
 
           <label>CPF *</label>
-          <input value={form.titularCpf} onChange={e => setForm({ ...form, titularCpf: e.target.value })} placeholder="000.000.000-00" required />
+          <input value={form.titularCpf} onChange={e => setForm({ ...form, titularCpf: e.target.value })} placeholder="000.000.000-00" required aria-describedby="ajuda-cpf" />
+          <p id="ajuda-cpf" className="text-xs text-muted" style={{ marginTop: -6, marginBottom: 12 }}>Usado apenas para confirmar sua identidade.</p>
 
           <label>E-mail *</label>
           <input type="email" value={form.titularEmail} onChange={e => setForm({ ...form, titularEmail: e.target.value })} placeholder="seu@email.com" required />
@@ -395,19 +394,13 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
           <label>Descreva seu pedido *</label>
           <textarea value={form.descricao} onChange={e => setForm({ ...form, descricao: e.target.value })} rows={4} placeholder="Descreva com detalhes o que deseja..." required />
 
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, fontWeight: 'normal', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={consentimento}
-              onChange={e => setConsentimento(e.target.checked)}
-              style={{ marginTop: 4 }}
-            />
-            <span className="text-sm">
-              Autorizo o tratamento dos meus dados pessoais (nome, CPF e email) exclusivamente para análise e resposta a esta solicitação, nos termos da LGPD (Lei 13.709/2018, Art. 7, I e IX). *
-            </span>
-          </label>
+          {/* Aviso informativo (sem caixa de consentimento): a base legal e o
+              cumprimento de obrigacao legal (art. 7º, II), nao o consentimento. */}
+          <p style={{ marginTop: 12 }}>
+            Seus dados serão usados exclusivamente para confirmar sua identidade e responder a esta solicitação, em cumprimento ao art. 18 da LGPD (base legal: art. 7º, II). Serão guardados pelo prazo necessário à comprovação do atendimento.
+          </p>
 
-          <button className="btn-primary mt-16" type="submit" disabled={loading || !consentimento}>
+          <button className="btn-primary mt-16" type="submit" disabled={loading}>
             {loading ? 'Enviando...' : 'Receber código de verificação'}
           </button>
         </form>

@@ -52,8 +52,18 @@ function calcularSLA(dataLimite) {
   return { cor: 'verde', dias: diasRestantes, label: `${diasRestantes} dias restantes` };
 }
 
+// identidade: { verificada, metodo, em, observacao }. Pedidos anteriores a
+// Etapa 6c sem os campos novos usam a evidencia VERIFICACAO_IDENTIDADE.
+function identidadeDe(s) {
+  if (s.identidadeVerificadaEm) {
+    return { verificada: true, metodo: s.identidadeMetodo, em: s.identidadeVerificadaEm, observacao: s.identidadeObservacao || null };
+  }
+  const ev = (s.evidencias || []).find(e => e.tipo === 'VERIFICACAO_IDENTIDADE');
+  return ev ? { verificada: true, metodo: null, em: ev.criadoEm, observacao: null } : { verificada: false };
+}
+
 function enriquecerSolicitacao(s) {
-  return { ...s, sla: calcularSLA(s.dataLimite) };
+  return { ...s, sla: calcularSLA(s.dataLimite), identidade: identidadeDe(s) };
 }
 
 // ==================== OTP ====================
@@ -125,7 +135,10 @@ async function criarSolicitacaoApartirDeOtp(otp) {
       tipoDireito: otp.tipoDireito,
       descricao: otp.descricao,
       dataRecebimento,
-      status: 'AGUARDANDO_VERIFICACAO'
+      status: 'AGUARDANDO_VERIFICACAO',
+      // Etapa 6c: o titular confirmou o codigo enviado ao e-mail
+      identidadeVerificadaEm: dataRecebimento,
+      identidadeMetodo: 'CODIGO_EMAIL'
     }
   });
 

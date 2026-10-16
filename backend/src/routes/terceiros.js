@@ -6,6 +6,7 @@ const { registrarHistorico } = require('../services/historico');
 const { responsavelValido } = require('../services/entidades');
 const { BLOCOS, PERGUNTAS, calcularRisco } = require('../services/questionarioTerceiro');
 const { responderExport } = require('../services/exportadores');
+const { dataPura } = require('../services/datas');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -59,8 +60,9 @@ function lerDados(b, { parcial }) {
     if (b[campo] !== undefined) data[campo] = !!b[campo];
   }
   if (b.dataAditivo !== undefined) {
-    if (b.dataAditivo && isNaN(new Date(b.dataAditivo))) return { erro: 'Data do aditivo inválida' };
-    data.dataAditivo = b.dataAditivo ? new Date(b.dataAditivo) : null;
+    const d = dataPura(b.dataAditivo);
+    if (d === undefined) return { erro: 'Data do aditivo inválida (use AAAA-MM-DD)' };
+    data.dataAditivo = d;
   }
   return { data };
 }
@@ -297,8 +299,9 @@ async function lerAcao(b, orgId, { parcial }) {
     data.situacao = b.situacao;
   }
   if (b.prazo !== undefined) {
-    if (b.prazo && isNaN(new Date(b.prazo))) return { erro: 'Prazo inválido' };
-    data.prazo = b.prazo ? new Date(b.prazo) : null;
+    const p = dataPura(b.prazo);
+    if (p === undefined) return { erro: 'Prazo inválido (use AAAA-MM-DD)' };
+    data.prazo = p;
   }
   if (b.responsavelId !== undefined) {
     if (!(await responsavelValido(prisma, b.responsavelId, orgId))) return { erro: 'Responsável inválido' };

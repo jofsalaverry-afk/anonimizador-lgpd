@@ -5,9 +5,10 @@ import { textoRetencao } from '../basesLegais';
 import SeletorResponsavel from './SeletorResponsavel';
 import Anexos from './Anexos';
 import Historico from './Historico';
+import { fmtData } from '../datas';
 
 const VAZIO = { dataDescarte: '', descricao: '', quantidade: '', metodo: '', responsavelId: '' };
-const fmt = d => new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+const fmt = fmtData;
 
 // Secao "Descartes" do detalhe do ROPA: situacao do prazo de retencao,
 // registro de descarte e lista (cada um com evidencias e historico).

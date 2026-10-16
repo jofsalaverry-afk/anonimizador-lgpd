@@ -24,7 +24,8 @@ export const RESPOSTA_LABEL = { SIM: 'Sim', PARCIAL: 'Parcial', NAO: 'Não', NA:
 export const SITUACAO_ACAO_LABEL = { PENDENTE: 'Pendente', EM_ANDAMENTO: 'Em andamento', CONCLUIDA: 'Concluída' };
 export const SITUACAO_ACAO_BADGE = { PENDENTE: 'badge badge-warning', EM_ANDAMENTO: 'badge badge-info', CONCLUIDA: 'badge badge-success' };
 
-export const CATEGORIAS_DADOS = ['Nome', 'CPF', 'RG', 'E-mail', 'Telefone', 'Endereco', 'Dados Bancarios', 'Dados de Saude', 'Outros'];
+// Categorias de dados (com acento) e sensiveis: fonte unica em ../basesLegais.json
+export { CATEGORIAS_DADOS } from '../basesLegais';
 
 export function BadgeRisco({ risco, manual }) {
   if (!risco) return <span className="badge badge-muted">Não avaliado</span>;
@@ -37,9 +38,10 @@ export const PERFIL_LABEL = { ENCARREGADO_LGPD: 'DPO', GESTOR: 'Gestor', OPERADO
 export const NIVEL_LABEL = { ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa' };
 export const TIPO_DIREITO_LABEL = {
   CONFIRMACAO: 'Confirmação da existência de tratamento', ACESSO: 'Acesso aos dados', CORRECAO: 'Correção de dados',
-  ANONIMIZACAO: 'Anonimização, bloqueio ou eliminação', PORTABILIDADE: 'Portabilidade', ELIMINACAO: 'Eliminação de dados',
-  INFORMACAO: 'Informação sobre compartilhamento', REVOGACAO: 'Revogação do consentimento', OPOSICAO: 'Oposição ao tratamento',
-  PETICAO: 'Petição à ANPD'
+  ANONIMIZACAO: 'Anonimização, bloqueio ou eliminação', PORTABILIDADE: 'Portabilidade', ELIMINACAO: 'Eliminação de dados tratados com consentimento',
+  INFORMACAO: 'Informação sobre compartilhamento', INFORMACAO_NAO_CONSENTIR: 'Informação sobre a possibilidade de não consentir',
+  REVOGACAO: 'Revogação do consentimento', OPOSICAO: 'Oposição ao tratamento',
+  PETICAO: 'Petição à ANPD', OUTRO: 'Outro'
 };
 export const TIPO_INCIDENTE_LABEL = { VAZAMENTO: 'Vazamento', ACESSO_INDEVIDO: 'Acesso indevido', PERDA: 'Perda', ALTERACAO: 'Alteração', OUTRO: 'Outro' };
 export const TIPO_REGISTRO_LABEL = { REAL: 'Real', SIMULADO: 'Simulado' };
@@ -63,7 +65,10 @@ const VALOR_POR_CAMPO = {
   risco: RISCO_LABEL, papel: PAPEL_TERCEIRO_LABEL, tipoHospedagem: HOSPEDAGEM_LABEL, perfil: PERFIL_LABEL,
   severidade: NIVEL_LABEL, criticidade: NIVEL_LABEL, tipoDireito: TIPO_DIREITO_LABEL, tipoIncidente: TIPO_INCIDENTE_LABEL,
   tipoRegistro: TIPO_REGISTRO_LABEL, evidencia: EVIDENCIA_LABEL, evidenciaRequerida: EVIDENCIA_LABEL,
-  status: STATUS_LABEL, situacao: SITUACAO_ACAO_LABEL
+  status: STATUS_LABEL, situacao: SITUACAO_ACAO_LABEL,
+  riscoRelevante: { SIM: 'Sim', NAO: 'Não', EM_AVALIACAO: 'Em avaliação' },
+  identidadeMetodo: { CODIGO_EMAIL: 'Código enviado ao e-mail', DOCUMENTO: 'Documento apresentado', CODIGO: 'Código', OUTRO: 'Outro' },
+  respostaEnvioMeio: { PESSOALMENTE: 'Entregue pessoalmente', CORREIOS: 'Correios', TELEFONE: 'Telefone', EMAIL_INSTITUCIONAL: 'E-mail institucional (fora do sistema)', OUTRO: 'Outro meio' }
 };
 
 // Rotulo de um valor de enum no campo de uma entidade do historico.

@@ -4,6 +4,7 @@ import { API } from '../config';
 import Anexos from './Anexos';
 import Historico from './Historico';
 import SeletorResponsavel from './SeletorResponsavel';
+import { fmtData, fmtDataHora } from '../datas';
 import {
   PAPEL_TERCEIRO_LABEL, RISCO_LABEL, RESPOSTA_LABEL, SITUACAO_ACAO_LABEL, SITUACAO_ACAO_BADGE,
   TIPO_SISTEMA_LABEL, BadgeRisco
@@ -124,7 +125,7 @@ export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, o
           <div>
             <Campo label="Contrato">{t.contratoVigente ? 'Vigente' : 'Sem contrato vigente'}{t.contratoCritico ? ' · Contrato crítico' : ''}</Campo>
             <Campo label="Aditivo LGPD">
-              {t.aditivoLgpdAssinado ? `Assinado${t.dataAditivo ? ' em ' + new Date(t.dataAditivo).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : ''}` : 'Pendente'}
+              {t.aditivoLgpdAssinado ? `Assinado${t.dataAditivo ? ' em ' + fmtData(t.dataAditivo) : ''}` : 'Pendente'}
             </Campo>
             <Campo label="Sistemas fornecidos">
               {t.sistemas.length > 0 && t.sistemas.map(s => `${s.nome} (${TIPO_SISTEMA_LABEL[s.tipo]})`).join('; ')}
@@ -209,7 +210,7 @@ export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, o
                     onChange={e => setRespostas({ ...respostas, [p.id]: { ...atual, observacao: e.target.value } })} />
                   {gravada && (
                     <div className="text-muted text-xs">
-                      Respondido por {gravada.respondidoPor?.nome || '—'} em {new Date(gravada.respondidoEm).toLocaleString('pt-BR')}
+                      Respondido por {gravada.respondidoPor?.nome || '—'} em {fmtDataHora(gravada.respondidoEm)}
                     </div>
                   )}
                 </div>
@@ -233,7 +234,7 @@ export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, o
               <div>{a.descricao}</div>
               <div className="text-muted text-xs">
                 {a.responsavel?.nome || 'Sem responsável'}
-                {a.prazo && ` · prazo ${new Date(a.prazo).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}`}
+                {a.prazo && ` · prazo ${fmtData(a.prazo)}`}
               </div>
             </div>
             <div className="flex-center gap-8">

@@ -3,11 +3,12 @@ import axios from 'axios';
 import { API } from '../config';
 import { baixarArquivo, BotoesExportar, BotaoPdfA } from './download';
 import Historico from './Historico';
+import { fmtData, fmtDiaSP } from '../datas';
 
 const STATUS_BADGE = { OK: 'badge badge-success', PENDENTE: 'badge badge-danger', INATIVO: 'badge badge-muted', SEM_DADOS: 'badge badge-muted' };
 const STATUS_TEXTO = { OK: 'OK', PENDENTE: 'Pendente', INATIVO: 'Módulo inativo', SEM_DADOS: 'Sem dados no mês' };
 const NOME_META = { ROPA: 'ROPA (processos mapeados)', CONTRATOS: 'Contratos críticos com aditivo', TREINAMENTOS: 'Servidores treinados', DSAR: 'DSAR no prazo' };
-const fmt = d => (d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—');
+const fmt = d => fmtData(d) || '—';
 
 function CardIndicador({ i, onAbrir, metaPersonalizada }) {
   const clicavel = i.link && i.status !== 'INATIVO';
@@ -190,7 +191,7 @@ export default function PainelIndicadores({ token, usuario, onNavegar }) {
                     const txt = v.chave === 'INCIDENTES' ? `${v.incidentesReaisNoMes ?? '—'} · sim. ${fmt(v.ultimoSimulado)}` : v.status === 'INATIVO' ? '—' : `${v.n}/${v.total}`;
                     return <td key={i.chave}><span className={STATUS_BADGE[v.status]}>{txt}</span></td>;
                   })}
-                  <td className="text-xs">{sn.origem === 'CRON' ? 'automática' : 'manual'} · {new Date(sn.geradoEm).toLocaleDateString('pt-BR')}</td>
+                  <td className="text-xs">{sn.origem === 'CRON' ? 'automática' : 'manual'} · {fmtDiaSP(sn.geradoEm)}</td>
                 </tr>
               ))}
             </tbody>

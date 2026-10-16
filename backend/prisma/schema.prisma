@@ -44,6 +44,8 @@ enum TipoDireito {
   OPOSICAO
   PETICAO
   OUTRO
+  // Etapa 6c: art. 18, VIII (informacao sobre a possibilidade de nao consentir)
+  INFORMACAO_NAO_CONSENTIR
 }
 
 enum StatusDSAR {
@@ -115,6 +117,8 @@ enum TipoAlerta {
   INCIDENTE_ABERTO
   ROPA_DESATUALIZADO
   RETENCAO_VENCIDA
+  // Etapa 6c: prazo de comunicacao do incidente a ANPD e aos titulares
+  INCIDENTE_COMUNICACAO
 }
 
 enum Perfil {
@@ -328,6 +332,16 @@ model SolicitacaoTitular {
   dataResposta     DateTime?
   respostaTexto    String?
   responsavelId    String?
+  // Etapa 6c: verificacao de identidade (codigo no e-mail ou registro manual)
+  identidadeVerificadaEm  DateTime?
+  identidadeMetodo        MetodoVerificacaoIdentidade?
+  identidadeObservacao    String?
+  // Etapa 6c: envio da resposta ao titular. Por e-mail (automatico) ou
+  // registrado manualmente por outro meio.
+  respostaEnviadaEmailEm  DateTime?
+  respostaEnvioMeio       String?
+  respostaEnvioData       DateTime?
+  respostaEnvioObservacao String?
   criadoEm         DateTime    @default(now())
   atualizadoEm     DateTime    @updatedAt
 
@@ -414,6 +428,12 @@ model Incidente {
   severidade      Criticidade?
   tipoRegistro    TipoRegistroIncidente @default(REAL)
   providencias    ProvidenciaIncidente[]
+  // Etapa 6c: data em que a camara tomou ciencia, avaliacao de risco e
+  // datas de comunicacao. Datas puras (meia-noite UTC).
+  dataCiencia               DateTime?
+  riscoRelevante            RiscoRelevanteIncidente?
+  dataComunicacaoANPD       DateTime?
+  dataComunicacaoTitulares  DateTime?
   criadoEm        DateTime        @default(now())
   atualizadoEm    DateTime        @updatedAt
 
@@ -530,6 +550,8 @@ model TrilhaOverride {
   moduloId   String
   youtubeId  String
   titulo     String?
+  // Etapa 6c: link opcional para material complementar externo
+  linkComplementar String?
   atualizadoEm DateTime @updatedAt
 
   @@unique([trilhaId, moduloId])
@@ -821,6 +843,37 @@ model CertificadoTreinamento {
   emitidoEm        DateTime    @default(now())
 
   @@unique([usuarioId, trilhaId])
+}
+
+enum RiscoRelevanteIncidente {
+  SIM
+  NAO
+  EM_AVALIACAO
+}
+
+enum MetodoVerificacaoIdentidade {
+  CODIGO_EMAIL
+  DOCUMENTO
+  CODIGO
+  OUTRO
+}
+
+// Etapa 6c: cada tentativa de questionario de um modulo de treinamento.
+// Sem relacoes (registro de auditoria): ids gravados como texto.
+model TentativaQuizTreinamento {
+  id            String   @id @default(cuid())
+  usuarioId     String
+  organizacaoId String
+  trilhaId      String
+  moduloId      String
+  respostas     Json
+  acertos       Int
+  total         Int
+  aprovado      Boolean
+  criadoEm      DateTime @default(now())
+
+  @@index([usuarioId, trilhaId, moduloId])
+  @@index([organizacaoId])
 }
 
 enum TipoRegistroIncidente {

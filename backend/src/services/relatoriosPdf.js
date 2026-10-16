@@ -4,6 +4,9 @@
 const PDFDocument = require('pdfkit');
 const { gerarExport } = require('./exportadores');
 const { calcularIndicadores } = require('./indicadores');
+const { fmtData, fmtDiaSP, fmtDataHora } = require('./datas');
+const R = require('./rotulos');
+const { textoRetencao } = require('./basesLegais');
 
 function novoDoc(titulo, orgNome) {
   const doc = new PDFDocument({ size: 'A4', margin: 40, info: { Title: titulo, Author: orgNome, Creator: 'Complidata' } });
@@ -15,7 +18,7 @@ function novoDoc(titulo, orgNome) {
   });
   doc.font('Helvetica-Bold').fontSize(16).fillColor('#1a1a2e').text(titulo);
   doc.font('Helvetica').fontSize(10).fillColor('#475569')
-    .text(`${orgNome} · gerado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`);
+    .text(`${orgNome} · gerado em ${fmtDataHora(new Date())}`);
   doc.moveDown(0.5);
   doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#cbd5e1').lineWidth(1).stroke();
   doc.moveDown(0.8);
@@ -34,7 +37,6 @@ function bloco(doc, titulo, pares) {
   doc.moveDown(0.6);
 }
 
-const fmtData = iso => (iso ? new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '');
 
 const RELATORIOS = {
   ropa: {
@@ -47,7 +49,7 @@ const RELATORIOS = {
       for (const l of ativos) {
         bloco(doc, l.nome, [
           ['Finalidade', l.finalidade], ['Base legal (LGPD, art. 7º ou art. 11)', [l.baseLegal, l.baseLegalSensivel].filter(Boolean).join(' / ')], ['Setor', l.setor], ['Responsável', l.responsavel],
-          ['Categorias de dados', l.categoriasDados], ['Titulares', l.categoriasTitulares], ['Retenção (dias)', l.retencaoDias],
+          ['Categorias de dados', l.categoriasDados], ['Titulares', l.categoriasTitulares], ['Retenção', textoRetencao(l.retencaoDias)],
           ['Descarte', l.formaDescarte], ['Sistemas', l.sistemas], ['Outros meios', l.outrosMeios],
           ['Compartilhamentos', l.compartilhamentos], ['Medidas de segurança', l.medidasSeguranca],
           ['Mapeamento', l.mapeado ? 'completo' : `pendente (${l.pendencias})`]
@@ -62,9 +64,10 @@ const RELATORIOS = {
       const { linhas } = await gerarExport(db, 'dsar', org);
       doc.fontSize(10).text(`${linhas.length} solicitação(ões). Dados do titular omitidos neste relatório; constam no sistema e na exportação.`).moveDown();
       for (const l of linhas) {
-        bloco(doc, `${l.protocolo} — ${l.tipoDireito}`, [
-          ['Situação', l.status], ['Recebida', fmtData(l.dataRecebimento)], ['Prazo', fmtData(l.dataLimite)],
-          ['Respondida', fmtData(l.dataResposta)], ['No prazo', l.noPrazo === '' ? 'pendente' : (l.noPrazo ? 'sim' : 'não')],
+        // recebimento, prazo e resposta sao instantes: dia em Sao Paulo
+        bloco(doc, `${l.protocolo} — ${R.rotulo(R.TIPO_DIREITO, l.tipoDireito)}`, [
+          ['Situação', R.rotulo(R.STATUS, l.status)], ['Recebida', fmtDiaSP(l.dataRecebimento)], ['Prazo', fmtDiaSP(l.dataLimite)],
+          ['Respondida', fmtDiaSP(l.dataResposta)], ['No prazo', l.noPrazo === '' ? 'pendente' : (l.noPrazo ? 'sim' : 'não')],
           ['Responsável', l.responsavel], ['Providências', l.providencias]
         ]);
       }
@@ -78,9 +81,17 @@ const RELATORIOS = {
       doc.fontSize(10).text(`${linhas.filter(l => l.tipoRegistro === 'REAL').length} incidente(s) real(is) e ${linhas.filter(l => l.tipoRegistro === 'SIMULADO').length} simulado(s).`).moveDown();
       for (const l of linhas) {
         bloco(doc, `${l.tipoRegistro === 'SIMULADO' ? '[SIMULADO] ' : ''}${l.titulo}`, [
-          ['Tipo', l.tipoIncidente], ['Severidade', l.severidade], ['Situação', l.status], ['Ocorrência', fmtData(l.dataOcorrencia)],
-          ['Titulares afetados', l.qtdTitulares], ['Dados afetados', l.dadosAfetados], ['Comunicado à ANPD', l.notificadoANPD ? 'sim' : 'não'],
-          ['Responsável', l.responsavel], ['Descrição', l.descricao], ['Plano de ação', l.planoAcao], ['Providências', l.providencias]
+          ['Tipo', R.rotulo(R.TIPO_INCIDENTE, l.tipoIncidente)], ['Severidade', R.rotulo(R.NIVEL, l.severidade)], ['Situação', R.rotulo(R.STATUS, l.status)],
+          ['Ocorrência', fmtData(l.dataOcorrencia)], ['Ciência', fmtData(l.dataCiencia)],
+          ...(l.tipoRegistro === 'SIMULADO' ? [['Comunicação à ANPD', 'não se aplica (simulado)']] : [
+            ['Pode acarretar risco ou dano relevante', R.rotulo(R.RISCO_INCIDENTE, l.riscoRelevante)],
+            ['Prazo de comunicação (3 dias úteis da ciência)', fmtData(l.prazoComunicacao)],
+            ['Comunicação à ANPD', fmtData(l.dataComunicacaoANPD) || (l.notificadoANPD ? 'sim (sem data)' : 'não')],
+            ['Comunicação aos titulares', fmtData(l.dataComunicacaoTitulares)]
+          ]),
+          ['Titulares afetados', l.qtdTitulares], ['Dados afetados', l.dadosAfetados],
+          ['Responsável', l.responsavel], ['Descrição', l.descricao], ['Medidas para evitar recorrência', l.planoAcao],
+          ['Providências', (l.providencias || '').replace(/(d{4})-(d{2})-(d{2})/g, '$3/$2/$1')]
         ]);
       }
     }

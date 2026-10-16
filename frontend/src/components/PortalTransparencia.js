@@ -56,7 +56,18 @@ export default function PortalTransparencia({ token, usuario }) {
             Canal do titular: <a href={trecho.urlCanal} target="_blank" rel="noopener noreferrer">{trecho.urlCanal}</a>
           </div>
           <button className="btn-secondary btn-sm mb-8" onClick={copiar}>Copiar trecho HTML para o portal</button>
-          <textarea readOnly rows={7} value={trecho.html} style={{ fontFamily: 'monospace', fontSize: 12 }} onFocus={e => e.target.select()} />
+          <div className="grid-2" style={{ gap: 12, alignItems: 'stretch' }}>
+            <div>
+              <div className="detail-label mb-4">Código</div>
+              <textarea readOnly rows={9} value={trecho.html} style={{ fontFamily: 'monospace', fontSize: 12, height: '100%' }} onFocus={e => e.target.select()} />
+            </div>
+            <div>
+              <div className="detail-label mb-4">Prévia (como aparece no portal)</div>
+              {/* sandbox sem allow-scripts: so renderiza o HTML */}
+              <iframe title="Prévia do trecho HTML" sandbox="" srcDoc={`<!doctype html><meta charset="utf-8"><body style="font-family:Arial,sans-serif;font-size:14px;margin:12px;color:#111">${trecho.html}</body>`}
+                style={{ width: '100%', minHeight: 190, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }} />
+            </div>
+          </div>
         </>
       )}
 

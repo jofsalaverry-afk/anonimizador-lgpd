@@ -5,6 +5,8 @@ import SeletorResponsavel from './SeletorResponsavel';
 import Anexos from './Anexos';
 import Historico from './Historico';
 import Providencias from './Providencias';
+import { paraInputData, fmtData } from '../datas';
+import { CATEGORIAS_DADOS, CATEGORIAS_SENSIVEIS, normalizarCategorias } from '../basesLegais';
 
 const SEVERIDADE_OPTIONS = [
   { value: 'ALTA', label: 'Alta' },
@@ -27,7 +29,8 @@ const STATUS_INC_OPTIONS = [
   { value: 'ENCERRADO', label: 'Encerrado' }
 ];
 
-const ALL_DADOS = ['Nome', 'CPF', 'RG', 'E-mail', 'Telefone', 'Endereco', 'Dados Bancarios', 'Dados de Saude'];
+// Mesma lista do ROPA (com acento), incluindo os dados sensiveis
+const ALL_DADOS = [...CATEGORIAS_DADOS, ...CATEGORIAS_SENSIVEIS];
 
 export default function IncidenteForm({ token, incidenteId, onVoltar }) {
   const [form, setForm] = useState({
@@ -38,13 +41,17 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
     dadosAfetados: [],
     qtdTitulares: '',
     planoAcao: '',
-    notificadoANPD: false,
     status: 'ABERTO',
+    dataCiencia: '',
+    riscoRelevante: '',
+    dataComunicacaoANPD: '',
+    dataComunicacaoTitulares: '',
     responsavelId: '',
     severidade: '',
     tipoRegistro: 'REAL'
   });
   const [providencias, setProvidencias] = useState([]);
+  const [prazo, setPrazo] = useState(null); // prazoComunicacao calculado no backend
   const [versaoHistorico, setVersaoHistorico] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingInc, setLoadingInc] = useState(!!incidenteId);
@@ -62,18 +69,22 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
         setForm({
           titulo: inc.titulo || '',
           tipoIncidente: inc.tipoIncidente || '',
-          dataOcorrencia: inc.dataOcorrencia ? inc.dataOcorrencia.substring(0, 10) : '',
+          dataOcorrencia: paraInputData(inc.dataOcorrencia),
           descricao: inc.descricao || '',
-          dadosAfetados: inc.dadosAfetados || [],
+          dadosAfetados: normalizarCategorias(inc.dadosAfetados),
           qtdTitulares: inc.qtdTitulares || '',
           planoAcao: inc.planoAcao || '',
-          notificadoANPD: inc.notificadoANPD || false,
           status: inc.status || 'ABERTO',
+          dataCiencia: paraInputData(inc.dataCiencia),
+          riscoRelevante: inc.riscoRelevante || '',
+          dataComunicacaoANPD: paraInputData(inc.dataComunicacaoANPD),
+          dataComunicacaoTitulares: paraInputData(inc.dataComunicacaoTitulares),
           responsavelId: inc.responsavelId || '',
           severidade: inc.severidade || '',
           tipoRegistro: inc.tipoRegistro || 'REAL'
         });
         setProvidencias(inc.providencias || []);
+        setPrazo(inc.prazoComunicacao || null);
         setVersaoHistorico(v => v + 1);
       } else {
         setErro('Incidente não encontrado');
@@ -102,7 +113,16 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
     setLoading(true);
     setErro('');
     try {
-      const payload = { ...form, qtdTitulares: form.qtdTitulares ? Number(form.qtdTitulares) : 0 };
+      const real = form.tipoRegistro === 'REAL';
+      const payload = {
+        ...form,
+        qtdTitulares: form.qtdTitulares ? Number(form.qtdTitulares) : 0,
+        // simulado nao tem comunicacao
+        dataCiencia: real ? form.dataCiencia || null : null,
+        riscoRelevante: real ? form.riscoRelevante || null : null,
+        dataComunicacaoANPD: real ? form.dataComunicacaoANPD || null : null,
+        dataComunicacaoTitulares: real ? form.dataComunicacaoTitulares || null : null
+      };
       if (incidenteId) {
         await axios.put(`${API}/repositorio/incidentes/${incidenteId}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
@@ -200,12 +220,12 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
         </div>
 
         <div className="form-group mb-16">
-          <label>Plano de ação</label>
+          <label>Medidas para evitar recorrência</label>
           <textarea
             value={form.planoAcao}
             onChange={e => setForm({ ...form, planoAcao: e.target.value })}
             rows={3}
-            placeholder="Descreva as ações corretivas..."
+            placeholder="O que será feito para que o incidente não se repita"
           />
         </div>
 
@@ -231,17 +251,49 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
           <SeletorResponsavel token={token} value={form.responsavelId} onChange={v => setForm({ ...form, responsavelId: v })} />
         </div>
 
-        <div className="form-grid mb-16">
-          <div className="form-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={form.notificadoANPD}
-                onChange={e => setForm({ ...form, notificadoANPD: e.target.checked })}
-              />
-              {' '}Notificado à ANPD
-            </label>
+        {form.tipoRegistro === 'REAL' ? (
+          <div className="card-flush mb-16" style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12 }}>
+            <div className="detail-label mb-8">Comunicação à ANPD e aos titulares</div>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Data em que a Câmara tomou ciência</label>
+                <input type="date" value={form.dataCiencia} onChange={e => setForm({ ...form, dataCiencia: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label>Pode acarretar risco ou dano relevante aos titulares?</label>
+                <select value={form.riscoRelevante} onChange={e => setForm({ ...form, riscoRelevante: e.target.value })}>
+                  <option value="">Não avaliado</option>
+                  <option value="SIM">Sim</option>
+                  <option value="NAO">Não</option>
+                  <option value="EM_AVALIACAO">Em avaliação</option>
+                </select>
+              </div>
+            </div>
+            {form.riscoRelevante === 'SIM' && (
+              prazo && !prazo.comunicado ? (
+                <div className={['VESPERA', 'HOJE', 'VENCIDO'].includes(prazo.situacao) ? 'alert-error mb-8' : 'alert-info mb-8'}>
+                  Comunicar à ANPD e aos titulares até <strong>{fmtData(prazo.prazo)}</strong> (3 dias úteis contados da ciência — art. 6º da Resolução CD/ANPD nº 15/2024).
+                </div>
+              ) : !prazo && (
+                <p className="text-xs text-muted mb-8">Informe a data de ciência e salve: o sistema mostra o prazo de comunicação (3 dias úteis) e avisa 1 dia útil antes e no dia.</p>
+              )
+            )}
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Data da comunicação à ANPD</label>
+                <input type="date" value={form.dataComunicacaoANPD} onChange={e => setForm({ ...form, dataComunicacaoANPD: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label>Data da comunicação aos titulares</label>
+                <input type="date" value={form.dataComunicacaoTitulares} onChange={e => setForm({ ...form, dataComunicacaoTitulares: e.target.value })} />
+              </div>
+            </div>
           </div>
+        ) : (
+          <p className="text-sm text-muted mb-16">Comunicação à ANPD: não se aplica (exercício simulado).</p>
+        )}
+
+        <div className="form-grid mb-16">
           {incidenteId && (
             <div className="form-group">
               <label>Status</label>
