@@ -10,6 +10,7 @@ const { getTrilhasComOverrides, TRILHAS_BASE } = require('./treinamento');
 const { slugUnico, slugValido } = require('../services/slug');
 const { registrarHistorico } = require('../services/historico');
 const { garantirModelosDsar } = require('../services/cargaInicial');
+const { lerMotivo, zerarMfa } = require('../services/mfa');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -202,10 +203,22 @@ router.patch('/camaras/:id/mfa-obrigatorio', adminAuth, async (req, res) => {
     if (typeof mfaObrigatorio !== 'boolean') {
       return res.status(400).json({ erro: 'mfaObrigatorio deve ser true ou false' });
     }
-    const org = await prisma.organizacao.update({
-      where: { id: req.params.id },
-      data: { mfaObrigatorio },
-      select: { id: true, nome: true, mfaObrigatorio: true }
+    const antes = await prisma.organizacao.findUnique({ where: { id: req.params.id }, select: { mfaObrigatorio: true } });
+    if (!antes) return res.status(404).json({ erro: 'Organização não encontrada' });
+    const org = await prisma.$transaction(async (tx) => {
+      const o = await tx.organizacao.update({
+        where: { id: req.params.id },
+        data: { mfaObrigatorio },
+        select: { id: true, nome: true, mfaObrigatorio: true }
+      });
+      // Etapa 6d: fica no historico da organizacao (antes so no log)
+      if (antes.mfaObrigatorio !== mfaObrigatorio) {
+        await registrarHistorico(tx, {
+          organizacaoId: o.id, entidade: 'ORGANIZACAO', registroId: o.id, acao: 'EDITAR', usuarioId: null,
+          diff: { mfaObrigatorio: { antes: antes.mfaObrigatorio, depois: mfaObrigatorio }, alteradoPorAdmin: { antes: null, depois: req.admin?.email || 'admin' } }
+        });
+      }
+      return o;
     });
     console.log(`[AUDIT] admin=${req.admin.email} mfa_obrigatorio=${mfaObrigatorio} org=${org.id}`);
     res.json(org);
@@ -269,6 +282,24 @@ router.patch('/usuarios/:id/perfil', adminAuth, async (req, res) => {
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ erro: 'Usuário não encontrado' });
     res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+// POST /admin/usuarios/:id/mfa/zerar { motivo } — Admin zera o MFA de um
+// usuario de qualquer camara. Mesmo efeito do Gestor/DPO.
+router.post('/usuarios/:id/mfa/zerar', adminAuth, async (req, res) => {
+  try {
+    const m = lerMotivo(req.body?.motivo);
+    if (m.erro) return res.status(400).json({ erro: m.erro });
+    const alvo = await prisma.usuario.findFirst({ where: { id: req.params.id, deletedAt: null }, select: { id: true, organizacaoId: true, mfaAtivo: true, mfaSecret: true, mfaSecretPendente: true, sessaoVersao: true } });
+    if (!alvo) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    if (!alvo.mfaAtivo && !alvo.mfaSecret && !alvo.mfaSecretPendente) return res.status(400).json({ erro: 'Este usuário não tem MFA configurado' });
+    const u = await zerarMfa(prisma, { alvo, adminEmail: req.admin?.email || 'admin', motivo: m.motivo });
+    console.log('[AUDIT] admin zerou MFA do usuario', alvo.id);
+    res.json({ ...u, mensagem: 'MFA zerado. As sessões abertas desse usuário foram encerradas.' });
+  } catch (err) {
+    console.error('[POST /admin/usuarios/:id/mfa/zerar]', err);
+    res.status(500).json({ erro: 'Erro ao zerar MFA' });
   }
 });
 

@@ -10,7 +10,7 @@ const CAMPOS_IGNORADOS = new Set([
   'id', 'organizacaoId', 'criadoEm', 'atualizadoEm', '_count',
   'historico', 'evidencias', 'item', 'itemId', 'responsavel', 'organizacao',
   'evidenciaHash', 'hashSha256',
-  'senha', 'senhaHash', 'novaSenha', 'mfaSecret', 'token',
+  'senha', 'senhaHash', 'novaSenha', 'mfaSecret', 'mfaSecretPendente', 'token',
   'conteudo', 'conteudoMd', 'arquivo'
 ]);
 

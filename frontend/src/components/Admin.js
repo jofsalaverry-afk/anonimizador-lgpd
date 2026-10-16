@@ -206,6 +206,19 @@ export default function Admin() {
     }
   };
 
+  const zerarMfaAdmin = async (u) => {
+    const motivo = window.prompt(`Zerar o MFA de ${u.nome || u.email}? Informe o motivo (obrigatório):`, '');
+    if (motivo === null) return;
+    if (!motivo.trim()) { alert('Motivo obrigatório. Nada foi alterado.'); return; }
+    try {
+      const r = await axios.post(`${API}/admin/usuarios/${u.id}/mfa/zerar`, { motivo: motivo.trim() }, { headers });
+      alert(r.data?.mensagem || 'MFA zerado.');
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao zerar MFA');
+    }
+  };
+
   const toggleUsuario = async (id) => {
     try {
       await axios.patch(`${API}/admin/usuarios/${id}/toggle`, {}, { headers });
@@ -531,6 +544,7 @@ export default function Admin() {
                         </div>
                         <div className="flex-center gap-8">
                           <button type="button" onClick={() => editarNome(u)} className="btn-ghost" title="Corrigir o nome da pessoa">Editar nome</button>
+                          {u.mfaAtivo && <button type="button" onClick={() => zerarMfaAdmin(u)} className="btn-ghost" title="Apaga o autenticador e encerra as sessões">Zerar MFA</button>}
                           <button
                             type="button"
                             onClick={() => toggleUsuario(u.id)}

@@ -8,6 +8,15 @@ const { body } = require('express-validator');
 const { auditarLogin } = require('../middlewares/auditoria');
 const { validar, validarEmail } = require('../middlewares/seguranca');
 const { authUsuario } = require('../middlewares/authUsuario');
+const { registrarHistorico } = require('../services/historico');
+const { codigoValido, sessaoValida, RE_CODIGO } = require('../services/mfa');
+
+// Historico do MFA no registro do proprio usuario (nunca o segredo)
+function historicoMfa(db, usuario, diff, porUsuarioId = usuario.id) {
+  return registrarHistorico(db, {
+    organizacaoId: usuario.organizacaoId, entidade: 'USUARIO', registroId: usuario.id, acao: 'EDITAR', usuarioId: porUsuarioId, diff
+  });
+}
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -34,7 +43,8 @@ function emitirSessao(usuario) {
     perfil: usuario.perfil,
     organizacaoId: usuario.organizacaoId,
     orgNome: usuario.organizacao.nome,
-    modulosAtivos: usuario.organizacao.modulosAtivos
+    modulosAtivos: usuario.organizacao.modulosAtivos,
+    sv: usuario.sessaoVersao || 0
   }, process.env.JWT_SECRET, { expiresIn: '8h' });
   return {
     token,
@@ -58,7 +68,7 @@ const authRequired = authUsuario;
 // Aceita sessao completa OU o setupToken emitido no login quando a
 // organizacao exige MFA e o usuario ainda nao configurou. Usado so em
 // /mfa/configurar e /mfa/ativar.
-function authOuSetupMfa(req, res, next) {
+async function authOuSetupMfa(req, res, next) {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
@@ -70,6 +80,7 @@ function authOuSetupMfa(req, res, next) {
       req.mfaSetup = true;
       return next();
     }
+    if (!(await sessaoValida(prisma, decoded))) return res.status(401).json({ erro: 'Sessão encerrada. Entre novamente.' });
     req.usuario = decoded;
     next();
   } catch (err) {
@@ -154,6 +165,7 @@ router.get('/me', async (req, res) => {
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (decoded.mfaPending || decoded.mfaSetup) return res.status(401).json({ erro: 'Sessão incompleta (MFA pendente)' });
+    if (!(await sessaoValida(prisma, decoded))) return res.status(401).json({ erro: 'Sessão encerrada. Entre novamente.' });
     const usuario = await prisma.usuario.findUnique({
       where: { id: decoded.id },
       select: {
@@ -173,13 +185,19 @@ router.get('/me', async (req, res) => {
 
 // ==================== MFA (TOTP / Google Authenticator) ====================
 
-// Gera um secret novo, grava no usuario (mfaAtivo continua false) e
-// devolve o QR code em data URL pronto pra escanear. Se chamar 2x, o
-// secret antigo e sobrescrito — so o ultimo vale.
+// Gera um secret novo e devolve o QR code em data URL.
+// - MFA ainda nao ativo: grava em mfaSecret (mfaAtivo continua false).
+// - MFA ja ativo (troca de aparelho): EXIGE o codigo atual valido (Etapa
+//   6d). Sem ele, recusa e nao altera nada. Com ele, o segredo novo fica em
+//   mfaSecretPendente; o MFA atual segue valendo ate o novo ser confirmado
+//   em /mfa/ativar.
 router.post('/mfa/configurar', authOuSetupMfa, async (req, res) => {
   try {
     const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
     if (!usuario) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    if (usuario.mfaAtivo && !codigoValido(usuario.mfaSecret, req.body?.codigo)) {
+      return res.status(400).json({ erro: 'O MFA já está ativo: informe o código atual do autenticador para trocar de aparelho' });
+    }
 
     const secret = speakeasy.generateSecret({
       length: 20,
@@ -188,7 +206,9 @@ router.post('/mfa/configurar', authOuSetupMfa, async (req, res) => {
     });
     await prisma.usuario.update({
       where: { id: usuario.id },
-      data: { mfaSecret: secret.base32, mfaAtivo: false }
+      data: usuario.mfaAtivo
+        ? { mfaSecretPendente: secret.base32 }
+        : { mfaSecret: secret.base32, mfaSecretPendente: null, mfaAtivo: false }
     });
     const qrCode = await QRCode.toDataURL(secret.otpauth_url);
     res.json({
@@ -208,19 +228,19 @@ router.post('/mfa/ativar', authOuSetupMfa, validadorCodigoMfa, validar, async (r
   try {
     const { codigo } = req.body;
     const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
-    if (!usuario || !usuario.mfaSecret) {
-      return res.status(400).json({ erro: 'Configure o MFA antes de ativar' });
+    // Troca de aparelho: confirma o segredo pendente; senao, o da configuracao
+    const troca = !!(usuario?.mfaAtivo && usuario.mfaSecretPendente);
+    const alvo = troca ? usuario.mfaSecretPendente : usuario?.mfaSecret;
+    if (!usuario || !alvo || (usuario.mfaAtivo && !troca)) {
+      return res.status(400).json({ erro: usuario?.mfaAtivo ? 'O MFA já está ativo' : 'Configure o MFA antes de ativar' });
     }
-    const ok = speakeasy.totp.verify({
-      secret: usuario.mfaSecret,
-      encoding: 'base32',
-      token: codigo,
-      window: 1
-    });
-    if (!ok) return res.status(400).json({ erro: 'Código inválido' });
-    await prisma.usuario.update({
-      where: { id: usuario.id },
-      data: { mfaAtivo: true }
+    if (!codigoValido(alvo, codigo)) return res.status(400).json({ erro: 'Código inválido' });
+    await prisma.$transaction(async (tx) => {
+      await tx.usuario.update({
+        where: { id: usuario.id },
+        data: troca ? { mfaSecret: alvo, mfaSecretPendente: null, mfaAtivo: true } : { mfaAtivo: true }
+      });
+      await historicoMfa(tx, usuario, { mfa: troca ? { antes: 'ativo', depois: 'ativo (autenticador trocado)' } : { antes: 'inativo', depois: 'ativo' } });
     });
 
     // Veio do login com MFA obrigatorio: conclui o login aqui.
@@ -285,11 +305,13 @@ router.post('/mfa/verificar', validadorCodigoMfa, validar, async (req, res) => {
   }
 });
 
-// Desativa MFA. Requer um codigo TOTP valido atual para confirmar que
-// e o proprio dono da conta (ninguem com token roubado pode desativar).
-router.put('/mfa/desativar', authRequired, validadorCodigoMfa, validar, async (req, res) => {
+// Desativa MFA. Requer o codigo TOTP atual OU a senha (Etapa 6d) para
+// confirmar que e o proprio dono da conta. Sempre responde com mensagem.
+router.put('/mfa/desativar', authRequired, async (req, res) => {
   try {
-    const { codigo } = req.body;
+    const { codigo, senha } = req.body || {};
+    if (!codigo && !senha) return res.status(400).json({ erro: 'Informe o código do autenticador ou a sua senha' });
+    if (codigo && !RE_CODIGO.test(String(codigo))) return res.status(400).json({ erro: 'Código deve ter 6 dígitos' });
     const usuario = await prisma.usuario.findUnique({
       where: { id: req.usuario.id },
       include: { organizacao: { select: { mfaObrigatorio: true } } }
@@ -300,18 +322,18 @@ router.put('/mfa/desativar', authRequired, validadorCodigoMfa, validar, async (r
     if (usuario.organizacao.mfaObrigatorio) {
       return res.status(403).json({ erro: 'Sua organização exige MFA. Não é possível desativar.' });
     }
-    const ok = speakeasy.totp.verify({
-      secret: usuario.mfaSecret,
-      encoding: 'base32',
-      token: codigo,
-      window: 1
+    const ok = codigo
+      ? codigoValido(usuario.mfaSecret, codigo)
+      : (typeof senha === 'string' && senha.length <= 200 && await bcrypt.compare(senha, usuario.senhaHash));
+    if (!ok) return res.status(400).json({ erro: codigo ? 'Código inválido' : 'Senha incorreta' });
+    await prisma.$transaction(async (tx) => {
+      await tx.usuario.update({
+        where: { id: usuario.id },
+        data: { mfaSecret: null, mfaSecretPendente: null, mfaAtivo: false }
+      });
+      await historicoMfa(tx, usuario, { mfa: { antes: 'ativo', depois: 'inativo' }, confirmadoCom: { antes: null, depois: codigo ? 'código do autenticador' : 'senha' } });
     });
-    if (!ok) return res.status(400).json({ erro: 'Código inválido' });
-    await prisma.usuario.update({
-      where: { id: usuario.id },
-      data: { mfaSecret: null, mfaAtivo: false }
-    });
-    res.json({ ok: true, mfaAtivo: false });
+    res.json({ ok: true, mfaAtivo: false, mensagem: 'MFA desativado.' });
   } catch (err) {
     console.error('[PUT /auth/mfa/desativar]', err);
     res.status(500).json({ erro: 'Erro ao desativar MFA' });

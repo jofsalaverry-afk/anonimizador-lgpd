@@ -193,6 +193,12 @@ model Usuario {
   // mfaAtivo so vira true apos o usuario confirmar o primeiro codigo.
   mfaSecret      String?
   mfaAtivo       Boolean   @default(false)
+  // Etapa 6d: segredo novo enquanto o usuario troca de autenticador (so
+  // vira mfaSecret quando o 1o codigo do novo app e confirmado).
+  mfaSecretPendente String?
+  // Etapa 6d: sobe 1 a cada "zerar MFA"; sessoes emitidas com versao
+  // menor deixam de valer (encerra as sessoes abertas).
+  sessaoVersao   Int       @default(0)
   criadoEm       DateTime  @default(now())
   ultimoAcesso   DateTime?
   deletedAt      DateTime?

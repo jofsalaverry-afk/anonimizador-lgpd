@@ -4,6 +4,7 @@ const { authUsuario } = require('../middlewares/authUsuario');
 const bcrypt = require('bcrypt');
 const { ehGestorOuDpo } = require('../middlewares/requireModulo');
 const { registrarHistorico } = require('../services/historico');
+const { lerMotivo, zerarMfa } = require('../services/mfa');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -139,6 +140,30 @@ router.patch('/:id/nome', async (req, res) => {
   } catch (err) {
     console.error('[PATCH /usuarios/:id/nome]', err);
     res.status(500).json({ erro: 'Erro ao alterar nome' });
+  }
+});
+
+// POST /usuarios/:id/mfa/zerar { motivo } — Gestor/DPO zeram o MFA de OUTRO
+// usuario da propria organizacao (perdeu o celular etc.). Apaga o segredo,
+// marca inativo e encerra as sessoes abertas dele. Motivo obrigatorio,
+// gravado no historico do usuario.
+router.post('/:id/mfa/zerar', async (req, res) => {
+  try {
+    if (!exigirGestao(req, res)) return;
+    if (req.params.id === req.usuario.id) return res.status(400).json({ erro: 'Você não pode zerar o seu próprio MFA' });
+    const m = lerMotivo(req.body?.motivo);
+    if (m.erro) return res.status(400).json({ erro: m.erro });
+    const alvo = await prisma.usuario.findFirst({
+      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId, deletedAt: null },
+      select: { id: true, organizacaoId: true, mfaAtivo: true, mfaSecret: true, mfaSecretPendente: true, sessaoVersao: true }
+    });
+    if (!alvo) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    if (!alvo.mfaAtivo && !alvo.mfaSecret && !alvo.mfaSecretPendente) return res.status(400).json({ erro: 'Este usuário não tem MFA configurado' });
+    const u = await zerarMfa(prisma, { alvo, usuarioId: req.usuario.id, motivo: m.motivo });
+    res.json({ ...u, mensagem: 'MFA zerado. As sessões abertas desse usuário foram encerradas.' });
+  } catch (err) {
+    console.error('[POST /usuarios/:id/mfa/zerar]', err);
+    res.status(500).json({ erro: 'Erro ao zerar MFA' });
   }
 });
 

@@ -337,12 +337,44 @@ async function main() {
     }, 200, r => !!r.json.token || 'sem sessão');
   }
   const l2 = await passo('MFA', 'próximo login pede código', 'POST', '/auth/login', { body: cred.OPERADOR }, 200, r => r.json.mfaPendente === true || 'não pediu código');
+  let sessaoOp = null;
   if (l2?.json?.mfaPendente) {
-    await passo('MFA', 'verificar código', 'POST', '/auth/mfa/verificar', {
+    const v = await passo('MFA', 'verificar código', 'POST', '/auth/mfa/verificar', {
       body: { tempToken: l2.json.tempToken, codigo: speakeasy.totp({ secret: cred.OPERADOR.mfaSecret, encoding: 'base32' }) }
     }, 200, r => !!r.json.token || 'sem sessão');
+    sessaoOp = v?.json?.token;
   }
   await passo('MFA', 'desligar MFA obrigatório (para o teste no navegador)', 'PATCH', `/admin/camaras/${org.id}/mfa-obrigatorio`, { token: ctx.admin, body: { mfaObrigatorio: false } });
+  await passo('MFA', 'ligar/desligar "MFA obrigatório" no histórico da câmara', 'GET', `/historico?entidade=ORGANIZACAO&registroId=${org.id}`, { token: G }, 200,
+    r => (r.json.itens.some(h => h.diff?.mfaObrigatorio?.depois === true) && r.json.itens.some(h => h.diff?.mfaObrigatorio?.depois === false)) || 'sem registro');
+
+  // ---------- Etapa 6d: troca de autenticador, desativar, zerar ----------
+  const totp = sec => speakeasy.totp({ secret: sec, encoding: 'base32' });
+  if (sessaoOp) {
+    await passo('MFA 6d', 'MFA ativo: configurar sem código é recusado (400)', 'POST', '/auth/mfa/configurar', { token: sessaoOp, body: {} }, 400);
+    await passo('MFA 6d', 'MFA ativo: configurar com código errado é recusado (400)', 'POST', '/auth/mfa/configurar', { token: sessaoOp, body: { codigo: totp(cred.OPERADOR.mfaSecret) === '000000' ? '111111' : '000000' } }, 400);
+    await passo('MFA 6d', 'Gestor não zera o próprio MFA (400)', 'POST', `/usuarios/${gestorU?.id}/mfa/zerar`, { token: G, body: { motivo: 'teste' } }, 400);
+    await passo('MFA 6d', 'zerar sem motivo é recusado (400)', 'POST', `/usuarios/${operador?.id}/mfa/zerar`, { token: G, body: {} }, 400);
+    await passo('MFA 6d', 'Gestor zera o MFA do OPERADOR (com motivo)', 'POST', `/usuarios/${operador?.id}/mfa/zerar`, { token: G, body: { motivo: 'fumaça: perdeu o celular' } }, 200,
+      r => (r.json.mfaAtivo === false && /sessões/.test(r.json.mensagem)) || 'não zerou');
+    await passo('MFA 6d', 'sessão antiga do OPERADOR foi encerrada (401)', 'GET', '/auth/me', { token: sessaoOp }, 401);
+    await passo('MFA 6d', 'histórico: quem zerou e o motivo', 'GET', `/historico?entidade=USUARIO&registroId=${operador?.id}`, { token: G }, 200,
+      r => (r.json.itens[0]?.diff?.motivo?.depois === 'fumaça: perdeu o celular' && r.json.itens[0].usuarioId === gestorU?.id) || 'sem motivo/autor');
+    delete cred.OPERADOR.mfaSecret; // zerado: a proxima rodada configura de novo
+    fs.writeFileSync(ARQ_CRED, JSON.stringify(cred, null, 2));
+  }
+  // AUDITOR: ativa, desativa com senha, ativa de novo e o Admin zera
+  const audLogin = await req('POST', '/auth/login', { body: cred.AUDITOR });
+  const tA = audLogin.json?.token;
+  const cfgA = await passo('MFA 6d', 'AUDITOR: configurar autenticador', 'POST', '/auth/mfa/configurar', { token: tA, body: {} }, 200, r => !!r.json.secret || 'sem segredo');
+  await passo('MFA 6d', 'AUDITOR: ativar', 'POST', '/auth/mfa/ativar', { token: tA, body: { codigo: totp(cfgA?.json?.secret) } });
+  await passo('MFA 6d', 'desativar sem código nem senha: erro com mensagem (400)', 'PUT', '/auth/mfa/desativar', { token: tA, body: {} }, 400, r => !!r.json.erro || 'sem mensagem');
+  await passo('MFA 6d', 'desativar com a senha', 'PUT', '/auth/mfa/desativar', { token: tA, body: { senha: cred.AUDITOR.senha } }, 200, r => r.json.mensagem === 'MFA desativado.' || 'sem mensagem');
+  const cfgA2 = await passo('MFA 6d', 'AUDITOR: configurar de novo', 'POST', '/auth/mfa/configurar', { token: tA, body: {} });
+  await passo('MFA 6d', 'AUDITOR: ativar de novo', 'POST', '/auth/mfa/ativar', { token: tA, body: { codigo: totp(cfgA2?.json?.secret) } });
+  await passo('MFA 6d', 'Admin zera o MFA do AUDITOR (com motivo)', 'POST', `/admin/usuarios/${(lista?.json || []).find(u => u.email === cred.AUDITOR.email)?.id}/mfa/zerar`, { token: ctx.admin, body: { motivo: 'fumaça: zerar pelo admin' } }, 200,
+    r => r.json.mfaAtivo === false || 'não zerou');
+  await passo('MFA 6d', 'AUDITOR entra de novo sem código', 'POST', '/auth/login', { body: cred.AUDITOR }, 200, r => (!!r.json.token && !r.json.mfaPendente) || 'pediu código');
 }
 
 main()

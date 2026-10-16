@@ -12,6 +12,9 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
   const [qrCode, setQrCode] = useState('');
   const [secretPlain, setSecretPlain] = useState('');
   const [codigo, setCodigo] = useState('');
+  // desativar: confirmar com o codigo do app ou com a senha
+  const [confirmarCom, setConfirmarCom] = useState('codigo');
+  const [senha, setSenha] = useState('');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [erro, setErro] = useState('');
@@ -50,20 +53,25 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
     setLoading(false);
   };
 
+  // Etapa 6d: antes havia um window.confirm() aqui; se a caixa nativa era
+  // cancelada ou bloqueada pelo navegador, a funcao saia sem mensagem e o
+  // pedido nunca era enviado ("falha calada"). Agora a confirmacao e o
+  // proprio formulario (codigo ou senha) e toda saida mostra mensagem.
   const desativar = async (e) => {
     e.preventDefault();
-    if (!codigo || codigo.length < 6) return setErro('Informe o código de 6 dígitos');
-    if (!window.confirm('Tem certeza que deseja desativar o MFA? Sua conta ficará menos segura.')) return;
+    setErro(''); setMsg('');
+    const corpo = confirmarCom === 'senha' ? { senha } : { codigo };
+    if (confirmarCom === 'senha' && !senha) return setErro('Informe a sua senha para confirmar');
+    if (confirmarCom === 'codigo' && codigo.length !== 6) return setErro('Informe o código de 6 dígitos do autenticador');
     setLoading(true);
-    setErro('');
     try {
-      await axios.put(`${API}/auth/mfa/desativar`, { codigo }, { headers });
-      setCodigo('');
-      setMsg('MFA desativado.');
+      const r = await axios.put(`${API}/auth/mfa/desativar`, corpo, { headers });
+      setCodigo(''); setSenha('');
+      setMsg(r.data?.mensagem || 'MFA desativado.');
       setEtapa('status');
       onStatusChange && onStatusChange(false);
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao desativar MFA');
+      setErro(err.response?.data?.erro || 'Não foi possível desativar o MFA. Tente novamente.');
     }
     setLoading(false);
   };
@@ -143,23 +151,31 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
       )}
 
       {etapa === 'desativar' && (
-        <form onSubmit={desativar}>
-          <p className="text-sm mb-8">Para desativar, informe o código atual do seu app autenticador:</p>
-          <input
-            type="text"
-            inputMode="numeric"
-            maxLength={6}
-            value={codigo}
-            onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))}
-            placeholder="000000"
-            required
-            style={{ fontSize: 22, letterSpacing: 6, textAlign: 'center', fontWeight: 700, maxWidth: 200 }}
-          />
+        <form onSubmit={desativar} noValidate>
+          <p className="text-sm mb-8">Desativar deixa a sua conta menos segura. Para confirmar, informe:</p>
+          <div className="flex gap-8 mb-8">
+            <label className="text-sm" style={{ fontWeight: 400 }}><input type="radio" name="confirmarCom" checked={confirmarCom === 'codigo'} onChange={() => setConfirmarCom('codigo')} style={{ width: 'auto' }} /> código do app autenticador</label>
+            <label className="text-sm" style={{ fontWeight: 400 }}><input type="radio" name="confirmarCom" checked={confirmarCom === 'senha'} onChange={() => setConfirmarCom('senha')} style={{ width: 'auto' }} /> minha senha</label>
+          </div>
+          {confirmarCom === 'codigo' ? (
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={codigo}
+              onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))}
+              placeholder="000000"
+              aria-label="Código do autenticador"
+              style={{ fontSize: 22, letterSpacing: 6, textAlign: 'center', fontWeight: 700, maxWidth: 200 }}
+            />
+          ) : (
+            <input type="password" value={senha} onChange={e => setSenha(e.target.value)} placeholder="Sua senha" aria-label="Senha" autoComplete="current-password" style={{ maxWidth: 300 }} />
+          )}
           <div className="flex gap-8 mt-8">
             <button type="submit" disabled={loading} className="btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: 4 }}>
               {loading ? 'Desativando...' : 'Confirmar desativação'}
             </button>
-            <button type="button" onClick={() => { setEtapa('status'); setCodigo(''); setErro(''); }} className="btn-sm">
+            <button type="button" onClick={() => { setEtapa('status'); setCodigo(''); setSenha(''); setErro(''); setMsg('Desativação cancelada. O MFA continua ativo.'); }} className="btn-sm">
               Cancelar
             </button>
           </div>

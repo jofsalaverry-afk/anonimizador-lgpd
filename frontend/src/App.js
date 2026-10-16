@@ -23,6 +23,22 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // Etapa 6d: sessao encerrada no servidor (ex.: MFA zerado por Gestor/DPO
+  // ou Admin) — qualquer resposta "Sessao encerrada" leva de volta ao login.
+  useEffect(() => {
+    const id = axios.interceptors.response.use(r => r, err => {
+      if (err.response?.status === 401 && /^Sessão encerrada/.test(err.response?.data?.erro || '')) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('usuario');
+        localStorage.removeItem('camara');
+        setToken(null);
+        setUsuario(null);
+      }
+      return Promise.reject(err);
+    });
+    return () => axios.interceptors.response.eject(id);
+  }, []);
+
   // Ao inicializar (ou apos login), busca dados frescos do usuario
   // incluindo modulosAtivos atualizados do banco.
   useEffect(() => {

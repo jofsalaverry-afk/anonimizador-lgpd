@@ -20,6 +20,7 @@ export default function UsuariosOrganizacao({ token, usuario }) {
   const [form, setForm] = useState(null);
   const [historicoDe, setHistoricoDe] = useState(null);
   const [versaoHist, setVersaoHist] = useState(0);
+  const [zerar, setZerar] = useState(null); // { id, nome, motivo }
   const [erro, setErro] = useState('');
   const [msg, setMsg] = useState('');
   const headers = { Authorization: `Bearer ${token}` };
@@ -45,6 +46,14 @@ export default function UsuariosOrganizacao({ token, usuario }) {
     const nome = window.prompt('Nome da pessoa', u.nome || '');
     if (nome === null || !nome.trim() || nome.trim() === u.nome) return;
     if (await executar(() => axios.patch(`${API}/usuarios/${u.id}/nome`, { nome: nome.trim() }, { headers }), 'Nome alterado.')) setVersaoHist(v => v + 1);
+  };
+
+  // Confirmacao no proprio formulario (motivo obrigatorio), sem caixa nativa
+  const confirmarZerar = async () => {
+    if (!zerar.motivo.trim()) { setErro('Informe o motivo para zerar o MFA'); return; }
+    const ok = await executar(() => axios.post(`${API}/usuarios/${zerar.id}/mfa/zerar`, { motivo: zerar.motivo.trim() }, { headers }),
+      `MFA de ${zerar.nome} zerado. As sessões abertas dessa pessoa foram encerradas; no próximo acesso ela configura o autenticador de novo.`);
+    if (ok) { setZerar(null); setVersaoHist(v => v + 1); }
   };
 
   const criar = async () => {
@@ -110,10 +119,26 @@ export default function UsuariosOrganizacao({ token, usuario }) {
                         </button>
                       )}
                       <button className="btn-ghost btn-sm" onClick={() => editarNome(u)}>Editar nome</button>
+                      {!eu && u.mfaAtivo && (
+                        <button className="btn-ghost btn-sm" onClick={() => { setErro(''); setMsg(''); setZerar({ id: u.id, nome: u.nome, motivo: '' }); }}>Zerar MFA</button>
+                      )}
                       <button className="btn-ghost btn-sm" onClick={() => setHistoricoDe(historicoDe === u.id ? null : u.id)}>Histórico</button>
                     </div>
                   </td>
                 </tr>,
+                zerar?.id === u.id && (
+                  <tr key={`${u.id}-z`}><td colSpan={7}>
+                    <div className="card-flush" style={{ border: '1px solid #fca5a5', background: '#fef2f2', borderRadius: 8, padding: 12 }}>
+                      <div className="text-sm mb-8"><strong>Zerar o MFA de {u.nome}?</strong> O autenticador atual deixa de valer, as sessões abertas dessa pessoa são encerradas e ela terá de configurar o MFA de novo. Fica registrado no histórico.</div>
+                      <label>Motivo (obrigatório)</label>
+                      <input value={zerar.motivo} onChange={e => setZerar({ ...zerar, motivo: e.target.value })} placeholder="Ex.: perdeu o celular" maxLength={500} />
+                      <div className="btn-row mt-8">
+                        <button className="btn-danger btn-sm" onClick={confirmarZerar}>Confirmar: zerar MFA</button>
+                        <button className="btn-secondary btn-sm" onClick={() => setZerar(null)}>Cancelar</button>
+                      </div>
+                    </div>
+                  </td></tr>
+                ),
                 historicoDe === u.id && (
                   <tr key={`${u.id}-h`}><td colSpan={7}><Historico token={token} entidade="USUARIO" registroId={u.id} versao={versaoHist} /></td></tr>
                 )
