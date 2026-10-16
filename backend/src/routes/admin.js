@@ -352,6 +352,11 @@ router.post('/repositorio/upload', adminAuth, uploadRepo.single('arquivo'), asyn
     if (!titulo || !categoria || !organizacaoId) {
       return res.status(400).json({ erro: 'titulo, categoria e organizacaoId são obrigatórios' });
     }
+    // = enum TipoDocRepo; valor fora disso virava erro 500 do Prisma
+    const CATEGORIAS_DOC = ['POLITICA', 'TERMO', 'ADITIVO', 'CONTRATO', 'MODELO', 'OUTRO', 'POLITICA_PRIVACIDADE', 'POLITICA_SEGURANCA', 'MODELO_DSAR', 'TERMO_USO'];
+    if (!CATEGORIAS_DOC.includes(categoria)) {
+      return res.status(400).json({ erro: 'Categoria inválida' });
+    }
     // Valida que a org existe antes de criar
     const org = await prisma.organizacao.findUnique({ where: { id: organizacaoId }, select: { id: true } });
     if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
@@ -423,7 +428,11 @@ router.delete('/camaras/:id/excluir', adminAuth, async (req, res) => {
             historicos: true,
             setores: true,
             sistemas: true,
-            terceiros: true
+            terceiros: true,
+            progressos: true,
+            certificados: true,
+            descartes: true,
+            itensChecklist: true
           }
         }
       }

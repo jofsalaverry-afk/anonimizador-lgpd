@@ -17,6 +17,7 @@ const {
 } = require('../services/emailService');
 const { validar, validarEmail, validarCpf, validarCuid, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
 const { registrarHistorico } = require('../services/historico');
+const { preencherModelo } = require('../services/modeloResposta');
 
 const router = express.Router();
 
@@ -353,6 +354,133 @@ router.patch('/solicitacoes/:id/verificar-identidade', authMiddleware, requireMo
   } catch (err) {
     console.error('[PATCH /dsar/solicitacoes/:id/verificar-identidade]', err);
     res.status(500).json({ erro: 'Erro ao verificar identidade' });
+  }
+});
+
+// ---------- Modelos de resposta (Etapa 3 PoC) ----------
+// Leitura para todos com o modulo; escrita so Gestor/DPO.
+
+function lerModelo(b, { parcial }) {
+  const data = {};
+  if (!parcial || b.tipoDireito !== undefined) {
+    if (!TIPOS_DIREITO.includes(b.tipoDireito)) return { erro: 'Tipo de direito inválido' };
+    data.tipoDireito = b.tipoDireito;
+  }
+  for (const [campo, max] of [['titulo', 200], ['conteudo', 20000]]) {
+    if (!parcial || b[campo] !== undefined) {
+      const v = typeof b[campo] === 'string' ? b[campo].trim() : '';
+      if (!v) return { erro: `${campo === 'titulo' ? 'Título' : 'Conteúdo'} é obrigatório` };
+      data[campo] = v.slice(0, max);
+    }
+  }
+  if (b.padrao !== undefined) data.padrao = !!b.padrao;
+  return { data };
+}
+
+const ehGestorOuDpo = req => ['GESTOR', 'ENCARREGADO_LGPD'].includes(req.usuario.perfil);
+
+// "conteudo" e ignorado pelo diff generico (pensado para arquivo/documento).
+// O texto do modelo nao tem dado pessoal e precisa aparecer no historico.
+function modeloParaHistorico(m) {
+  if (!m) return null;
+  const { conteudo, ...resto } = m;
+  return { ...resto, texto: conteudo };
+}
+
+router.get('/modelos', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    const where = { organizacaoId: req.usuario.organizacaoId };
+    if (TIPOS_DIREITO.includes(req.query.tipoDireito)) where.tipoDireito = req.query.tipoDireito;
+    const modelos = await prisma.modeloRespostaDSAR.findMany({ where, orderBy: [{ tipoDireito: 'asc' }, { titulo: 'asc' }] });
+    res.json(modelos);
+  } catch (err) {
+    console.error('[GET /dsar/modelos]', err);
+    res.status(500).json({ erro: 'Erro ao listar modelos' });
+  }
+});
+
+router.post('/modelos', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!ehGestorOuDpo(req)) return res.status(403).json({ erro: 'Apenas Gestor ou DPO podem cadastrar modelos' });
+    const lido = lerModelo(req.body || {}, { parcial: false });
+    if (lido.erro) return res.status(400).json({ erro: lido.erro });
+    const modelo = await prisma.$transaction(async (tx) => {
+      const criado = await tx.modeloRespostaDSAR.create({ data: { ...lido.data, organizacaoId: req.usuario.organizacaoId } });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'MODELO_DSAR', registroId: criado.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null, depois: modeloParaHistorico(criado)
+      });
+      return criado;
+    });
+    res.status(201).json(modelo);
+  } catch (err) {
+    console.error('[POST /dsar/modelos]', err);
+    res.status(500).json({ erro: 'Erro ao criar modelo' });
+  }
+});
+
+router.put('/modelos/:id', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!ehGestorOuDpo(req)) return res.status(403).json({ erro: 'Apenas Gestor ou DPO podem editar modelos' });
+    const existente = await prisma.modeloRespostaDSAR.findFirst({ where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId } });
+    if (!existente) return res.status(404).json({ erro: 'Modelo não encontrado' });
+    const lido = lerModelo(req.body || {}, { parcial: true });
+    if (lido.erro) return res.status(400).json({ erro: lido.erro });
+    const modelo = await prisma.$transaction(async (tx) => {
+      const atualizado = await tx.modeloRespostaDSAR.update({ where: { id: existente.id }, data: lido.data });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'MODELO_DSAR', registroId: existente.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id, antes: modeloParaHistorico(existente), depois: modeloParaHistorico(atualizado)
+      });
+      return atualizado;
+    });
+    res.json(modelo);
+  } catch (err) {
+    console.error('[PUT /dsar/modelos/:id]', err);
+    res.status(500).json({ erro: 'Erro ao atualizar modelo' });
+  }
+});
+
+// Modelo e texto de apoio (nao e registro do titular): exclusao fisica,
+// com o conteudo final preservado no historico.
+router.delete('/modelos/:id', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!ehGestorOuDpo(req)) return res.status(403).json({ erro: 'Apenas Gestor ou DPO podem excluir modelos' });
+    const existente = await prisma.modeloRespostaDSAR.findFirst({ where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId } });
+    if (!existente) return res.status(404).json({ erro: 'Modelo não encontrado' });
+    await prisma.$transaction(async (tx) => {
+      await tx.modeloRespostaDSAR.delete({ where: { id: existente.id } });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'MODELO_DSAR', registroId: existente.id,
+        acao: 'EXCLUIR', usuarioId: req.usuario.id, antes: modeloParaHistorico(existente), depois: null
+      });
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[DELETE /dsar/modelos/:id]', err);
+    res.status(500).json({ erro: 'Erro ao excluir modelo' });
+  }
+});
+
+// GET /dsar/solicitacoes/:id/modelos/:modeloId/preenchido — texto do
+// modelo com {nome_titular}, {protocolo} e {nome_organizacao} trocados.
+router.get('/solicitacoes/:id/modelos/:modeloId/preenchido', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    const orgId = req.usuario.organizacaoId;
+    const [sol, modelo, org] = await Promise.all([
+      prisma.solicitacaoTitular.findFirst({ where: { id: req.params.id, organizacaoId: orgId }, select: { titularNome: true, protocolo: true } }),
+      prisma.modeloRespostaDSAR.findFirst({ where: { id: req.params.modeloId, organizacaoId: orgId } }),
+      prisma.organizacao.findUnique({ where: { id: orgId }, select: { nome: true } })
+    ]);
+    if (!sol || !modelo) return res.status(404).json({ erro: 'Solicitação ou modelo não encontrado' });
+    res.json({
+      texto: preencherModelo(modelo.conteudo, {
+        nome_titular: sol.titularNome, protocolo: sol.protocolo, nome_organizacao: org?.nome
+      })
+    });
+  } catch (err) {
+    console.error('[GET /dsar/solicitacoes/:id/modelos/:modeloId/preenchido]', err);
+    res.status(500).json({ erro: 'Erro ao preencher modelo' });
   }
 });
 

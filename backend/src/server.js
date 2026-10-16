@@ -173,6 +173,19 @@ app.use('/inventario', crudLimiter);
 app.use('/inventario', require('./routes/inventario'));
 app.use('/terceiros', crudLimiter);
 app.use('/terceiros', require('./routes/terceiros'));
+// Etapa 3 PoC: verificacao publica de certificado de treinamento (sem
+// login). Limite proprio para evitar varredura de codigos.
+const limiterCertificado = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: ipKeyGenerator,
+  validate: { xForwardedForHeader: false },
+  message: { erro: 'Muitas consultas. Aguarde alguns minutos.' }
+});
+app.use('/certificado', limiterCertificado);
+app.use('/certificado', require('./routes/certificadoPublico'));
 
 // Healthcheck. Deve ser monitorado externamente por um uptime monitor
 // gratuito (UptimeRobot, BetterStack, Healthchecks.io) apontando para

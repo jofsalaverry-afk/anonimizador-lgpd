@@ -15,12 +15,23 @@ const ENTIDADES = {
     modulo: 'repositorio',
     buscar: (db, id, organizacaoId) => db.incidente.findFirst({ where: { id, organizacaoId }, select: { id: true } })
   },
-  // Itens do checklist sao um catalogo global; o registro da org e a
-  // RespostaChecklist (unica por org+item). Usamos o id do item como
-  // registroId — o isolamento vem do organizacaoId gravado no anexo/historico.
+  // Itens do checklist: catalogo global (organizacaoId null) ou atividade
+  // propria da org. O registro da org e a RespostaChecklist (unica por
+  // org+item); usamos o id do item como registroId — o isolamento vem do
+  // organizacaoId gravado no anexo/historico. Atividade de outra org = 404.
   CHECKLIST_ITEM: {
     modulo: 'checklist',
-    buscar: (db, id) => db.itemChecklist.findUnique({ where: { id }, select: { id: true } })
+    buscar: (db, id, organizacaoId) => db.itemChecklist.findFirst({
+      where: { id, OR: [{ organizacaoId: null }, { organizacaoId }] }, select: { id: true }
+    })
+  },
+  DESCARTE: {
+    modulo: 'ropa',
+    buscar: (db, id, organizacaoId) => db.registroDescarte.findFirst({ where: { id, organizacaoId }, select: { id: true } })
+  },
+  MODELO_DSAR: {
+    modulo: 'dsar',
+    buscar: (db, id, organizacaoId) => db.modeloRespostaDSAR.findFirst({ where: { id, organizacaoId }, select: { id: true } })
   },
   SISTEMA: {
     modulo: 'inventario',

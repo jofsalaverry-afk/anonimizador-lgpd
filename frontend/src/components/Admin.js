@@ -30,6 +30,8 @@ const CATEGORIAS_REPO = [
   { value: 'MODELO_DSAR', label: 'Modelo DSAR' },
   { value: 'CONTRATO', label: 'Contrato' },
   { value: 'TERMO_USO', label: 'Termo de uso' },
+  { value: 'TERMO', label: 'Termo (confidencialidade, consentimento etc.)' },
+  { value: 'ADITIVO', label: 'Aditivo contratual LGPD' },
   { value: 'OUTRO', label: 'Outro' }
 ];
 

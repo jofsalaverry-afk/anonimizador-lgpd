@@ -2,8 +2,9 @@ import { useState } from 'react';
 import DsarList from './DsarList';
 import DsarForm from './DsarForm';
 import DsarDetail from './DsarDetail';
+import DsarModelos from './DsarModelos';
 
-export default function Dsar({ token }) {
+export default function Dsar({ token, usuario }) {
   const [tela, setTela] = useState('list');
   const [solicitacaoId, setSolicitacaoId] = useState(null);
 
@@ -19,12 +20,25 @@ export default function Dsar({ token }) {
       />
     );
   }
+  if (tela === 'modelos') {
+    return (
+      <div>
+        <button onClick={() => setTela('list')} className="link-back mb-12">← Solicitações</button>
+        <DsarModelos token={token} usuario={usuario} />
+      </div>
+    );
+  }
 
   return (
-    <DsarList
-      token={token}
-      onNova={() => setTela('nova')}
-      onVer={(id) => { setSolicitacaoId(id); setTela('ver'); }}
-    />
+    <div>
+      <div className="btn-row mb-12" style={{ justifyContent: 'flex-end' }}>
+        <button onClick={() => setTela('modelos')} className="btn-secondary btn-sm">Modelos de resposta</button>
+      </div>
+      <DsarList
+        token={token}
+        onNova={() => setTela('nova')}
+        onVer={(id) => { setSolicitacaoId(id); setTela('ver'); }}
+      />
+    </div>
   );
 }

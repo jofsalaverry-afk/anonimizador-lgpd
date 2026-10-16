@@ -4,6 +4,8 @@ import { API } from '../config';
 
 const TIPO_INC_LABEL = { VAZAMENTO: 'Vazamento', ACESSO_INDEVIDO: 'Acesso indevido', PERDA: 'Perda', ALTERACAO: 'Alteração', OUTRO: 'Outro' };
 const STATUS_INC_LABEL = { ABERTO: 'Aberto', EM_INVESTIGACAO: 'Em investigação', RESOLVIDO: 'Resolvido', ENCERRADO: 'Encerrado' };
+const SEVERIDADE_LABEL = { ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa' };
+const SEVERIDADE_BADGE = { ALTA: 'badge badge-danger', MEDIA: 'badge badge-warning', BAIXA: 'badge badge-success' };
 const STATUS_INC_BADGE = { ABERTO: 'badge badge-danger', EM_INVESTIGACAO: 'badge badge-warning', RESOLVIDO: 'badge badge-success', ENCERRADO: 'badge badge-muted' };
 
 export default function IncidenteList({ token, onNovo, onVer }) {
@@ -11,6 +13,8 @@ export default function IncidenteList({ token, onNovo, onVer }) {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
+  const [filtroSeveridade, setFiltroSeveridade] = useState('');
+  const [filtroTipo, setFiltroTipo] = useState('');
 
   const carregar = useCallback(async () => {
     try {
@@ -28,6 +32,8 @@ export default function IncidenteList({ token, onNovo, onVer }) {
 
   const filtrados = incidentes.filter(i => {
     if (filtroStatus && i.status !== filtroStatus) return false;
+    if (filtroSeveridade && i.severidade !== filtroSeveridade) return false;
+    if (filtroTipo && i.tipoRegistro !== filtroTipo) return false;
     return true;
   });
 
@@ -49,6 +55,15 @@ export default function IncidenteList({ token, onNovo, onVer }) {
           <option value="">Todos os status</option>
           {Object.entries(STATUS_INC_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
+        <select value={filtroSeveridade} onChange={e => setFiltroSeveridade(e.target.value)}>
+          <option value="">Todas as severidades</option>
+          {Object.entries(SEVERIDADE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+          <option value="">Reais e simulados</option>
+          <option value="REAL">Só reais</option>
+          <option value="SIMULADO">Só simulados</option>
+        </select>
       </div>
 
       {filtrados.length === 0 ? (
@@ -63,6 +78,7 @@ export default function IncidenteList({ token, onNovo, onVer }) {
               <tr>
                 <th>Título</th>
                 <th>Tipo</th>
+                <th>Severidade</th>
                 <th>Data Ocorrência</th>
                 <th>Titulares Afetados</th>
                 <th>ANPD</th>
@@ -74,8 +90,12 @@ export default function IncidenteList({ token, onNovo, onVer }) {
             <tbody>
               {filtrados.map(i => (
                 <tr key={i.id}>
-                  <td className="table-cell-truncate"><strong>{i.titulo}</strong></td>
+                  <td className="table-cell-truncate">
+                    <strong>{i.titulo}</strong>
+                    {i.tipoRegistro === 'SIMULADO' && <span className="badge badge-info" style={{ marginLeft: 6 }}>simulado</span>}
+                  </td>
                   <td><span className="badge badge-purple">{TIPO_INC_LABEL[i.tipoIncidente] || i.tipoIncidente}</span></td>
+                  <td>{i.severidade ? <span className={SEVERIDADE_BADGE[i.severidade]}>{SEVERIDADE_LABEL[i.severidade]}</span> : '-'}</td>
                   <td>{i.dataOcorrencia ? new Date(i.dataOcorrencia).toLocaleDateString('pt-BR') : '-'}</td>
                   <td>{i.qtdTitulares || 0}</td>
                   <td>

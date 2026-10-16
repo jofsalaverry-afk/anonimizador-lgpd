@@ -4,6 +4,7 @@ import { API } from '../config';
 import SeletorResponsavel from './SeletorResponsavel';
 import Anexos from './Anexos';
 import Historico from './Historico';
+import AtividadeForm from './AtividadeForm';
 
 const STATUS_OPTIONS = [
   { value: 'CONFORME', label: 'Conforme' },
@@ -48,6 +49,8 @@ function ChecklistPage({ token }) {
     responsavelId: ''
   });
   const [versaoHistorico, setVersaoHistorico] = useState(0);
+  // null = fechado; {} = nova atividade; item = editar atividade propria
+  const [atividadeForm, setAtividadeForm] = useState(null);
 
   const authHeader = { Authorization: `Bearer ${token}` };
 
@@ -82,7 +85,8 @@ function ChecklistPage({ token }) {
       proximaRevisao: item.resposta?.proximaRevisao
         ? String(item.resposta.proximaRevisao).substring(0, 10)
         : '',
-      responsavelId: item.resposta?.responsavelId || ''
+      // atividade propria: responsavel da atividade vem preenchido
+      responsavelId: item.resposta?.responsavelId || item.responsavelId || ''
     });
   };
 
@@ -139,9 +143,19 @@ function ChecklistPage({ token }) {
     <div>
       <div className="page-header">
         <h2 className="page-title">Checklist de Conformidade</h2>
+        {!atividadeForm && <button className="btn-primary btn-sm" onClick={() => setAtividadeForm({})}>+ Atividade própria</button>}
       </div>
 
       {erro && <div className="alert-error mb-16">{erro}</div>}
+
+      {atividadeForm && (
+        <AtividadeForm
+          token={token}
+          atividade={atividadeForm}
+          onCancelar={() => setAtividadeForm(null)}
+          onSalvo={() => { setAtividadeForm(null); setVersaoHistorico(v => v + 1); carregar(); }}
+        />
+      )}
 
       {score && (
         <div className="card mb-20">
@@ -229,6 +243,14 @@ function ChecklistPage({ token }) {
                   </div>
                 </div>
                 <div className="text-sm mb-8">{item.descricao}</div>
+                {item.organizacaoId && (
+                  <div className="text-sm text-muted mb-8">
+                    <span className="badge badge-info">Atividade própria</span>
+                    {' '}Responsável: {item.responsavel?.nome || 'não designado'}
+                    {item.prazo && <> · Prazo: {new Date(item.prazo).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</>}
+                    {' '}<button className="btn-ghost btn-sm" onClick={() => setAtividadeForm(item)}>Editar atividade</button>
+                  </div>
+                )}
                 <div className="badge-row mb-8">
                   {item.fundamentoLegal && (
                     <span className="badge badge-legal">{item.fundamentoLegal}</span>

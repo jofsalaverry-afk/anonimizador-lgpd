@@ -34,6 +34,8 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   const [resposta, setResposta] = useState('');
   const [respondendo, setRespondendo] = useState(false);
   const [showRespForm, setShowRespForm] = useState(false);
+  const [modelos, setModelos] = useState([]);
+  const [modeloId, setModeloId] = useState('');
   const [evidForm, setEvidForm] = useState({ tipo: '', descricao: '' });
   const [showEvidForm, setShowEvidForm] = useState(false);
   const [salvandoEvid, setSalvandoEvid] = useState(false);
@@ -75,6 +77,34 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
     setRespondendo(false);
   };
 
+  // Modelos de resposta da organizacao: os do mesmo tipo de direito
+  // aparecem primeiro. O backend preenche {nome_titular}, {protocolo} e
+  // {nome_organizacao}.
+  const abrirResposta = async () => {
+    const abrir = !showRespForm;
+    setShowRespForm(abrir);
+    if (!abrir) return;
+    try {
+      const res = await axios.get(`${API}/dsar/modelos`, { headers });
+      const ordenados = [...res.data].sort((a, b) => (b.tipoDireito === sol.tipoDireito) - (a.tipoDireito === sol.tipoDireito));
+      setModelos(ordenados);
+      setModeloId(ordenados[0]?.id || '');
+    } catch {
+      setModelos([]);
+    }
+  };
+
+  const usarModelo = async () => {
+    if (!modeloId) return;
+    if (resposta.trim() && !window.confirm('Substituir o texto atual pelo modelo?')) return;
+    try {
+      const res = await axios.get(`${API}/dsar/solicitacoes/${solicitacaoId}/modelos/${modeloId}/preenchido`, { headers });
+      setResposta(res.data.texto);
+    } catch (err) {
+      setErro(err.response?.data?.erro || 'Erro ao carregar modelo');
+    }
+  };
+
   const addEvidencia = async () => {
     if (!evidForm.tipo.trim() || !evidForm.descricao.trim()) return;
     setSalvandoEvid(true);
@@ -84,7 +114,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
       setEvidForm({ tipo: '', descricao: '' });
       carregar();
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao adicionar evidência');
+      setErro(err.response?.data?.erro || 'Erro ao registrar providência');
     }
     setSalvandoEvid(false);
   };
@@ -183,9 +213,9 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
                   <button onClick={() => mudarStatus('EM_ANALISE')} className="btn-secondary btn-sm">Iniciar análise</button>
                 )}
                 <button onClick={() => setShowEvidForm(!showEvidForm)} className="btn-secondary btn-sm">
-                  {showEvidForm ? 'Cancelar' : '+ Evidência'}
+                  {showEvidForm ? 'Cancelar' : '+ Registrar providência'}
                 </button>
-                <button onClick={() => setShowRespForm(!showRespForm)} className="btn-primary btn-sm">
+                <button onClick={abrirResposta} className="btn-primary btn-sm">
                   {showRespForm ? 'Cancelar' : 'Responder'}
                 </button>
               </>
@@ -218,6 +248,14 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
       {showRespForm && (
         <div className="card mb-16">
           <div className="card-header">Responder solicitação</div>
+          {modelos.length > 0 && (
+            <div className="flex-center gap-8 mb-12">
+              <select value={modeloId} onChange={e => setModeloId(e.target.value)} style={{ marginBottom: 0 }}>
+                {modelos.map(m => <option key={m.id} value={m.id}>{m.titulo}{m.tipoDireito === sol.tipoDireito ? ' (este direito)' : ''}</option>)}
+              </select>
+              <button type="button" className="btn-secondary btn-sm" onClick={usarModelo}>Usar modelo</button>
+            </div>
+          )}
           <label>Texto da resposta</label>
           <textarea value={resposta} onChange={e => setResposta(e.target.value)} rows={5} placeholder="Digite a resposta ao titular..." />
           <div className="btn-row mt-16">
@@ -230,15 +268,15 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
 
       {showEvidForm && (
         <div className="card mb-16">
-          <div className="card-header">Adicionar evidência</div>
+          <div className="card-header">Registrar providência</div>
           <div className="form-grid">
             <div className="form-group">
               <label>Tipo</label>
-              <input value={evidForm.tipo} onChange={e => setEvidForm({ ...evidForm, tipo: e.target.value })} placeholder="Ex: E-mail, Documento, Captura de tela" />
+              <input value={evidForm.tipo} onChange={e => setEvidForm({ ...evidForm, tipo: e.target.value })} placeholder="Ex: Consulta ao sistema, E-mail ao setor, Documento" />
             </div>
             <div className="form-group">
               <label>Descrição</label>
-              <input value={evidForm.descricao} onChange={e => setEvidForm({ ...evidForm, descricao: e.target.value })} placeholder="Descreva a evidência" />
+              <input value={evidForm.descricao} onChange={e => setEvidForm({ ...evidForm, descricao: e.target.value })} placeholder="Descreva a providência adotada" />
             </div>
           </div>
           <div className="btn-row mt-16">
@@ -251,7 +289,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
 
       {(sol.evidencias || []).length > 0 && (
         <div className="card mb-16">
-          <div className="card-header">Evidências ({sol.evidencias.length})</div>
+          <div className="card-header">Providências registradas ({sol.evidencias.length})</div>
           <div className="timeline">
             {sol.evidencias.map((ev, i) => (
               <div key={ev.id} className="timeline-item">

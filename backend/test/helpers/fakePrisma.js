@@ -21,7 +21,10 @@ const RELACOES = {
   sistemaInventario: { responsavel: ['usuario', 'responsavelId'], terceiro: ['terceiro', 'terceiroId'] },
   integracaoSistema: { origem: ['sistemaInventario', 'origemId'], destino: ['sistemaInventario', 'destinoId'] },
   respostaQuestionarioTerceiro: { respondidoPor: ['usuario', 'respondidoPorId'] },
-  acaoTerceiro: { responsavel: ['usuario', 'responsavelId'] }
+  acaoTerceiro: { responsavel: ['usuario', 'responsavelId'] },
+  providenciaIncidente: { responsavel: ['usuario', 'responsavelId'] },
+  registroDescarte: { responsavel: ['usuario', 'responsavelId'] },
+  itemChecklist: { responsavel: ['usuario', 'responsavelId'] }
 };
 // relacoes 1:N -> [modelo, campoFK no filho]
 const FILHOS = {
@@ -34,7 +37,8 @@ const FILHOS = {
     integracoesSaida: ['integracaoSistema', 'origemId'],
     integracoesEntrada: ['integracaoSistema', 'destinoId']
   },
-  solicitacaoTitular: { evidencias: ['evidenciaDSAR', 'solicitacaoId'] }
+  solicitacaoTitular: { evidencias: ['evidenciaDSAR', 'solicitacaoId'] },
+  incidente: { providencias: ['providenciaIncidente', 'incidenteId'] }
 };
 
 // Defaults do schema (lidos do datamodel do client gerado, antes de o
@@ -48,7 +52,8 @@ function carregarDefaults() {
     const padrao = {};
     for (const f of m.fields) {
       if (f.kind === 'object') continue;
-      if (f.default !== undefined && (typeof f.default !== 'object' || Array.isArray(f.default))) padrao[f.name] = f.default;
+      if (f.default && f.default.name === 'now') padrao[f.name] = NOW;
+      else if (f.default !== undefined && (typeof f.default !== 'object' || Array.isArray(f.default))) padrao[f.name] = f.default;
       else if (f.isList) padrao[f.name] = [];
       else if (!f.isRequired) padrao[f.name] = null;
     }
@@ -56,7 +61,15 @@ function carregarDefaults() {
   }
   return mapa;
 }
+const NOW = Symbol('now');
 const DEFAULTS = carregarDefaults();
+
+// Copia os defaults do modelo, trocando @default(now()) pela hora atual.
+function defaultsDe(modelo) {
+  const d = structuredClone(Object.fromEntries(Object.entries(DEFAULTS[modelo] || {}).filter(([, v]) => v !== NOW)));
+  for (const [k, v] of Object.entries(DEFAULTS[modelo] || {})) if (v === NOW) d[k] = new Date();
+  return d;
+}
 
 function novoId() {
   return 'c' + crypto.randomBytes(12).toString('hex');
@@ -84,7 +97,7 @@ function casa(row, where) {
     const v = row[k];
     if (cond !== null && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
       // chave composta (ex.: organizacaoId_itemId) ou operadores
-      const ops = ['in', 'not', 'lt', 'lte', 'gt', 'gte', 'has', 'equals'];
+      const ops = ['in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'has', 'equals'];
       if (!Object.keys(cond).some(o => ops.includes(o))) {
         if (!casa(row, cond)) return false;
         continue;
@@ -92,6 +105,7 @@ function casa(row, where) {
       if ('equals' in cond && !valorIgual(v, cond.equals)) return false;
       if ('in' in cond && !cond.in.some(x => valorIgual(v, x))) return false;
       if ('not' in cond && valorIgual(v, cond.not)) return false;
+      if ('notIn' in cond && cond.notIn.some(x => valorIgual(v, x))) return false;
       if ('lt' in cond && !(v != null && v < cond.lt)) return false;
       if ('lte' in cond && !(v != null && v <= cond.lte)) return false;
       if ('gt' in cond && !(v != null && v > cond.gt)) return false;
@@ -151,7 +165,7 @@ function criarBanco() {
       if (filho) {
         if (v && v.create) {
           const [alvo, fk] = filho;
-          for (const c of [].concat(v.create)) tabela(alvo).push({ ...structuredClone(DEFAULTS[alvo] || {}), id: novoId(), ...c, [fk]: row.id });
+          for (const c of [].concat(v.create)) tabela(alvo).push({ ...defaultsDe(alvo), id: novoId(), ...c, [fk]: row.id });
         }
         continue;
       }
@@ -164,7 +178,7 @@ function criarBanco() {
     return {
       async create({ data, select, include }) {
         const agora = new Date();
-        const row = { ...structuredClone(DEFAULTS[modelo] || {}), id: novoId(), criadoEm: agora, atualizadoEm: agora };
+        const row = { ...defaultsDe(modelo), id: novoId(), criadoEm: agora, atualizadoEm: agora };
         aplicarDados(modelo, row, data);
         rows().push(row);
         return projetar(modelo, row, { select, include });

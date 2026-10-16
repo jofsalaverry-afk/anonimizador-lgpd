@@ -5,14 +5,16 @@ const TIPO_ICON = {
   DSAR_PRAZO: '⏰',
   CHECKLIST_REVISAO: '📋',
   INCIDENTE_ABERTO: '⚠️',
-  ROPA_DESATUALIZADO: '📁'
+  ROPA_DESATUALIZADO: '📁',
+  RETENCAO_VENCIDA: '🗑️'
 };
 
 const TIPO_LABEL = {
   DSAR_PRAZO: 'Prazo DSAR',
   CHECKLIST_REVISAO: 'Revisão de checklist',
   INCIDENTE_ABERTO: 'Incidente em aberto',
-  ROPA_DESATUALIZADO: 'ROPA desatualizado'
+  ROPA_DESATUALIZADO: 'ROPA desatualizado',
+  RETENCAO_VENCIDA: 'Retenção vencida'
 };
 
 const CRIT_BADGE = {

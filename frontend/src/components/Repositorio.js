@@ -4,29 +4,87 @@ import { API } from '../config';
 import IncidenteList from './IncidenteList';
 import IncidenteForm from './IncidenteForm';
 
-// Mapa das categorias do repositorio para rotulos legiveis. Mantem os
-// valores legados (POLITICA, TERMO, ADITIVO, MODELO) para nao quebrar
-// documentos antigos ja cadastrados.
+// Mapa das categorias do repositorio para rotulos legiveis. POLITICA e
+// MODELO sao legados (mantidos para documentos antigos). TERMO e ADITIVO
+// voltaram a ser categorias ativas (Etapa 3 PoC).
 const CATEGORIA_LABEL = {
   POLITICA_PRIVACIDADE: 'Política de Privacidade',
   POLITICA_SEGURANCA: 'Política de Segurança',
   MODELO_DSAR: 'Modelo DSAR',
   CONTRATO: 'Contrato',
+  ADITIVO: 'Aditivo contratual LGPD',
+  TERMO: 'Termo',
   TERMO_USO: 'Termo de Uso',
   OUTRO: 'Outros',
   // legado
   POLITICA: 'Política (legado)',
-  TERMO: 'Termo (legado)',
-  ADITIVO: 'Aditivo (legado)',
   MODELO: 'Modelo (legado)'
 };
+
+// Categorias oferecidas no upload (sem os legados).
+const CATEGORIAS_UPLOAD = ['POLITICA_PRIVACIDADE', 'POLITICA_SEGURANCA', 'MODELO_DSAR', 'CONTRATO', 'ADITIVO', 'TERMO', 'TERMO_USO', 'OUTRO'];
 
 // Ordem de exibicao das categorias nos cards agrupados.
 const ORDEM_CATEGORIA = [
   'POLITICA_PRIVACIDADE', 'POLITICA_SEGURANCA', 'MODELO_DSAR',
-  'CONTRATO', 'TERMO_USO', 'OUTRO',
-  'POLITICA', 'TERMO', 'ADITIVO', 'MODELO'
+  'CONTRATO', 'ADITIVO', 'TERMO', 'TERMO_USO', 'OUTRO',
+  'POLITICA', 'MODELO'
 ];
+
+// Upload pelo DPO (rota /repositorio/upload ja existia, sem tela no cliente).
+function UploadDocumento({ token, onEnviado }) {
+  const [form, setForm] = useState({ titulo: '', descricao: '', categoria: 'ADITIVO' });
+  const [arquivo, setArquivo] = useState(null);
+  const [aberto, setAberto] = useState(false);
+  const [erro, setErro] = useState('');
+  const [enviando, setEnviando] = useState(false);
+
+  const enviar = async () => {
+    if (!form.titulo.trim() || !arquivo) return setErro('Informe o título e escolha o arquivo (PDF ou DOCX)');
+    setEnviando(true);
+    setErro('');
+    try {
+      const fd = new FormData();
+      Object.entries(form).forEach(([k, v]) => fd.append(k, v));
+      fd.append('arquivo', arquivo);
+      await axios.post(`${API}/repositorio/upload`, fd, { headers: { Authorization: `Bearer ${token}` } });
+      setForm({ titulo: '', descricao: '', categoria: 'ADITIVO' });
+      setArquivo(null);
+      setAberto(false);
+      onEnviado();
+    } catch (err) {
+      setErro(err.response?.data?.erro || 'Erro ao enviar documento');
+    }
+    setEnviando(false);
+  };
+
+  if (!aberto) return <button className="btn-primary btn-sm mb-16" onClick={() => setAberto(true)}>+ Enviar documento</button>;
+  return (
+    <div className="card mb-16">
+      <div className="card-header">Enviar documento</div>
+      {erro && <div className="alert-error mb-8">{erro}</div>}
+      <div className="form-grid mb-8">
+        <div className="form-group">
+          <label>Título</label>
+          <input value={form.titulo} onChange={e => setForm({ ...form, titulo: e.target.value })} />
+        </div>
+        <div className="form-group">
+          <label>Categoria</label>
+          <select value={form.categoria} onChange={e => setForm({ ...form, categoria: e.target.value })}>
+            {CATEGORIAS_UPLOAD.map(c => <option key={c} value={c}>{CATEGORIA_LABEL[c]}</option>)}
+          </select>
+        </div>
+      </div>
+      <label>Descrição (opcional)</label>
+      <input value={form.descricao} onChange={e => setForm({ ...form, descricao: e.target.value })} />
+      <input type="file" accept=".pdf,.docx,.doc" onChange={e => setArquivo(e.target.files?.[0] || null)} className="mb-8" />
+      <div className="btn-row">
+        <button className="btn-primary btn-sm" onClick={enviar} disabled={enviando}>{enviando ? 'Enviando...' : 'Enviar'}</button>
+        <button className="btn-secondary btn-sm" onClick={() => setAberto(false)}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
 
 function iconePorMime(mime) {
   if (!mime) return '📄';
@@ -35,7 +93,8 @@ function iconePorMime(mime) {
   return '📄';
 }
 
-function RepositorioArquivos({ token }) {
+function RepositorioArquivos({ token, usuario }) {
+  const ehDpo = usuario?.perfil === 'ENCARREGADO_LGPD';
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
@@ -78,6 +137,7 @@ function RepositorioArquivos({ token }) {
   if (!docs.length) {
     return (
       <div className="card">
+        {ehDpo && <UploadDocumento token={token} onEnviado={carregar} />}
         <h2 className="card-header">Repositório de Documentos</h2>
         <p className="text-muted">Nenhum documento disponível ainda. Os documentos são publicados pelo administrador do sistema.</p>
       </div>
@@ -99,6 +159,7 @@ function RepositorioArquivos({ token }) {
           Documentos institucionais e modelos disponibilizados pela sua organização. Clique em qualquer card para baixar.
         </p>
       </div>
+      {ehDpo && <UploadDocumento token={token} onEnviado={carregar} />}
 
       {categoriasComDocs.map(cat => (
         <div key={cat} className="card mb-16">
@@ -143,7 +204,7 @@ function RepositorioArquivos({ token }) {
   );
 }
 
-export default function Repositorio({ token, subpagina }) {
+export default function Repositorio({ token, usuario, subpagina }) {
   const [tela, setTela] = useState('list');
   const [itemId, setItemId] = useState(null);
 
@@ -153,7 +214,7 @@ export default function Repositorio({ token, subpagina }) {
   }, [subpagina]);
 
   if (subpagina === 'documentos') {
-    return <RepositorioArquivos token={token} />;
+    return <RepositorioArquivos token={token} usuario={usuario} />;
   }
 
   if (subpagina === 'incidentes') {

@@ -3,6 +3,7 @@ const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido, idsDaOrganizacao } = require('../services/entidades');
+const { calcularRetencao } = require('../services/retencao');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -299,6 +300,84 @@ router.delete('/tratamentos/:id', async (req, res) => {
   } catch (err) {
     console.error('[DELETE /ropa/tratamentos/:id]', err);
     res.status(500).json({ erro: 'Erro ao excluir tratamento' });
+  }
+});
+
+// ==================== Descarte (Etapa 3 PoC) ====================
+
+const DESCARTE_INCLUDE = { responsavel: { select: { id: true, nome: true } } };
+
+function resumoDescarte(d) {
+  const data = new Date(d.dataDescarte).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  return `${data} — ${d.metodo}${d.quantidade != null ? ` — ${d.quantidade} registro(s)` : ''} — ${d.descricao}`;
+}
+
+// GET /ropa/tratamentos/:id/descartes — lista + situacao do prazo de retencao
+router.get('/tratamentos/:id/descartes', async (req, res) => {
+  try {
+    const orgId = req.usuario.organizacaoId;
+    const t = await prisma.tratamento.findFirst({ where: { id: req.params.id, organizacaoId: orgId } });
+    if (!t) return res.status(404).json({ erro: 'Tratamento não encontrado' });
+    const descartes = await prisma.registroDescarte.findMany({
+      where: { tratamentoId: t.id, organizacaoId: orgId }, include: DESCARTE_INCLUDE, orderBy: { dataDescarte: 'desc' }
+    });
+    res.json({ descartes, retencao: calcularRetencao(t, descartes[0]) });
+  } catch (err) {
+    console.error('[GET /ropa/tratamentos/:id/descartes]', err);
+    res.status(500).json({ erro: 'Erro ao listar descartes' });
+  }
+});
+
+// POST /ropa/tratamentos/:id/descartes { dataDescarte, descricao, quantidade, metodo, responsavelId }
+router.post('/tratamentos/:id/descartes', async (req, res) => {
+  try {
+    if (req.usuario.perfil === 'AUDITOR' || req.usuario.perfil === 'TREINANDO') {
+      return res.status(403).json({ erro: 'Sem permissão para registrar descarte' });
+    }
+    const orgId = req.usuario.organizacaoId;
+    const t = await prisma.tratamento.findFirst({ where: { id: req.params.id, organizacaoId: orgId } });
+    if (!t) return res.status(404).json({ erro: 'Tratamento não encontrado' });
+
+    const { dataDescarte, descricao, quantidade, metodo, responsavelId } = req.body || {};
+    const data = new Date(dataDescarte);
+    if (!dataDescarte || isNaN(data)) return res.status(400).json({ erro: 'Data do descarte inválida' });
+    if (data.getTime() > Date.now() + 24 * 60 * 60 * 1000) return res.status(400).json({ erro: 'Data do descarte não pode ser futura' });
+    const desc = typeof descricao === 'string' ? descricao.trim() : '';
+    const met = typeof metodo === 'string' ? metodo.trim() : '';
+    if (!desc || !met) return res.status(400).json({ erro: 'Descrição e método são obrigatórios' });
+    let qtd = null;
+    if (quantidade !== undefined && quantidade !== null && quantidade !== '') {
+      qtd = Number(quantidade);
+      if (!Number.isInteger(qtd) || qtd < 0) return res.status(400).json({ erro: 'Quantidade inválida' });
+    }
+    if (!(await responsavelValido(prisma, responsavelId, orgId))) return res.status(400).json({ erro: 'Responsável inválido' });
+
+    const descarte = await prisma.$transaction(async (tx) => {
+      const criado = await tx.registroDescarte.create({
+        data: {
+          organizacaoId: orgId, tratamentoId: t.id, dataDescarte: data, descricao: desc.slice(0, 2000),
+          quantidade: qtd, metodo: met.slice(0, 200), responsavelId: responsavelId || null, criadoPorId: req.usuario.id
+        },
+        include: DESCARTE_INCLUDE
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: orgId, entidade: 'DESCARTE', registroId: criado.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null,
+        depois: {
+          tratamento: t.nome, dataDescarte: criado.dataDescarte, descricao: criado.descricao,
+          quantidade: criado.quantidade, metodo: criado.metodo, responsavelId: criado.responsavelId
+        }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: orgId, entidade: 'TRATAMENTO', registroId: t.id, acao: 'EDITAR', usuarioId: req.usuario.id,
+        diff: { descarte: { antes: null, depois: resumoDescarte(criado) } }
+      });
+      return criado;
+    });
+    res.status(201).json(descarte);
+  } catch (err) {
+    console.error('[POST /ropa/tratamentos/:id/descartes]', err);
+    res.status(500).json({ erro: 'Erro ao registrar descarte' });
   }
 });
 

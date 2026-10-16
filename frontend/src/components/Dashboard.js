@@ -141,12 +141,12 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
         <div className="content-body">
           {pagina === 'anonimizador' && <Anonimizador token={token} usuario={usuario} onTokenInvalido={onTokenInvalido} />}
           {pagina === 'ropa' && <Ropa token={token} />}
-          {pagina === 'dsar' && <Dsar token={token} />}
+          {pagina === 'dsar' && <Dsar token={token} usuario={usuario} />}
           {pagina === 'pesquisa' && <Pesquisa token={token} usuario={usuario} />}
-          {pagina === 'documentos' && <Repositorio token={token} subpagina="documentos" />}
+          {pagina === 'documentos' && <Repositorio token={token} usuario={usuario} subpagina="documentos" />}
           {pagina === 'incidentes' && <Repositorio token={token} subpagina="incidentes" />}
           {pagina === 'conformidade' && <ChecklistPage token={token} />}
-          {pagina === 'treinamento' && <Treinamento token={token} />}
+          {pagina === 'treinamento' && <Treinamento token={token} usuario={usuario} />}
           {pagina === 'inventario' && <Inventario token={token} />}
           {pagina === 'terceiros' && <Terceiros token={token} usuario={usuario} />}
           {pagina === 'configuracoes' && <Configuracoes token={token} usuario={usuario} />}

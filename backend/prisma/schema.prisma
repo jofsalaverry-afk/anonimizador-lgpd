@@ -100,6 +100,7 @@ enum TipoAlerta {
   CHECKLIST_REVISAO
   INCIDENTE_ABERTO
   ROPA_DESATUALIZADO
+  RETENCAO_VENCIDA
 }
 
 enum Perfil {
@@ -143,6 +144,11 @@ model Organizacao {
   terceiros          Terceiro[]
   respostasTerceiro  RespostaQuestionarioTerceiro[]
   acoesTerceiro      AcaoTerceiro[]
+  progressos         ProgressoTreinamento[]
+  certificados       CertificadoTreinamento[]
+  providencias       ProvidenciaIncidente[]
+  descartes          RegistroDescarte[]
+  itensChecklist     ItemChecklist[]
 }
 
 model Usuario {
@@ -169,6 +175,11 @@ model Usuario {
   sistemasResponsavel   SistemaInventario[]            @relation("SistemaResponsavel")
   acoesTerceiroResp     AcaoTerceiro[]                 @relation("AcaoTerceiroResponsavel")
   respostasTerceiro     RespostaQuestionarioTerceiro[] @relation("RespostaTerceiroAutor")
+  progressos            ProgressoTreinamento[]
+  certificados          CertificadoTreinamento[]
+  providenciasResp      ProvidenciaIncidente[]         @relation("ProvidenciaResponsavel")
+  descartesResp         RegistroDescarte[]             @relation("DescarteResponsavel")
+  itensChecklistResp    ItemChecklist[]                @relation("ItemChecklistResponsavel")
 }
 
 model Admin {
@@ -239,6 +250,7 @@ model Tratamento {
   compartilhamentos   CompartilhamentoTratamento[]
   historico           TratamentoHistorico[]
   sistemas            TratamentoSistema[]
+  descartes           RegistroDescarte[]
 
   @@index([organizacaoId, ativo])
 }
@@ -368,6 +380,11 @@ model Incidente {
   autorId         String?
   responsavelId   String?
   responsavel     Usuario?        @relation("IncidenteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  // Etapa 3 PoC: severidade (reusa Criticidade) e REAL x SIMULADO
+  // (simulado de resposta a incidente, conta para o indicador).
+  severidade      Criticidade?
+  tipoRegistro    TipoRegistroIncidente @default(REAL)
+  providencias    ProvidenciaIncidente[]
   criadoEm        DateTime        @default(now())
   atualizadoEm    DateTime        @updatedAt
 
@@ -387,6 +404,16 @@ model ItemChecklist {
   criticidade         Criticidade
   evidenciaRequerida  EvidenciaRequerida
   respostas           RespostaChecklist[]
+  // Etapa 3 PoC: organizacaoId null = catalogo global; preenchido =
+  // atividade propria daquela organizacao (com responsavel e prazo).
+  organizacaoId       String?
+  organizacao         Organizacao?       @relation(fields: [organizacaoId], references: [id])
+  responsavelId       String?
+  responsavel         Usuario?           @relation("ItemChecklistResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  prazo               DateTime?
+  criadoEm            DateTime?          @default(now())
+
+  @@index([organizacaoId])
 }
 
 model RespostaChecklist {
@@ -726,4 +753,85 @@ model AcaoTerceiro {
 
   @@index([terceiroId])
   @@index([organizacaoId, situacao])
+}
+
+// ============ Etapa 3 PoC: treinamento, incidentes, descarte ============
+
+// Um registro por modulo concluido. Trilha concluida = todos os modulos
+// da trilha (TRILHAS_BASE em routes/treinamento.js) com registro.
+model ProgressoTreinamento {
+  id            String      @id @default(cuid())
+  usuarioId     String
+  usuario       Usuario     @relation(fields: [usuarioId], references: [id])
+  organizacaoId String
+  organizacao   Organizacao @relation(fields: [organizacaoId], references: [id])
+  trilhaId      String
+  moduloId      String
+  concluidoEm   DateTime    @default(now())
+
+  @@unique([usuarioId, trilhaId, moduloId])
+  @@index([organizacaoId, trilhaId])
+}
+
+// Emitido quando a trilha e concluida. Guarda copia de nome/trilha/carga
+// para o certificado continuar verificavel mesmo se o conteudo mudar.
+// codigo e o que vai impresso no PDF e na verificacao publica.
+model CertificadoTreinamento {
+  id               String      @id @default(cuid())
+  codigo           String      @unique
+  usuarioId        String
+  usuario          Usuario     @relation(fields: [usuarioId], references: [id])
+  organizacaoId    String
+  organizacao      Organizacao @relation(fields: [organizacaoId], references: [id])
+  trilhaId         String
+  trilhaTitulo     String
+  nomeUsuario      String
+  nomeOrganizacao  String
+  cargaHorariaMin  Int
+  concluidoEm      DateTime
+  emitidoEm        DateTime    @default(now())
+
+  @@unique([usuarioId, trilhaId])
+}
+
+enum TipoRegistroIncidente {
+  REAL
+  SIMULADO
+}
+
+model ProvidenciaIncidente {
+  id            String      @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao @relation(fields: [organizacaoId], references: [id])
+  incidenteId   String
+  incidente     Incidente   @relation(fields: [incidenteId], references: [id], onDelete: Cascade)
+  descricao     String
+  data          DateTime
+  responsavelId String?
+  responsavel   Usuario?    @relation("ProvidenciaResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  criadoPorId   String?
+  criadoEm      DateTime    @default(now())
+
+  @@index([incidenteId])
+}
+
+// Registro de descarte de dados de um tratamento do ROPA. O prazo de
+// retencao volta a contar da dataDescarte mais recente (alerta
+// RETENCAO_VENCIDA em routes/conformidade.js).
+model RegistroDescarte {
+  id            String      @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao @relation(fields: [organizacaoId], references: [id])
+  tratamentoId  String
+  tratamento    Tratamento  @relation(fields: [tratamentoId], references: [id])
+  dataDescarte  DateTime
+  descricao     String
+  quantidade    Int?
+  metodo        String
+  responsavelId String?
+  responsavel   Usuario?    @relation("DescarteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  criadoPorId   String?
+  criadoEm      DateTime    @default(now())
+
+  @@index([organizacaoId, tratamentoId])
 }

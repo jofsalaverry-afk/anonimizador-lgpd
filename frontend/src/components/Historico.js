@@ -24,7 +24,10 @@ const CAMPO_LABEL = {
   razaoSocial: 'Razão social', cnpj: 'CNPJ', contatoNome: 'Contato', contatoEmail: 'E-mail de contato',
   papel: 'Papel', descricaoServico: 'Serviço prestado', contratoVigente: 'Contrato vigente',
   contratoCritico: 'Contrato crítico', aditivoLgpdAssinado: 'Aditivo LGPD assinado', dataAditivo: 'Data do aditivo',
-  risco: 'Risco', riscoManual: 'Risco definido manualmente', riscoJustificativa: 'Justificativa do risco'
+  risco: 'Risco', riscoManual: 'Risco definido manualmente', riscoJustificativa: 'Justificativa do risco',
+  severidade: 'Severidade', tipoRegistro: 'Real ou simulado', providencia: 'Providência',
+  descarte: 'Descarte registrado', dataDescarte: 'Data do descarte', quantidade: 'Quantidade', metodo: 'Método',
+  tratamento: 'Tratamento', prazo: 'Prazo', criticidade: 'Criticidade', texto: 'Texto do modelo', padrao: 'Modelo padrão'
 };
 
 function rotuloCampo(campo) {

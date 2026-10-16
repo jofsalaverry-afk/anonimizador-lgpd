@@ -4,6 +4,13 @@ import { API } from '../config';
 import SeletorResponsavel from './SeletorResponsavel';
 import Anexos from './Anexos';
 import Historico from './Historico';
+import Providencias from './Providencias';
+
+const SEVERIDADE_OPTIONS = [
+  { value: 'ALTA', label: 'Alta' },
+  { value: 'MEDIA', label: 'Média' },
+  { value: 'BAIXA', label: 'Baixa' }
+];
 
 const TIPO_INC_OPTIONS = [
   { value: 'VAZAMENTO', label: 'Vazamento' },
@@ -33,8 +40,11 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
     planoAcao: '',
     notificadoANPD: false,
     status: 'ABERTO',
-    responsavelId: ''
+    responsavelId: '',
+    severidade: '',
+    tipoRegistro: 'REAL'
   });
+  const [providencias, setProvidencias] = useState([]);
   const [versaoHistorico, setVersaoHistorico] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingInc, setLoadingInc] = useState(!!incidenteId);
@@ -44,10 +54,10 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
   const carregarIncidente = useCallback(async () => {
     if (!incidenteId) return;
     try {
-      const res = await axios.get(`${API}/repositorio/incidentes`, {
+      const res = await axios.get(`${API}/repositorio/incidentes/${incidenteId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const inc = res.data.find(i => i.id === incidenteId);
+      const inc = res.data;
       if (inc) {
         setForm({
           titulo: inc.titulo || '',
@@ -59,8 +69,12 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
           planoAcao: inc.planoAcao || '',
           notificadoANPD: inc.notificadoANPD || false,
           status: inc.status || 'ABERTO',
-          responsavelId: inc.responsavelId || ''
+          responsavelId: inc.responsavelId || '',
+          severidade: inc.severidade || '',
+          tipoRegistro: inc.tipoRegistro || 'REAL'
         });
+        setProvidencias(inc.providencias || []);
+        setVersaoHistorico(v => v + 1);
       } else {
         setErro('Incidente não encontrado');
       }
@@ -195,6 +209,23 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
           />
         </div>
 
+        <div className="form-grid mb-16">
+          <div className="form-group">
+            <label>Severidade</label>
+            <select value={form.severidade} onChange={e => setForm({ ...form, severidade: e.target.value })}>
+              <option value="">Não classificada</option>
+              {SEVERIDADE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Registro</label>
+            <select value={form.tipoRegistro} onChange={e => setForm({ ...form, tipoRegistro: e.target.value })}>
+              <option value="REAL">Incidente real</option>
+              <option value="SIMULADO">Simulado (exercício de resposta)</option>
+            </select>
+          </div>
+        </div>
+
         <div className="form-group mb-16">
           <label>Responsável</label>
           <SeletorResponsavel token={token} value={form.responsavelId} onChange={v => setForm({ ...form, responsavelId: v })} />
@@ -231,6 +262,7 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
 
       {incidenteId && (
         <div className="mt-20">
+          <Providencias token={token} incidenteId={incidenteId} providencias={providencias} onAdicionada={carregarIncidente} />
           <Anexos token={token} entidade="INCIDENTE" registroId={incidenteId} titulo="Evidências anexadas" onEnviado={() => setVersaoHistorico(v => v + 1)} />
           <Historico token={token} entidade="INCIDENTE" registroId={incidenteId} versao={versaoHistorico} />
         </div>

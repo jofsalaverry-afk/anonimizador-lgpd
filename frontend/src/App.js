@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard';
 import Admin from './components/Admin';
 import SolicitarDireitos from './components/SolicitarDireitos';
 import PesquisaResultadosPublicos from './components/PesquisaResultadosPublicos';
+import VerificarCertificado from './components/VerificarCertificado';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -86,6 +87,11 @@ function App() {
   if (rota.startsWith('#pesquisa-resultados/')) {
     const slug = rota.split('/')[1] || '';
     return <PesquisaResultadosPublicos slug={slug} />;
+  }
+  // Verificacao publica de certificado de treinamento: #certificado/:codigo
+  if (rota.startsWith('#certificado/')) {
+    const codigo = decodeURIComponent(rota.split('/')[1] || '');
+    return <VerificarCertificado codigo={codigo} />;
   }
   // Rota publica legada: #solicitar-direitos/:organizacaoId (compat)
   if (rota.startsWith('#solicitar-direitos')) {

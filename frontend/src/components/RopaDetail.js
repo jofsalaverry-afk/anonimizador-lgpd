@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API } from '../config';
 import Anexos from './Anexos';
 import Historico from './Historico';
+import Descartes from './Descartes';
 import { TIPO_SISTEMA_LABEL, BadgeRisco } from './rotulos';
 
 const BASE_LEGAL_LABEL = {
@@ -129,6 +130,7 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
         </div>
       </div>
 
+      <Descartes token={token} tratamentoId={tratamento.id} onRegistrado={() => setVersaoHistorico(v => v + 1)} />
       <Anexos token={token} entidade="TRATAMENTO" registroId={tratamento.id} onEnviado={() => setVersaoHistorico(v => v + 1)} />
       <Historico token={token} entidade="TRATAMENTO" registroId={tratamento.id} versao={versaoHistorico} />
 

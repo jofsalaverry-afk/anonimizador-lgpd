@@ -7,6 +7,24 @@ const { responsavelValido } = require('../services/entidades');
 
 const INCIDENTE_INCLUDE = { responsavel: { select: { id: true, nome: true } } };
 
+// Categorias aceitas no upload (= enum TipoDocRepo). Sem isso, valor
+// invalido virava erro 500 do Prisma.
+const CATEGORIAS_DOC = ['POLITICA', 'TERMO', 'ADITIVO', 'CONTRATO', 'MODELO', 'OUTRO', 'POLITICA_PRIVACIDADE', 'POLITICA_SEGURANCA', 'MODELO_DSAR', 'TERMO_USO'];
+const SEVERIDADES = ['ALTA', 'MEDIA', 'BAIXA'];
+const TIPOS_REGISTRO = ['REAL', 'SIMULADO'];
+
+// Valida severidade/tipoRegistro. Retorna mensagem de erro ou null.
+function erroClassificacao({ severidade, tipoRegistro }) {
+  if (severidade !== undefined && severidade !== null && severidade !== '' && !SEVERIDADES.includes(severidade)) return 'Severidade inválida';
+  if (tipoRegistro !== undefined && !TIPOS_REGISTRO.includes(tipoRegistro)) return 'Tipo de registro inválido (REAL ou SIMULADO)';
+  return null;
+}
+
+function resumoProvidencia(p) {
+  const data = new Date(p.data).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  return `${data} — ${p.descricao}${p.responsavel?.nome ? ` (${p.responsavel.nome})` : ''}`;
+}
+
 const router = express.Router();
 const prisma = new PrismaClient();
 
@@ -121,6 +139,9 @@ router.post('/upload', uploadArquivo.single('arquivo'), async (req, res) => {
     if (!titulo || !categoria) {
       return res.status(400).json({ erro: 'titulo e categoria são obrigatórios' });
     }
+    if (!CATEGORIAS_DOC.includes(categoria)) {
+      return res.status(400).json({ erro: 'Categoria inválida' });
+    }
     const doc = await prisma.documentoRepositorio.create({
       data: {
         organizacaoId: req.usuario.organizacaoId,
@@ -218,8 +239,11 @@ router.delete('/documentos/:id', async (req, res) => {
 
 router.get('/incidentes', async (req, res) => {
   try {
+    const where = { organizacaoId: req.usuario.organizacaoId };
+    if (SEVERIDADES.includes(req.query.severidade)) where.severidade = req.query.severidade;
+    if (TIPOS_REGISTRO.includes(req.query.tipoRegistro)) where.tipoRegistro = req.query.tipoRegistro;
     const incidentes = await prisma.incidente.findMany({
-      where: { organizacaoId: req.usuario.organizacaoId },
+      where,
       include: INCIDENTE_INCLUDE,
       orderBy: { criadoEm: 'desc' }
     });
@@ -234,7 +258,10 @@ router.get('/incidentes/:id', async (req, res) => {
   try {
     const inc = await prisma.incidente.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId },
-      include: INCIDENTE_INCLUDE
+      include: {
+        ...INCIDENTE_INCLUDE,
+        providencias: { include: { responsavel: { select: { id: true, nome: true } } }, orderBy: { data: 'asc' } }
+      }
     });
     if (!inc) return res.status(404).json({ erro: 'Incidente não encontrado' });
     res.json(inc);
@@ -248,10 +275,12 @@ router.post('/incidentes', async (req, res) => {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
       return res.status(403).json({ erro: 'Sem permissão' });
     }
-    const { titulo, dataOcorrencia, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, responsavelId } = req.body;
+    const { titulo, dataOcorrencia, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, responsavelId, severidade, tipoRegistro } = req.body;
     if (!titulo || !dataOcorrencia || !tipoIncidente || !descricao) {
       return res.status(400).json({ erro: 'titulo, dataOcorrencia, tipoIncidente e descricao são obrigatórios' });
     }
+    const erroCls = erroClassificacao({ severidade, tipoRegistro });
+    if (erroCls) return res.status(400).json({ erro: erroCls });
     if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
@@ -265,6 +294,8 @@ router.post('/incidentes', async (req, res) => {
           qtdTitulares: qtdTitulares || 0,
           planoAcao: planoAcao || null,
           responsavelId: responsavelId || null,
+          severidade: severidade || null,
+          tipoRegistro: tipoRegistro || 'REAL',
           autorId: req.usuario.id
         },
         include: INCIDENTE_INCLUDE
@@ -292,7 +323,9 @@ router.put('/incidentes/:id', async (req, res) => {
     });
     if (!existente) return res.status(404).json({ erro: 'Incidente não encontrado' });
 
-    const { titulo, status, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, notificadoANPD, responsavelId } = req.body;
+    const { titulo, status, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, notificadoANPD, responsavelId, severidade, tipoRegistro } = req.body;
+    const erroCls = erroClassificacao({ severidade, tipoRegistro });
+    if (erroCls) return res.status(400).json({ erro: erroCls });
     if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
@@ -308,7 +341,9 @@ router.put('/incidentes/:id', async (req, res) => {
           ...(descricao !== undefined && { descricao }),
           ...(planoAcao !== undefined && { planoAcao }),
           ...(notificadoANPD !== undefined && { notificadoANPD }),
-          ...(responsavelId !== undefined && { responsavelId: responsavelId || null })
+          ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
+          ...(severidade !== undefined && { severidade: severidade || null }),
+          ...(tipoRegistro !== undefined && { tipoRegistro })
         },
         include: INCIDENTE_INCLUDE
       });
@@ -322,6 +357,44 @@ router.put('/incidentes/:id', async (req, res) => {
   } catch (err) {
     console.error('[PUT /repositorio/incidentes/:id]', err);
     res.status(500).json({ erro: 'Erro ao atualizar incidente' });
+  }
+});
+
+// POST /repositorio/incidentes/:id/providencias { descricao, data, responsavelId }
+router.post('/incidentes/:id/providencias', async (req, res) => {
+  try {
+    if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Sem permissão' });
+    }
+    const orgId = req.usuario.organizacaoId;
+    const inc = await prisma.incidente.findFirst({ where: { id: req.params.id, organizacaoId: orgId } });
+    if (!inc) return res.status(404).json({ erro: 'Incidente não encontrado' });
+    const { descricao, data, responsavelId } = req.body || {};
+    const desc = typeof descricao === 'string' ? descricao.trim() : '';
+    if (!desc) return res.status(400).json({ erro: 'Descreva a providência' });
+    const quando = data ? new Date(data) : new Date();
+    if (isNaN(quando)) return res.status(400).json({ erro: 'Data inválida' });
+    if (!(await responsavelValido(prisma, responsavelId, orgId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
+    const prov = await prisma.$transaction(async (tx) => {
+      const criada = await tx.providenciaIncidente.create({
+        data: {
+          organizacaoId: orgId, incidenteId: inc.id, descricao: desc.slice(0, 2000), data: quando,
+          responsavelId: responsavelId || null, criadoPorId: req.usuario.id
+        },
+        include: { responsavel: { select: { id: true, nome: true } } }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: orgId, entidade: 'INCIDENTE', registroId: inc.id, acao: 'EDITAR', usuarioId: req.usuario.id,
+        diff: { providencia: { antes: null, depois: resumoProvidencia(criada) } }
+      });
+      return criada;
+    });
+    res.status(201).json(prov);
+  } catch (err) {
+    console.error('[POST /repositorio/incidentes/:id/providencias]', err);
+    res.status(500).json({ erro: 'Erro ao registrar providência' });
   }
 });
 
