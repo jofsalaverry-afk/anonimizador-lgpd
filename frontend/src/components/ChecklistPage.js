@@ -5,6 +5,7 @@ import SeletorResponsavel from './SeletorResponsavel';
 import Anexos from './Anexos';
 import Historico from './Historico';
 import AtividadeForm from './AtividadeForm';
+import { BotoesExportar } from './download';
 
 const STATUS_OPTIONS = [
   { value: 'CONFORME', label: 'Conforme' },
@@ -143,7 +144,10 @@ function ChecklistPage({ token }) {
     <div>
       <div className="page-header">
         <h2 className="page-title">Checklist de Conformidade</h2>
-        {!atividadeForm && <button className="btn-primary btn-sm" onClick={() => setAtividadeForm({})}>+ Atividade própria</button>}
+        <div className="btn-row">
+          <BotoesExportar token={token} caminho="/conformidade/checklist/export" nome="checklist-conformidade" onErro={setErro} />
+          {!atividadeForm && <button className="btn-primary btn-sm" onClick={() => setAtividadeForm({})}>+ Atividade própria</button>}
+        </div>
       </div>
 
       {erro && <div className="alert-error mb-16">{erro}</div>}

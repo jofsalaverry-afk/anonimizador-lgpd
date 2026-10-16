@@ -5,6 +5,7 @@ const { requireModulo, podeEscrever, ehGestorOuDpo } = require('../middlewares/r
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido } = require('../services/entidades');
 const { BLOCOS, PERGUNTAS, calcularRisco } = require('../services/questionarioTerceiro');
+const { responderExport } = require('../services/exportadores');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -87,6 +88,16 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('[GET /terceiros]', err);
     res.status(500).json({ erro: 'Erro ao listar terceiros' });
+  }
+});
+
+// GET /terceiros/export?formato=csv|json (com respostas e plano de acao)
+router.get('/export', async (req, res) => {
+  try {
+    await responderExport(res, prisma, 'terceiros', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /terceiros/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar terceiros' });
   }
 });
 

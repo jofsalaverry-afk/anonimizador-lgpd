@@ -149,6 +149,8 @@ model Organizacao {
   providencias       ProvidenciaIncidente[]
   descartes          RegistroDescarte[]
   itensChecklist     ItemChecklist[]
+  metasIndicador     MetaIndicador[]
+  snapshots          SnapshotIndicadores[]
 }
 
 model Usuario {
@@ -834,4 +836,38 @@ model RegistroDescarte {
   criadoEm      DateTime    @default(now())
 
   @@index([organizacaoId, tratamentoId])
+}
+
+// ============ Etapa 4 PoC: painel de indicadores ============
+
+// Meta (%) por indicador e organizacao. Sem linha = meta padrao do codigo
+// (METAS_PADRAO em src/services/indicadores.js). Incidentes nao tem meta
+// percentual (regra fixa: simulado nos ultimos 12 meses).
+// indicador: ROPA | CONTRATOS | TREINAMENTOS | DSAR
+model MetaIndicador {
+  id              String      @id @default(cuid())
+  organizacaoId   String
+  organizacao     Organizacao @relation(fields: [organizacaoId], references: [id])
+  indicador       String
+  percentualMeta  Int
+  atualizadoPorId String?
+  atualizadoEm    DateTime    @updatedAt
+
+  @@unique([organizacaoId, indicador])
+}
+
+// Foto mensal dos indicadores. mesReferencia = "AAAA-MM". Um por mes e
+// organizacao: o cron do dia 1 (mes anterior) sobrescreve a foto manual.
+// origem: CRON | MANUAL
+model SnapshotIndicadores {
+  id            String      @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao @relation(fields: [organizacaoId], references: [id])
+  mesReferencia String
+  valores       Json
+  origem        String
+  geradoPorId   String?
+  geradoEm      DateTime    @default(now())
+
+  @@unique([organizacaoId, mesReferencia])
 }

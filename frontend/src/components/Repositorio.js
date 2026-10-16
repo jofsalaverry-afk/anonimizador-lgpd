@@ -204,7 +204,7 @@ function RepositorioArquivos({ token, usuario }) {
   );
 }
 
-export default function Repositorio({ token, usuario, subpagina }) {
+export default function Repositorio({ token, usuario, subpagina, filtroInicial }) {
   const [tela, setTela] = useState('list');
   const [itemId, setItemId] = useState(null);
 
@@ -233,6 +233,7 @@ export default function Repositorio({ token, usuario, subpagina }) {
     return (
       <IncidenteList
         token={token}
+        filtroInicial={filtroInicial}
         onNovo={() => setTela('novo')}
         onVer={(id) => { setItemId(id); setTela('ver'); }}
       />

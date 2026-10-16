@@ -62,6 +62,8 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    // Deixa o navegador ler o nome do arquivo dos downloads (exportacoes, PDF/A, ZIP)
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     res.setHeader('Vary', 'Origin');
   } else if (origin) {
     console.warn('[CORS] Origem bloqueada:', origin);
@@ -186,6 +188,13 @@ const limiterCertificado = rateLimit({
 });
 app.use('/certificado', limiterCertificado);
 app.use('/certificado', require('./routes/certificadoPublico'));
+// Etapa 4 PoC: painel de indicadores, relatorios PDF/A e portabilidade
+app.use('/indicadores', crudLimiter);
+app.use('/indicadores', require('./routes/indicadores'));
+app.use('/relatorios', crudLimiter);
+app.use('/relatorios', require('./routes/relatorios'));
+app.use('/portabilidade', crudLimiter);
+app.use('/portabilidade', require('./routes/portabilidade'));
 
 // Healthcheck. Deve ser monitorado externamente por um uptime monitor
 // gratuito (UptimeRobot, BetterStack, Healthchecks.io) apontando para

@@ -16,14 +16,15 @@ const SITUACAO_BADGE = {
   CONCLUIDA: ['badge badge-success', 'Concluída']
 };
 
-export default function Treinamento({ token, usuario }) {
+export default function Treinamento({ token, usuario, filtroInicial }) {
   const [trilhas, setTrilhas] = useState([]);
   const [progresso, setProgresso] = useState({});
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [trilhaAberta, setTrilhaAberta] = useState(null);
   const [moduloIdx, setModuloIdx] = useState(0);
-  const [aba, setAba] = useState('trilhas');
+  const veioDoPainel = filtroInicial?.filtro === 'obrigatoria-pendente';
+  const [aba, setAba] = useState(veioDoPainel && ['GESTOR', 'ENCARREGADO_LGPD'].includes(usuario?.perfil) ? 'relatorio' : 'trilhas');
   const [marcando, setMarcando] = useState(false);
   const podeVerRelatorio = ['GESTOR', 'ENCARREGADO_LGPD'].includes(usuario?.perfil);
 
@@ -187,7 +188,8 @@ export default function Treinamento({ token, usuario }) {
       {erro && <div className="alert-error">{erro}</div>}
 
       {aba === 'relatorio' && podeVerRelatorio ? (
-        <TreinamentoRelatorio token={token} trilhas={trilhas} />
+        <TreinamentoRelatorio token={token} trilhas={trilhas}
+          trilhaInicial={veioDoPainel ? filtroInicial.trilhaId : ''} situacaoInicial={veioDoPainel ? 'NAO_CONCLUIDA' : ''} />
       ) : (
         <>
           <div className="alert-info mb-24">

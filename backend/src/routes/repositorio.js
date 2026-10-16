@@ -4,6 +4,7 @@ const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido } = require('../services/entidades');
+const { responderExport } = require('../services/exportadores');
 
 const INCIDENTE_INCLUDE = { responsavel: { select: { id: true, nome: true } } };
 
@@ -251,6 +252,16 @@ router.get('/incidentes', async (req, res) => {
   } catch (err) {
     console.error('[GET /repositorio/incidentes]', err);
     res.status(500).json({ erro: 'Erro ao listar incidentes' });
+  }
+});
+
+// GET /repositorio/incidentes/export?formato=csv|json (com providencias)
+router.get('/incidentes/export', async (req, res) => {
+  try {
+    await responderExport(res, prisma, 'incidentes', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /repositorio/incidentes/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar incidentes' });
   }
 });
 

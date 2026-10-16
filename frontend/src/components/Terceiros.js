@@ -3,7 +3,7 @@ import TerceiroList from './TerceiroList';
 import TerceiroForm from './TerceiroForm';
 import TerceiroDetail from './TerceiroDetail';
 
-export default function Terceiros({ token, usuario }) {
+export default function Terceiros({ token, usuario, filtroInicial }) {
   const [tela, setTela] = useState('list');
   const [terceiroId, setTerceiroId] = useState(null);
 
@@ -16,5 +16,5 @@ export default function Terceiros({ token, usuario }) {
   if (tela === 'ver') {
     return <TerceiroDetail token={token} usuario={usuario} terceiroId={terceiroId} onVoltar={() => setTela('list')} onEditar={() => setTela('editar')} />;
   }
-  return <TerceiroList token={token} onNovo={() => setTela('novo')} onVer={(id) => { setTerceiroId(id); setTela('ver'); }} />;
+  return <TerceiroList token={token} filtroInicial={filtroInicial} onNovo={() => setTela('novo')} onVer={(id) => { setTerceiroId(id); setTela('ver'); }} />;
 }

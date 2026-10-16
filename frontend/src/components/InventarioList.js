@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import { TIPO_SISTEMA_LABEL, HOSPEDAGEM_LABEL } from './rotulos';
+import { BotoesExportar } from './download';
 
 export default function InventarioList({ token, onNovo, onVer }) {
   const [sistemas, setSistemas] = useState([]);
@@ -30,7 +31,10 @@ export default function InventarioList({ token, onNovo, onVer }) {
     <div>
       <div className="page-header">
         <h2 className="page-title">Inventário de sistemas</h2>
-        <button onClick={onNovo} className="btn-primary btn-sm">+ Novo sistema</button>
+        <div className="btn-row">
+          <BotoesExportar token={token} caminho="/inventario/sistemas/export" nome="inventario-sistemas" onErro={setErro} />
+          <button onClick={onNovo} className="btn-primary btn-sm">+ Novo sistema</button>
+        </div>
       </div>
       {erro && <p className="alert-error mb-12">{erro}</p>}
 

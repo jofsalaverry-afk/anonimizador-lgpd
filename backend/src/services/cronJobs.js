@@ -234,6 +234,22 @@ async function jobRelatorioDiario() {
   }
 }
 
+// ==================== Job: foto mensal dos indicadores ====================
+//
+// Dia 1 de cada mes, 04:00 UTC (01:00 BRT): grava SnapshotIndicadores do
+// mes ANTERIOR para todas as organizacoes ativas (substitui a foto manual
+// daquele mes, se houver).
+async function jobSnapshotIndicadores() {
+  console.log('[cron:snapshotIndicadores] inicio');
+  try {
+    const { gerarSnapshotsMensais } = require('./indicadores');
+    const r = await gerarSnapshotsMensais(prisma);
+    console.log(`[cron:snapshotIndicadores] ${r.gerados} foto(s) de ${r.mesReferencia}`);
+  } catch (err) {
+    console.error('[cron:snapshotIndicadores] falha:', err.message);
+  }
+}
+
 // ==================== Registro ====================
 
 function iniciarCron() {
@@ -275,7 +291,12 @@ function iniciarCron() {
     timezone: 'UTC'
   });
 
-  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC, anonimizaPesquisa 02:10 UTC, patrulhaSeguranca 03:30 UTC, relatorioDiario 11:00 UTC');
+  // Foto mensal dos indicadores (dia 1, 04:00 UTC)
+  cron.schedule('0 4 1 * *', jobSnapshotIndicadores, {
+    timezone: 'UTC'
+  });
+
+  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC, anonimizaPesquisa 02:10 UTC, patrulhaSeguranca 03:30 UTC, relatorioDiario 11:00 UTC, snapshotIndicadores dia 1 04:00 UTC');
 
   // Em dev, permite forcar execucao imediata via env var
   if (process.env.RUN_CRON_ON_BOOT === 'true') {
@@ -288,4 +309,4 @@ function iniciarCron() {
   }
 }
 
-module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo, jobAnonimizacaoPesquisaAntiga, jobPatrulhaSeguranca, jobRelatorioDiario };
+module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo, jobAnonimizacaoPesquisaAntiga, jobPatrulhaSeguranca, jobRelatorioDiario, jobSnapshotIndicadores };

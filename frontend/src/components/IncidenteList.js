@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { BotoesExportar, BotaoPdfA } from './download';
 
 const TIPO_INC_LABEL = { VAZAMENTO: 'Vazamento', ACESSO_INDEVIDO: 'Acesso indevido', PERDA: 'Perda', ALTERACAO: 'Alteração', OUTRO: 'Outro' };
 const STATUS_INC_LABEL = { ABERTO: 'Aberto', EM_INVESTIGACAO: 'Em investigação', RESOLVIDO: 'Resolvido', ENCERRADO: 'Encerrado' };
@@ -8,13 +9,13 @@ const SEVERIDADE_LABEL = { ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa' };
 const SEVERIDADE_BADGE = { ALTA: 'badge badge-danger', MEDIA: 'badge badge-warning', BAIXA: 'badge badge-success' };
 const STATUS_INC_BADGE = { ABERTO: 'badge badge-danger', EM_INVESTIGACAO: 'badge badge-warning', RESOLVIDO: 'badge badge-success', ENCERRADO: 'badge badge-muted' };
 
-export default function IncidenteList({ token, onNovo, onVer }) {
+export default function IncidenteList({ token, onNovo, onVer, filtroInicial }) {
   const [incidentes, setIncidentes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
   const [filtroSeveridade, setFiltroSeveridade] = useState('');
-  const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroTipo, setFiltroTipo] = useState(['REAL', 'SIMULADO'].includes(filtroInicial?.filtro) ? filtroInicial.filtro : '');
 
   const carregar = useCallback(async () => {
     try {
@@ -44,6 +45,8 @@ export default function IncidenteList({ token, onNovo, onVer }) {
       <div className="page-header">
         <h2 className="page-title">Incidentes de Segurança</h2>
         <div className="btn-row">
+          <BotoesExportar token={token} caminho="/repositorio/incidentes/export" nome="incidentes" onErro={setErro} />
+          <BotaoPdfA token={token} tipo="incidentes" onErro={setErro} />
           <button onClick={onNovo} className="btn-primary btn-sm">+ Novo incidente</button>
         </div>
       </div>

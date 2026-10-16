@@ -29,6 +29,11 @@ const ENTIDADES = {
     modulo: 'ropa',
     buscar: (db, id, organizacaoId) => db.registroDescarte.findFirst({ where: { id, organizacaoId }, select: { id: true } })
   },
+  // Historico das metas do painel: registroId = id da propria organizacao.
+  METAS_INDICADORES: {
+    modulo: null,
+    buscar: async (db, id, organizacaoId) => (id === organizacaoId ? { id } : null)
+  },
   MODELO_DSAR: {
     modulo: 'dsar',
     buscar: (db, id, organizacaoId) => db.modeloRespostaDSAR.findFirst({ where: { id, organizacaoId }, select: { id: true } })

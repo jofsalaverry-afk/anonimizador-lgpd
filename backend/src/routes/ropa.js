@@ -4,6 +4,8 @@ const { authUsuario } = require('../middlewares/authUsuario');
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido, idsDaOrganizacao } = require('../services/entidades');
 const { calcularRetencao } = require('../services/retencao');
+const { pendenciasMapeamento } = require('../services/indicadores');
+const { responderExport } = require('../services/exportadores');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -132,7 +134,12 @@ router.get('/tratamentos', async (req, res) => {
       include: TRATAMENTO_INCLUDE,
       orderBy: { criadoEm: 'desc' }
     });
-    res.json(await comNomeResponsavel(tratamentos, req.usuario.organizacaoId));
+    // mapeado/pendencias: mesma regra do indicador do painel
+    const comNomes = await comNomeResponsavel(tratamentos, req.usuario.organizacaoId);
+    res.json(comNomes.map(t => {
+      const pendencias = pendenciasMapeamento(t);
+      return { ...t, mapeado: pendencias.length === 0, pendenciasMapeamento: pendencias };
+    }));
   } catch (err) {
     console.error('[GET /ropa/tratamentos]', err);
     res.status(500).json({ erro: 'Erro ao listar tratamentos' });
@@ -311,6 +318,16 @@ function resumoDescarte(d) {
   const data = new Date(d.dataDescarte).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
   return `${data} — ${d.metodo}${d.quantidade != null ? ` — ${d.quantidade} registro(s)` : ''} — ${d.descricao}`;
 }
+
+// GET /ropa/descartes/export?formato=csv|json — todos os descartes da org
+router.get('/descartes/export', async (req, res) => {
+  try {
+    await responderExport(res, prisma, 'descartes', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /ropa/descartes/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar descartes' });
+  }
+});
 
 // GET /ropa/tratamentos/:id/descartes — lista + situacao do prazo de retencao
 router.get('/tratamentos/:id/descartes', async (req, res) => {

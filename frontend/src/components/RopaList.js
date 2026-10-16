@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { BotoesExportar, BotaoPdfA } from './download';
 
 const BASE_LEGAL_LABEL = {
   CONSENTIMENTO: 'Consentimento',
@@ -13,12 +14,14 @@ const BASE_LEGAL_LABEL = {
   EXERCICIO_DIREITOS: 'Exercício de Direitos'
 };
 
-export default function RopaList({ token, onNovo, onVer, onEditar }) {
+export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial }) {
   const [tratamentos, setTratamentos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [filtroBase, setFiltroBase] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState('todos');
+  const [filtroStatus, setFiltroStatus] = useState(filtroInicial?.filtro === 'nao-mapeados' ? 'ativo' : 'todos');
+  // Vindo do painel: so os nao mapeados (mesma regra do indicador)
+  const [filtroMapeamento, setFiltroMapeamento] = useState(filtroInicial?.filtro === 'nao-mapeados' ? 'nao' : '');
 
   const carregar = useCallback(async () => {
     try {
@@ -71,6 +74,8 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
     if (filtroBase && t.baseLegal !== filtroBase) return false;
     if (filtroStatus === 'ativo' && !t.ativo) return false;
     if (filtroStatus === 'inativo' && t.ativo) return false;
+    if (filtroMapeamento === 'sim' && !t.mapeado) return false;
+    if (filtroMapeamento === 'nao' && t.mapeado) return false;
     return true;
   });
 
@@ -83,6 +88,8 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
         <div className="btn-row">
           <button onClick={() => exportar('csv')} className="btn-secondary btn-sm">Exportar CSV</button>
           <button onClick={() => exportar('json')} className="btn-secondary btn-sm">Exportar JSON</button>
+          <BotaoPdfA token={token} tipo="ropa" onErro={setErro} />
+          <BotoesExportar token={token} caminho="/ropa/descartes/export" nome="ropa-descartes" onErro={setErro} extra={null} />
           <button onClick={onNovo} className="btn-primary btn-sm">+ Novo tratamento</button>
         </div>
       </div>
@@ -98,6 +105,11 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
           <option value="todos">Todos</option>
           <option value="ativo">Ativos</option>
           <option value="inativo">Inativos</option>
+        </select>
+        <select value={filtroMapeamento} onChange={e => setFiltroMapeamento(e.target.value)}>
+          <option value="">Mapeamento: todos</option>
+          <option value="sim">Mapeamento completo</option>
+          <option value="nao">Não mapeados</option>
         </select>
       </div>
 
@@ -122,7 +134,10 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
             <tbody>
               {filtrados.map(t => (
                 <tr key={t.id}>
-                  <td>{t.nome}</td>
+                  <td>
+                    {t.nome}
+                    {t.ativo && !t.mapeado && <div className="text-xs text-muted" title="Faltam campos para o mapeamento completo">Falta: {(t.pendenciasMapeamento || []).join(', ')}</div>}
+                  </td>
                   <td className="table-cell-truncate">{t.finalidade}</td>
                   <td>
                     <span className="badge badge-purple">{BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}</span>

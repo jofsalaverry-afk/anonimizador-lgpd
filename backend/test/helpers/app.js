@@ -27,6 +27,9 @@ function criarApp() {
   app.use('/inventario', require('../../src/routes/inventario'));
   app.use('/terceiros', require('../../src/routes/terceiros'));
   app.use('/certificado', require('../../src/routes/certificadoPublico'));
+  app.use('/indicadores', require('../../src/routes/indicadores'));
+  app.use('/relatorios', require('../../src/routes/relatorios'));
+  app.use('/portabilidade', require('../../src/routes/portabilidade'));
   return app;
 }
 

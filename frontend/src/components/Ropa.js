@@ -3,7 +3,7 @@ import RopaList from './RopaList';
 import RopaForm from './RopaForm';
 import RopaDetail from './RopaDetail';
 
-export default function Ropa({ token }) {
+export default function Ropa({ token, filtroInicial }) {
   const [tela, setTela] = useState('list');
   const [tratamentoId, setTratamentoId] = useState(null);
 
@@ -27,6 +27,7 @@ export default function Ropa({ token }) {
   return (
     <RopaList
       token={token}
+      filtroInicial={filtroInicial}
       onNovo={() => setTela('novo')}
       onVer={(id) => { setTratamentoId(id); setTela('ver'); }}
       onEditar={(id) => { setTratamentoId(id); setTela('editar'); }}

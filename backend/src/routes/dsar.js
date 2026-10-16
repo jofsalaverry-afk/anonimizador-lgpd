@@ -18,6 +18,7 @@ const {
 const { validar, validarEmail, validarCpf, validarCuid, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
 const { registrarHistorico } = require('../services/historico');
 const { preencherModelo } = require('../services/modeloResposta');
+const { responderExport } = require('../services/exportadores');
 
 const router = express.Router();
 
@@ -354,6 +355,20 @@ router.patch('/solicitacoes/:id/verificar-identidade', authMiddleware, requireMo
   } catch (err) {
     console.error('[PATCH /dsar/solicitacoes/:id/verificar-identidade]', err);
     res.status(500).json({ erro: 'Erro ao verificar identidade' });
+  }
+});
+
+// GET /dsar/export?formato=csv|json — contem dados pessoais dos titulares:
+// so Gestor, DPO ou Auditor.
+router.get('/export', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!['GESTOR', 'ENCARREGADO_LGPD', 'AUDITOR'].includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Apenas Gestor, DPO ou Auditor exportam solicitações de titulares' });
+    }
+    await responderExport(res, prisma, 'dsar', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /dsar/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar solicitações' });
   }
 });
 

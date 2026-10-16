@@ -5,6 +5,7 @@ const { authUsuario } = require('../middlewares/authUsuario');
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido } = require('../services/entidades');
 const { calcularRetencao, ultimosDescartes } = require('../services/retencao');
+const { responderExport } = require('../services/exportadores');
 
 // Itens visiveis para a organizacao: catalogo global (organizacaoId null)
 // + atividades proprias dela. Atividade de outra org nunca aparece.
@@ -134,6 +135,16 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
   } catch (err) {
     console.error('[POST /conformidade/checklist/:itemId/responder]', err);
     res.status(500).json({ erro: 'Erro ao salvar resposta' });
+  }
+});
+
+// GET /conformidade/checklist/export?formato=csv|json (catalogo + atividades proprias)
+router.get('/checklist/export', requireChecklistModulo, async (req, res) => {
+  try {
+    await responderExport(res, prisma, 'checklist', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /conformidade/checklist/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar checklist' });
   }
 });
 

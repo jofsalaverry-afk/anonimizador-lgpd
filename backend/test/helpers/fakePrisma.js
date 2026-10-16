@@ -38,7 +38,8 @@ const FILHOS = {
     integracoesEntrada: ['integracaoSistema', 'destinoId']
   },
   solicitacaoTitular: { evidencias: ['evidenciaDSAR', 'solicitacaoId'] },
-  incidente: { providencias: ['providenciaIncidente', 'incidenteId'] }
+  incidente: { providencias: ['providenciaIncidente', 'incidenteId'] },
+  terceiro: { respostas: ['respostaQuestionarioTerceiro', 'terceiroId'], acoes: ['acaoTerceiro', 'terceiroId'] }
 };
 
 // Defaults do schema (lidos do datamodel do client gerado, antes de o

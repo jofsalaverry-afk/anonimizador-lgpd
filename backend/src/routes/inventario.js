@@ -4,6 +4,7 @@ const { authUsuario } = require('../middlewares/authUsuario');
 const { requireModulo, podeEscrever, ehGestorOuDpo } = require('../middlewares/requireModulo');
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido, idsDaOrganizacao } = require('../services/entidades');
+const { responderExport } = require('../services/exportadores');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -102,6 +103,16 @@ router.get('/sistemas', async (req, res) => {
   } catch (err) {
     console.error('[GET /inventario/sistemas]', err);
     res.status(500).json({ erro: 'Erro ao listar sistemas' });
+  }
+});
+
+// GET /inventario/sistemas/export?formato=csv|json
+router.get('/sistemas/export', async (req, res) => {
+  try {
+    await responderExport(res, prisma, 'inventario', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /inventario/sistemas/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar inventário' });
   }
 });
 

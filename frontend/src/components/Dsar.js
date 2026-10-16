@@ -4,7 +4,7 @@ import DsarForm from './DsarForm';
 import DsarDetail from './DsarDetail';
 import DsarModelos from './DsarModelos';
 
-export default function Dsar({ token, usuario }) {
+export default function Dsar({ token, usuario, filtroInicial }) {
   const [tela, setTela] = useState('list');
   const [solicitacaoId, setSolicitacaoId] = useState(null);
 
@@ -36,6 +36,7 @@ export default function Dsar({ token, usuario }) {
       </div>
       <DsarList
         token={token}
+        filtroInicial={filtroInicial}
         onNova={() => setTela('nova')}
         onVer={(id) => { setSolicitacaoId(id); setTela('ver'); }}
       />

@@ -10,10 +10,10 @@ const SITUACAO = {
 };
 
 // Relatorio usuarios x trilhas (Gestor/DPO), com filtro e exportacao.
-export default function TreinamentoRelatorio({ token, trilhas }) {
+export default function TreinamentoRelatorio({ token, trilhas, trilhaInicial = '', situacaoInicial = '' }) {
   const [linhas, setLinhas] = useState([]);
-  const [trilhaId, setTrilhaId] = useState('');
-  const [situacao, setSituacao] = useState('');
+  const [trilhaId, setTrilhaId] = useState(trilhaInicial);
+  const [situacao, setSituacao] = useState(situacaoInicial);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
 
@@ -62,6 +62,7 @@ export default function TreinamentoRelatorio({ token, trilhas }) {
           <select value={situacao} onChange={e => setSituacao(e.target.value)}>
             <option value="">Todas as situações</option>
             {Object.entries(SITUACAO).map(([k, [, v]]) => <option key={k} value={k}>{v}</option>)}
+            <option value="NAO_CONCLUIDA">Não concluída (não iniciada + em andamento)</option>
           </select>
         </div>
         <div className="btn-row">

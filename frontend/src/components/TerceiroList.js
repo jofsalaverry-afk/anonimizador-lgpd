@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { BotoesExportar } from './download';
 import { PAPEL_TERCEIRO_LABEL, BadgeRisco } from './rotulos';
 
-export default function TerceiroList({ token, onNovo, onVer }) {
+export default function TerceiroList({ token, onNovo, onVer, filtroInicial }) {
   const [terceiros, setTerceiros] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [filtroRisco, setFiltroRisco] = useState('');
   const [filtroAtivo, setFiltroAtivo] = useState('ativo');
+  // Vindo do painel: contratos criticos ainda sem aditivo LGPD
+  const [filtroContrato, setFiltroContrato] = useState(filtroInicial?.filtro === 'criticos-sem-aditivo' ? 'criticos-sem-aditivo' : '');
 
   useEffect(() => {
     setLoading(true);
@@ -21,6 +24,8 @@ export default function TerceiroList({ token, onNovo, onVer }) {
   const filtrados = terceiros.filter(t => {
     if (filtroAtivo === 'ativo' && !t.ativo) return false;
     if (filtroAtivo === 'inativo' && t.ativo) return false;
+    if (filtroContrato === 'criticos' && !t.contratoCritico) return false;
+    if (filtroContrato === 'criticos-sem-aditivo' && !(t.contratoCritico && !t.aditivoLgpdAssinado)) return false;
     return true;
   });
 
@@ -28,7 +33,10 @@ export default function TerceiroList({ token, onNovo, onVer }) {
     <div>
       <div className="page-header">
         <h2 className="page-title">Terceiros e operadores</h2>
-        <button onClick={onNovo} className="btn-primary btn-sm">+ Novo terceiro</button>
+        <div className="btn-row">
+          <BotoesExportar token={token} caminho="/terceiros/export" nome="terceiros-operadores" onErro={setErro} />
+          <button onClick={onNovo} className="btn-primary btn-sm">+ Novo terceiro</button>
+        </div>
       </div>
       {erro && <p className="alert-error mb-12">{erro}</p>}
 
@@ -44,6 +52,11 @@ export default function TerceiroList({ token, onNovo, onVer }) {
           <option value="ativo">Ativos</option>
           <option value="inativo">Desativados</option>
           <option value="todos">Todos</option>
+        </select>
+        <select value={filtroContrato} onChange={e => setFiltroContrato(e.target.value)}>
+          <option value="">Todos os contratos</option>
+          <option value="criticos">Só críticos</option>
+          <option value="criticos-sem-aditivo">Críticos sem aditivo LGPD</option>
         </select>
       </div>
 

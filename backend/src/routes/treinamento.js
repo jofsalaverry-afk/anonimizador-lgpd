@@ -284,7 +284,9 @@ router.get('/relatorio', async (req, res) => {
       }
     }
     if (req.query.trilhaId) linhas = linhas.filter(l => l.trilhaId === req.query.trilhaId);
-    if (req.query.situacao) linhas = linhas.filter(l => l.situacao === req.query.situacao);
+    // NAO_CONCLUIDA = nao iniciada + em andamento (link do painel)
+    if (req.query.situacao === 'NAO_CONCLUIDA') linhas = linhas.filter(l => l.situacao !== 'CONCLUIDA');
+    else if (req.query.situacao) linhas = linhas.filter(l => l.situacao === req.query.situacao);
 
     if (req.query.formato === 'csv') {
       const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
