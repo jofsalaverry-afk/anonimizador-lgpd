@@ -89,10 +89,11 @@ router.get('/camaras', adminAuth, async (req, res) => {
     const orgs = await prisma.organizacao.findMany({
       select: {
         id: true, nome: true, cnpj: true, ativo: true, plano: true, criadoEm: true, modulosAtivos: true, slug: true,
+        mfaObrigatorio: true,
         _count: { select: { documentos: true, usuarios: true } },
         usuarios: {
           where: { deletedAt: null },
-          select: { id: true, email: true, perfil: true, ativo: true, ultimoAcesso: true },
+          select: { id: true, email: true, perfil: true, ativo: true, ultimoAcesso: true, mfaAtivo: true },
           orderBy: { criadoEm: 'asc' }
         }
       },
@@ -151,6 +152,28 @@ router.patch('/camaras/:id/modulos', adminAuth, async (req, res) => {
       data: { modulosAtivos: validos },
       select: { id: true, nome: true, modulosAtivos: true }
     });
+    res.json(org);
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ erro: 'Organização não encontrada' });
+    res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+// ---------- MFA obrigatorio por organizacao ----------
+// Quando ligado, quem nao tem MFA ativo nao recebe sessao no login e
+// e levado para configurar o autenticador (ver auth.js /login).
+router.patch('/camaras/:id/mfa-obrigatorio', adminAuth, async (req, res) => {
+  try {
+    const { mfaObrigatorio } = req.body;
+    if (typeof mfaObrigatorio !== 'boolean') {
+      return res.status(400).json({ erro: 'mfaObrigatorio deve ser true ou false' });
+    }
+    const org = await prisma.organizacao.update({
+      where: { id: req.params.id },
+      data: { mfaObrigatorio },
+      select: { id: true, nome: true, mfaObrigatorio: true }
+    });
+    console.log(`[AUDIT] admin=${req.admin.email} mfa_obrigatorio=${mfaObrigatorio} org=${org.id}`);
     res.json(org);
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ erro: 'Organização não encontrada' });
@@ -393,7 +416,9 @@ router.delete('/camaras/:id/excluir', adminAuth, async (req, res) => {
             docsRepo: true,
             incidentes: true,
             respostasChecklist: true,
-            alertas: true
+            alertas: true,
+            anexos: true,
+            historicos: true
           }
         }
       }

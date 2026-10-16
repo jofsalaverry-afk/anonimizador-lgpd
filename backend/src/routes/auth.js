@@ -7,6 +7,7 @@ const { PrismaClient } = require('@prisma/client');
 const { body } = require('express-validator');
 const { auditarLogin } = require('../middlewares/auditoria');
 const { validar, validarEmail } = require('../middlewares/seguranca');
+const { authUsuario } = require('../middlewares/authUsuario');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -51,14 +52,24 @@ function emitirSessao(usuario) {
   };
 }
 
-// Middleware de auth padrao das rotas abaixo (exceto as de login publico).
-// Nao importa do dsar/documents pra evitar dependencia cruzada.
-function authRequired(req, res, next) {
+// Sessao completa (rejeita mfaPending e mfaSetup).
+const authRequired = authUsuario;
+
+// Aceita sessao completa OU o setupToken emitido no login quando a
+// organizacao exige MFA e o usuario ainda nao configurou. Usado so em
+// /mfa/configurar e /mfa/ativar.
+function authOuSetupMfa(req, res, next) {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (decoded.mfaPending) return res.status(401).json({ erro: 'Sessão incompleta (MFA pendente)' });
+    if (decoded.mfaSetup) {
+      if (!decoded.userId) return res.status(401).json({ erro: 'Token inválido' });
+      req.usuario = { id: decoded.userId };
+      req.mfaSetup = true;
+      return next();
+    }
     req.usuario = decoded;
     next();
   } catch (err) {
@@ -71,7 +82,7 @@ router.post('/login', validadoresLogin, async (req, res) => {
     const { email, senha } = req.body;
     const usuario = await prisma.usuario.findUnique({
       where: { email },
-      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true } } }
+      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } } }
     });
     if (!usuario || usuario.deletedAt) {
       auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', motivo: 'email_nao_encontrado' });
@@ -107,6 +118,23 @@ router.post('/login', validadoresLogin, async (req, res) => {
       });
     }
 
+    // Organizacao exige MFA e o usuario nao tem: nao emite sessao. O
+    // setupToken (15 min) so serve para /mfa/configurar e /mfa/ativar;
+    // a sessao real sai do /mfa/ativar.
+    if (usuario.organizacao.mfaObrigatorio) {
+      auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', userId: usuario.id, motivo: 'mfa_setup_obrigatorio' });
+      const setupToken = jwt.sign(
+        { mfaSetup: true, userId: usuario.id },
+        process.env.JWT_SECRET,
+        { expiresIn: '15m' }
+      );
+      return res.json({
+        mfaSetupObrigatorio: true,
+        setupToken,
+        mensagem: 'Sua organização exige autenticação em 2 etapas. Configure o autenticador para continuar.'
+      });
+    }
+
     await prisma.usuario.update({ where: { id: usuario.id }, data: { ultimoAcesso: new Date() } });
     auditarLogin(prisma, { req, sucesso: true, userType: 'usuario', userId: usuario.id });
     // Sinaliza para perfis privilegiados que MFA e obrigatorio e deveria
@@ -125,19 +153,19 @@ router.get('/me', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.mfaPending) return res.status(401).json({ erro: 'Sessão incompleta (MFA pendente)' });
+    if (decoded.mfaPending || decoded.mfaSetup) return res.status(401).json({ erro: 'Sessão incompleta (MFA pendente)' });
     const usuario = await prisma.usuario.findUnique({
       where: { id: decoded.id },
       select: {
         id: true, nome: true, email: true, perfil: true, ativo: true, mfaAtivo: true, deletedAt: true,
         organizacaoId: true,
-        organizacao: { select: { nome: true, slug: true, plano: true, modulosAtivos: true } }
+        organizacao: { select: { nome: true, slug: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } }
       }
     });
     if (!usuario || usuario.deletedAt) return res.status(401).json({ erro: 'Sessão inválida' });
     delete usuario.deletedAt;
     const { organizacao, ...rest } = usuario;
-    res.json({ ...rest, orgNome: organizacao.nome, orgSlug: organizacao.slug, plano: organizacao.plano, modulosAtivos: organizacao.modulosAtivos });
+    res.json({ ...rest, orgNome: organizacao.nome, orgSlug: organizacao.slug, plano: organizacao.plano, modulosAtivos: organizacao.modulosAtivos, mfaObrigatorioOrg: organizacao.mfaObrigatorio });
   } catch (err) {
     res.status(401).json({ erro: 'Token inválido' });
   }
@@ -148,7 +176,7 @@ router.get('/me', async (req, res) => {
 // Gera um secret novo, grava no usuario (mfaAtivo continua false) e
 // devolve o QR code em data URL pronto pra escanear. Se chamar 2x, o
 // secret antigo e sobrescrito — so o ultimo vale.
-router.post('/mfa/configurar', authRequired, async (req, res) => {
+router.post('/mfa/configurar', authOuSetupMfa, async (req, res) => {
   try {
     const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
     if (!usuario) return res.status(404).json({ erro: 'Usuário não encontrado' });
@@ -176,7 +204,7 @@ router.post('/mfa/configurar', authRequired, async (req, res) => {
 
 // Recebe o codigo de 6 digitos gerado pelo Authenticator e, se casar
 // com o secret gravado no configurar, marca mfaAtivo=true.
-router.post('/mfa/ativar', authRequired, validadorCodigoMfa, validar, async (req, res) => {
+router.post('/mfa/ativar', authOuSetupMfa, validadorCodigoMfa, validar, async (req, res) => {
   try {
     const { codigo } = req.body;
     const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
@@ -194,6 +222,21 @@ router.post('/mfa/ativar', authRequired, validadorCodigoMfa, validar, async (req
       where: { id: usuario.id },
       data: { mfaAtivo: true }
     });
+
+    // Veio do login com MFA obrigatorio: conclui o login aqui.
+    if (req.mfaSetup) {
+      const completo = await prisma.usuario.findUnique({
+        where: { id: usuario.id },
+        include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } } }
+      });
+      if (!completo || completo.deletedAt || !completo.ativo || !completo.organizacao.ativo) {
+        return res.status(403).json({ erro: 'Acesso desativado' });
+      }
+      await prisma.usuario.update({ where: { id: completo.id }, data: { ultimoAcesso: new Date() } });
+      auditarLogin(prisma, { req, sucesso: true, userType: 'usuario', userId: completo.id });
+      return res.json({ ok: true, mfaAtivo: true, ...emitirSessao(completo) });
+    }
+
     res.json({ ok: true, mfaAtivo: true });
   } catch (err) {
     console.error('[POST /auth/mfa/ativar]', err);
@@ -218,7 +261,7 @@ router.post('/mfa/verificar', validadorCodigoMfa, validar, async (req, res) => {
     }
     const usuario = await prisma.usuario.findUnique({
       where: { id: payload.userId },
-      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true } } }
+      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } } }
     });
     if (!usuario || usuario.deletedAt || !usuario.mfaSecret || !usuario.mfaAtivo) {
       return res.status(400).json({ erro: 'MFA não configurado' });
@@ -247,9 +290,15 @@ router.post('/mfa/verificar', validadorCodigoMfa, validar, async (req, res) => {
 router.put('/mfa/desativar', authRequired, validadorCodigoMfa, validar, async (req, res) => {
   try {
     const { codigo } = req.body;
-    const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: req.usuario.id },
+      include: { organizacao: { select: { mfaObrigatorio: true } } }
+    });
     if (!usuario || !usuario.mfaSecret || !usuario.mfaAtivo) {
       return res.status(400).json({ erro: 'MFA não está ativo' });
+    }
+    if (usuario.organizacao.mfaObrigatorio) {
+      return res.status(403).json({ erro: 'Sua organização exige MFA. Não é possível desativar.' });
     }
     const ok = speakeasy.totp.verify({
       secret: usuario.mfaSecret,

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import Anexos from './Anexos';
+import Historico from './Historico';
 
 const BASE_LEGAL_LABEL = {
   CONSENTIMENTO: 'Consentimento',
@@ -28,6 +30,7 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
   const [historico, setHistorico] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
+  const [versaoHistorico, setVersaoHistorico] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -64,6 +67,7 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
           <div>
             <Campo label="Finalidade" valor={tratamento.finalidade} />
             <Campo label="Base legal" valor={BASE_LEGAL_LABEL[tratamento.baseLegal] || tratamento.baseLegal} />
+            <Campo label="Responsável" valor={tratamento.responsavelNome || 'Não designado'} />
             <Campo label="Retenção" valor={tratamento.retencaoDias ? `${tratamento.retencaoDias} dias` : null} />
             <Campo label="Forma de descarte" valor={tratamento.formaDescarte} />
           </div>
@@ -107,14 +111,17 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
         <div className="card-divider btn-row mt-16">
           <button onClick={() => onEditar(tratamento.id)} className="btn-primary btn-sm">Editar tratamento</button>
           <button onClick={() => setMostrarHistorico(!mostrarHistorico)} className="btn-secondary btn-sm">
-            {mostrarHistorico ? 'Ocultar histórico' : `Histórico (${historico.length})`}
+            {mostrarHistorico ? 'Ocultar versões salvas' : `Versões salvas (${historico.length})`}
           </button>
         </div>
       </div>
 
+      <Anexos token={token} entidade="TRATAMENTO" registroId={tratamento.id} onEnviado={() => setVersaoHistorico(v => v + 1)} />
+      <Historico token={token} entidade="TRATAMENTO" registroId={tratamento.id} versao={versaoHistorico} />
+
       {mostrarHistorico && (
         <div className="card">
-          <h3 className="mb-12">Histórico de alterações</h3>
+          <h3 className="mb-12">Versões salvas (snapshots anteriores)</h3>
           {historico.length === 0 ? (
             <p className="text-muted">Nenhum histórico registrado.</p>
           ) : (

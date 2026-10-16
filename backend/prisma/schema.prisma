@@ -123,6 +123,9 @@ model Organizacao {
   municipio    String?
   modulosAtivos  String[]   @default(["anonimizador"])
   setoresPesquisa String[]  @default(["Protocolo", "RH", "Financeiro", "Juridico", "Presidencia", "Outro"])
+  // Quando true, usuario sem MFA ativo nao recebe sessao no login: e
+  // levado direto para a configuracao do autenticador.
+  mfaObrigatorio Boolean    @default(false)
   usuarios       Usuario[]
   documentos     Documento[]
   tratamentos    Tratamento[]
@@ -133,6 +136,8 @@ model Organizacao {
   respostasChecklist RespostaChecklist[]
   alertas        AlertaConformidade[]
   pesquisas      PesquisaSatisfacao[]
+  anexos         Anexo[]
+  historicos     HistoricoRegistro[]
 }
 
 model Usuario {
@@ -151,6 +156,11 @@ model Usuario {
   deletedAt      DateTime?
   organizacaoId  String
   organizacao    Organizacao @relation(fields: [organizacaoId], references: [id])
+
+  anexosEnviados        Anexo[]
+  historicos            HistoricoRegistro[]
+  incidentesResponsavel Incidente[]         @relation("IncidenteResponsavel")
+  checklistResponsavel  RespostaChecklist[] @relation("ChecklistResponsavel")
 }
 
 model Admin {
@@ -340,6 +350,8 @@ model Incidente {
   descricao       String
   planoAcao       String?
   autorId         String?
+  responsavelId   String?
+  responsavel     Usuario?        @relation("IncidenteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
   criadoEm        DateTime        @default(now())
   atualizadoEm    DateTime        @updatedAt
 
@@ -372,6 +384,8 @@ model RespostaChecklist {
   evidenciaUrl    String?
   evidenciaHash   String?
   validadoPor     String?
+  responsavelId   String?
+  responsavel     Usuario?       @relation("ChecklistResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
   proximaRevisao  DateTime?
   criadoEm        DateTime       @default(now())
   atualizadoEm    DateTime       @updatedAt
@@ -476,4 +490,52 @@ model PesquisaSatisfacao {
   @@index([organizacaoId, criadoEm])
   @@index([organizacaoId, avaliacao])
   @@index([organizacaoId, setor])
+}
+
+// ============ Anexos e historico genericos ============
+// Usados por qualquer modulo. "entidade" + "registroId" apontam para o
+// registro dono (ex.: TRATAMENTO + id do tratamento). A lista de
+// entidades validas fica em src/services/entidades.js.
+
+model Anexo {
+  id             String      @id @default(cuid())
+  organizacaoId  String
+  organizacao    Organizacao @relation(fields: [organizacaoId], references: [id])
+  entidade       String
+  registroId     String
+  nomeArquivo    String
+  mimeType       String
+  tamanho        Int
+  conteudo       Bytes
+  hashSha256     String
+  enviadoPorId   String
+  enviadoPor     Usuario     @relation(fields: [enviadoPorId], references: [id])
+  criadoEm       DateTime    @default(now())
+
+  @@index([organizacaoId, entidade, registroId])
+}
+
+enum AcaoHistorico {
+  CRIAR
+  EDITAR
+  EXCLUIR
+  STATUS
+}
+
+// diff: { campo: { antes, depois } }. Campos sensiveis ficam fora
+// (ver CAMPOS_IGNORADOS / CAMPOS_OMITIDOS em src/services/historico.js).
+// usuarioId null = acao sem usuario logado (ex.: DSAR pelo canal publico).
+model HistoricoRegistro {
+  id             String        @id @default(cuid())
+  organizacaoId  String
+  organizacao    Organizacao   @relation(fields: [organizacaoId], references: [id])
+  entidade       String
+  registroId     String
+  acao           AcaoHistorico
+  usuarioId      String?
+  usuario        Usuario?      @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  diff           Json
+  criadoEm       DateTime      @default(now())
+
+  @@index([organizacaoId, entidade, registroId, criadoEm])
 }

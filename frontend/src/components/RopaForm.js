@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import SeletorResponsavel from './SeletorResponsavel';
 
 const BASE_LEGAL_OPTIONS = [
   { value: 'CONSENTIMENTO', label: 'Consentimento' },
@@ -29,7 +30,8 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
     nome: '', finalidade: '', baseLegal: '',
     categoriasDados: [], categoriasTitulares: [],
     compartilhamentos: [],
-    retencaoDias: '', formaDescarte: '', medidasSeguranca: ''
+    retencaoDias: '', formaDescarte: '', medidasSeguranca: '',
+    responsavelId: ''
   });
 
   useEffect(() => {
@@ -50,7 +52,8 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
               paisDestino: c.paisDestino || 'Brasil', baseLegalTransferencia: c.baseLegalTransferencia || ''
             })),
             retencaoDias: t.retencaoDias != null ? String(t.retencaoDias) : '',
-            formaDescarte: t.formaDescarte || '', medidasSeguranca: t.medidasSeguranca || ''
+            formaDescarte: t.formaDescarte || '', medidasSeguranca: t.medidasSeguranca || '',
+            responsavelId: t.responsavelId || ''
           });
         }
       } catch (err) {
@@ -150,6 +153,10 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
                 <option value="">Selecione...</option>
                 {BASE_LEGAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
+            </div>
+            <div className="form-group">
+              <label>Responsável pelo tratamento</label>
+              <SeletorResponsavel token={token} value={form.responsavelId} onChange={v => setForm({ ...form, responsavelId: v })} className="mb-12" />
             </div>
           </div>
         )}

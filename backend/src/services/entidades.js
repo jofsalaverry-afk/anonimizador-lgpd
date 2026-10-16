@@ -1,0 +1,53 @@
+// Entidades que aceitam anexos e historico genericos. Cada uma diz
+// qual modulo precisa estar ativo e como confirmar que o registro
+// pertence a organizacao do usuario (isolamento entre camaras).
+
+const ENTIDADES = {
+  TRATAMENTO: {
+    modulo: 'ropa',
+    buscar: (db, id, organizacaoId) => db.tratamento.findFirst({ where: { id, organizacaoId }, select: { id: true } })
+  },
+  SOLICITACAO_DSAR: {
+    modulo: 'dsar',
+    buscar: (db, id, organizacaoId) => db.solicitacaoTitular.findFirst({ where: { id, organizacaoId }, select: { id: true } })
+  },
+  INCIDENTE: {
+    modulo: 'repositorio',
+    buscar: (db, id, organizacaoId) => db.incidente.findFirst({ where: { id, organizacaoId }, select: { id: true } })
+  },
+  // Itens do checklist sao um catalogo global; o registro da org e a
+  // RespostaChecklist (unica por org+item). Usamos o id do item como
+  // registroId — o isolamento vem do organizacaoId gravado no anexo/historico.
+  CHECKLIST_ITEM: {
+    modulo: 'checklist',
+    buscar: (db, id) => db.itemChecklist.findUnique({ where: { id }, select: { id: true } })
+  }
+};
+
+// Valida entidade + modulo ativo + registro da organizacao.
+// Retorna { status, erro } quando falha, ou null quando ok.
+async function verificarRegistro(db, { entidade, registroId, organizacaoId }) {
+  const def = ENTIDADES[entidade];
+  if (!def) return { status: 400, erro: 'Entidade inválida' };
+  if (!registroId || typeof registroId !== 'string') return { status: 400, erro: 'registroId obrigatório' };
+  const org = await db.organizacao.findUnique({ where: { id: organizacaoId }, select: { modulosAtivos: true } });
+  if (!org || !org.modulosAtivos.includes(def.modulo)) {
+    return { status: 403, erro: `Módulo "${def.modulo}" não está ativo para sua organização.` };
+  }
+  const registro = await def.buscar(db, registroId, organizacaoId);
+  if (!registro) return { status: 404, erro: 'Registro não encontrado' };
+  return null;
+}
+
+// responsavelId vazio = sem responsavel. Preenchido: precisa ser
+// usuario ativo (nao excluido) da mesma organizacao.
+async function responsavelValido(db, responsavelId, organizacaoId) {
+  if (!responsavelId) return true;
+  const u = await db.usuario.findFirst({
+    where: { id: responsavelId, organizacaoId, deletedAt: null },
+    select: { id: true }
+  });
+  return !!u;
+}
+
+module.exports = { ENTIDADES, verificarRegistro, responsavelValido };

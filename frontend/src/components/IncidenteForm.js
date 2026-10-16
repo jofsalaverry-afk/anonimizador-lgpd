@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import SeletorResponsavel from './SeletorResponsavel';
+import Anexos from './Anexos';
+import Historico from './Historico';
 
 const TIPO_INC_OPTIONS = [
   { value: 'VAZAMENTO', label: 'Vazamento' },
@@ -29,8 +32,10 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
     qtdTitulares: '',
     planoAcao: '',
     notificadoANPD: false,
-    status: 'ABERTO'
+    status: 'ABERTO',
+    responsavelId: ''
   });
+  const [versaoHistorico, setVersaoHistorico] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingInc, setLoadingInc] = useState(!!incidenteId);
   const [erro, setErro] = useState('');
@@ -53,7 +58,8 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
           qtdTitulares: inc.qtdTitulares || '',
           planoAcao: inc.planoAcao || '',
           notificadoANPD: inc.notificadoANPD || false,
-          status: inc.status || 'ABERTO'
+          status: inc.status || 'ABERTO',
+          responsavelId: inc.responsavelId || ''
         });
       } else {
         setErro('Incidente não encontrado');
@@ -189,6 +195,11 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
           />
         </div>
 
+        <div className="form-group mb-16">
+          <label>Responsável</label>
+          <SeletorResponsavel token={token} value={form.responsavelId} onChange={v => setForm({ ...form, responsavelId: v })} />
+        </div>
+
         <div className="form-grid mb-16">
           <div className="form-group">
             <label>
@@ -217,6 +228,13 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
           </button>
         </div>
       </div>
+
+      {incidenteId && (
+        <div className="mt-20">
+          <Anexos token={token} entidade="INCIDENTE" registroId={incidenteId} titulo="Evidências anexadas" onEnviado={() => setVersaoHistorico(v => v + 1)} />
+          <Historico token={token} entidade="INCIDENTE" registroId={incidenteId} versao={versaoHistorico} />
+        </div>
+      )}
     </div>
   );
 }

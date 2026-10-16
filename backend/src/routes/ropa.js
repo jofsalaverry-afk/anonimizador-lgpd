@@ -1,22 +1,16 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
+const { registrarHistorico } = require('../services/historico');
+const { responsavelValido } = require('../services/entidades');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
 // ---------- Middlewares ----------
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 const requireModulo = async (req, res, next) => {
   try {
@@ -60,6 +54,31 @@ const TRATAMENTO_INCLUDE = {
   _count: { select: { historico: true } }
 };
 
+// Forma do tratamento para o diff do HistoricoRegistro: compartilhamentos
+// viram texto legivel (os ids mudam a cada edicao, pois sao recriados).
+function paraHistorico(t) {
+  if (!t) return null;
+  const { compartilhamentos, ...resto } = t;
+  return {
+    ...resto,
+    compartilhamentos: (compartilhamentos || []).map(c =>
+      `${c.terceiroNome}${c.terceiroCNPJ ? ` (${c.terceiroCNPJ})` : ''} — ${c.finalidadeCompartilhamento} — ${c.paisDestino}`
+    )
+  };
+}
+
+// Tratamento.responsavelId nao tem FK (coluna legada); resolve o nome
+// por lookup escopado na organizacao.
+async function comNomeResponsavel(tratamentos, organizacaoId) {
+  const ids = [...new Set(tratamentos.map(t => t.responsavelId).filter(Boolean))];
+  const usuarios = ids.length === 0 ? [] : await prisma.usuario.findMany({
+    where: { id: { in: ids }, organizacaoId },
+    select: { id: true, nome: true }
+  });
+  const nomes = Object.fromEntries(usuarios.map(u => [u.id, u.nome]));
+  return tratamentos.map(t => ({ ...t, responsavelNome: nomes[t.responsavelId] || null }));
+}
+
 // ---------- Rotas ----------
 
 // GET /ropa/tratamentos — lista tratamentos da organizacao
@@ -70,7 +89,7 @@ router.get('/tratamentos', async (req, res) => {
       include: TRATAMENTO_INCLUDE,
       orderBy: { criadoEm: 'desc' }
     });
-    res.json(tratamentos);
+    res.json(await comNomeResponsavel(tratamentos, req.usuario.organizacaoId));
   } catch (err) {
     console.error('[GET /ropa/tratamentos]', err);
     res.status(500).json({ erro: 'Erro ao listar tratamentos' });
@@ -94,32 +113,42 @@ router.post('/tratamentos', async (req, res) => {
     if (!nome || !finalidade || !baseLegal) {
       return res.status(400).json({ erro: 'nome, finalidade e baseLegal são obrigatórios' });
     }
+    if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
 
-    const tratamento = await prisma.tratamento.create({
-      data: {
-        organizacaoId: req.usuario.organizacaoId,
-        nome, finalidade, baseLegal,
-        categoriasDados: categoriasDados || [],
-        categoriasTitulares: categoriasTitulares || [],
-        retencaoDias: retencaoDias || null,
-        formaDescarte: formaDescarte || null,
-        responsavelId: responsavelId || null,
-        medidasSeguranca: medidasSeguranca || null,
-        compartilhamentos: {
-          create: (compartilhamentos || []).map(c => ({
-            terceiroNome: c.terceiroNome,
-            terceiroCNPJ: c.terceiroCNPJ || null,
-            finalidadeCompartilhamento: c.finalidadeCompartilhamento,
-            paisDestino: c.paisDestino || 'Brasil',
-            baseLegalTransferencia: c.baseLegalTransferencia || null
-          }))
-        }
-      },
-      include: TRATAMENTO_INCLUDE
+    const tratamento = await prisma.$transaction(async (tx) => {
+      const criado = await tx.tratamento.create({
+        data: {
+          organizacaoId: req.usuario.organizacaoId,
+          nome, finalidade, baseLegal,
+          categoriasDados: categoriasDados || [],
+          categoriasTitulares: categoriasTitulares || [],
+          retencaoDias: retencaoDias || null,
+          formaDescarte: formaDescarte || null,
+          responsavelId: responsavelId || null,
+          medidasSeguranca: medidasSeguranca || null,
+          compartilhamentos: {
+            create: (compartilhamentos || []).map(c => ({
+              terceiroNome: c.terceiroNome,
+              terceiroCNPJ: c.terceiroCNPJ || null,
+              finalidadeCompartilhamento: c.finalidadeCompartilhamento,
+              paisDestino: c.paisDestino || 'Brasil',
+              baseLegalTransferencia: c.baseLegalTransferencia || null
+            }))
+          }
+        },
+        include: TRATAMENTO_INCLUDE
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'TRATAMENTO', registroId: criado.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null, depois: paraHistorico(criado)
+      });
+      return criado;
     });
 
-    // Registra snapshot inicial no historico
-    await gravarHistorico(tratamento.id, req.usuario.id);
+    // Registra snapshot inicial no historico legado (TratamentoHistorico)
+    await gravarHistorico(tratamento.id, req.usuario.organizacaoId, req.usuario.id);
 
     res.status(201).json(tratamento);
   } catch (err) {
@@ -136,12 +165,10 @@ router.put('/tratamentos/:id', async (req, res) => {
     }
 
     const existente = await prisma.tratamento.findFirst({
-      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
+      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId },
+      include: { compartilhamentos: true }
     });
     if (!existente) return res.status(404).json({ erro: 'Tratamento não encontrado' });
-
-    // Grava snapshot do estado ANTES da alteracao
-    await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
 
     const {
       nome, finalidade, baseLegal, categoriasDados, categoriasTitulares,
@@ -149,37 +176,53 @@ router.put('/tratamentos/:id', async (req, res) => {
       compartilhamentos
     } = req.body;
 
-    // Atualiza compartilhamentos: deleta todos e recria (simples e correto)
-    if (Array.isArray(compartilhamentos)) {
-      await prisma.compartilhamentoTratamento.deleteMany({ where: { tratamentoId: req.params.id } });
+    if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
     }
 
-    const tratamento = await prisma.tratamento.update({
-      where: { id: req.params.id },
-      data: {
-        ...(nome !== undefined && { nome }),
-        ...(finalidade !== undefined && { finalidade }),
-        ...(baseLegal !== undefined && { baseLegal }),
-        ...(categoriasDados !== undefined && { categoriasDados }),
-        ...(categoriasTitulares !== undefined && { categoriasTitulares }),
-        ...(retencaoDias !== undefined && { retencaoDias }),
-        ...(formaDescarte !== undefined && { formaDescarte }),
-        ...(responsavelId !== undefined && { responsavelId }),
-        ...(medidasSeguranca !== undefined && { medidasSeguranca }),
-        ...(ativo !== undefined && { ativo }),
-        ...(Array.isArray(compartilhamentos) && {
-          compartilhamentos: {
-            create: compartilhamentos.map(c => ({
-              terceiroNome: c.terceiroNome,
-              terceiroCNPJ: c.terceiroCNPJ || null,
-              finalidadeCompartilhamento: c.finalidadeCompartilhamento,
-              paisDestino: c.paisDestino || 'Brasil',
-              baseLegalTransferencia: c.baseLegalTransferencia || null
-            }))
-          }
-        })
-      },
-      include: TRATAMENTO_INCLUDE
+    // Grava snapshot do estado ANTES da alteracao
+    await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
+
+    const tratamento = await prisma.$transaction(async (tx) => {
+      // Atualiza compartilhamentos: deleta todos e recria (simples e correto)
+      if (Array.isArray(compartilhamentos)) {
+        await tx.compartilhamentoTratamento.deleteMany({ where: { tratamentoId: req.params.id } });
+      }
+
+      const atualizado = await tx.tratamento.update({
+        where: { id: req.params.id },
+        data: {
+          ...(nome !== undefined && { nome }),
+          ...(finalidade !== undefined && { finalidade }),
+          ...(baseLegal !== undefined && { baseLegal }),
+          ...(categoriasDados !== undefined && { categoriasDados }),
+          ...(categoriasTitulares !== undefined && { categoriasTitulares }),
+          ...(retencaoDias !== undefined && { retencaoDias }),
+          ...(formaDescarte !== undefined && { formaDescarte }),
+          ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
+          ...(medidasSeguranca !== undefined && { medidasSeguranca }),
+          ...(ativo !== undefined && { ativo }),
+          ...(Array.isArray(compartilhamentos) && {
+            compartilhamentos: {
+              create: compartilhamentos.map(c => ({
+                terceiroNome: c.terceiroNome,
+                terceiroCNPJ: c.terceiroCNPJ || null,
+                finalidadeCompartilhamento: c.finalidadeCompartilhamento,
+                paisDestino: c.paisDestino || 'Brasil',
+                baseLegalTransferencia: c.baseLegalTransferencia || null
+              }))
+            }
+          })
+        },
+        include: TRATAMENTO_INCLUDE
+      });
+
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'TRATAMENTO', registroId: req.params.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id,
+        antes: paraHistorico(existente), depois: paraHistorico(atualizado)
+      });
+      return atualizado;
     });
 
     res.json(tratamento);
@@ -203,9 +246,16 @@ router.delete('/tratamentos/:id', async (req, res) => {
 
     await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
 
-    await prisma.tratamento.update({
-      where: { id: req.params.id },
-      data: { ativo: false }
+    await prisma.$transaction(async (tx) => {
+      await tx.tratamento.update({
+        where: { id: req.params.id },
+        data: { ativo: false }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'TRATAMENTO', registroId: req.params.id,
+        acao: 'EXCLUIR', usuarioId: req.usuario.id,
+        diff: { ativo: { antes: existente.ativo, depois: false } }
+      });
     });
 
     res.json({ ok: true });
@@ -238,13 +288,14 @@ router.get('/tratamentos/:id/historico', async (req, res) => {
 router.get('/export', async (req, res) => {
   try {
     const formato = req.query.formato || 'json';
-    const tratamentos = await prisma.tratamento.findMany({
+    const tratamentos = await comNomeResponsavel(await prisma.tratamento.findMany({
       where: { organizacaoId: req.usuario.organizacaoId },
       include: { compartilhamentos: true }
-    });
+    }), req.usuario.organizacaoId);
 
     if (formato === 'csv') {
-      const header = 'nome,finalidade,baseLegal,categoriasDados,categoriasTitulares,retencaoDias,formaDescarte,medidasSeguranca,ativo,criadoEm,compartilhamentos';
+      // "responsavel" entra no fim para nao deslocar colunas de planilhas existentes
+      const header = 'nome,finalidade,baseLegal,categoriasDados,categoriasTitulares,retencaoDias,formaDescarte,medidasSeguranca,ativo,criadoEm,compartilhamentos,responsavel';
       const rows = tratamentos.map(t => {
         const comp = t.compartilhamentos.map(c => `${c.terceiroNome}(${c.paisDestino})`).join('; ');
         return [
@@ -258,7 +309,8 @@ router.get('/export', async (req, res) => {
           `"${(t.medidasSeguranca || '').replace(/"/g, '""')}"`,
           t.ativo,
           t.criadoEm.toISOString(),
-          `"${comp}"`
+          `"${comp}"`,
+          `"${(t.responsavelNome || '').replace(/"/g, '""')}"`
         ].join(',');
       });
       const csv = [header, ...rows].join('\n');

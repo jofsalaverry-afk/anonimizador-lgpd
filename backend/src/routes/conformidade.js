@@ -1,23 +1,17 @@
 const express = require('express');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
+const { registrarHistorico } = require('../services/historico');
+const { responsavelValido } = require('../services/entidades');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
 // ---------- Middlewares ----------
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 // Alertas sao transversais — nao exigem modulo checklist.
 // Apenas as rotas de checklist sao protegidas pelo modulo.
@@ -47,7 +41,8 @@ router.get('/checklist', requireChecklistModulo, async (req, res) => {
       orderBy: { codigo: 'asc' }
     });
     const respostas = await prisma.respostaChecklist.findMany({
-      where: { organizacaoId: req.usuario.organizacaoId }
+      where: { organizacaoId: req.usuario.organizacaoId },
+      include: { responsavel: { select: { id: true, nome: true } } }
     });
     const respostaPorItem = Object.fromEntries(respostas.map(r => [r.itemId, r]));
     const resultado = itens.map(it => ({ ...it, resposta: respostaPorItem[it.id] || null }));
@@ -65,7 +60,7 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
       return res.status(403).json({ erro: 'Sem permissão para responder checklist' });
     }
 
-    const { status, observacao, evidenciaUrl, proximaRevisao } = req.body;
+    const { status, observacao, evidenciaUrl, proximaRevisao, responsavelId } = req.body;
     const STATUS_VALIDOS = ['CONFORME', 'PARCIAL', 'NAO_CONFORME', 'NAO_APLICAVEL'];
     if (!STATUS_VALIDOS.includes(status)) {
       return res.status(400).json({ erro: 'status inválido' });
@@ -73,6 +68,17 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
 
     const item = await prisma.itemChecklist.findUnique({ where: { id: req.params.itemId } });
     if (!item) return res.status(404).json({ erro: 'Item não encontrado' });
+    if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
+
+    const chave = {
+      organizacaoId_itemId: {
+        organizacaoId: req.usuario.organizacaoId,
+        itemId: req.params.itemId
+      }
+    };
+    const anterior = await prisma.respostaChecklist.findUnique({ where: chave });
 
     // Hash de integridade da evidencia (se houver URL ou observacao)
     const conteudoHash = (evidenciaUrl || '') + (observacao || '') + new Date().toISOString();
@@ -80,30 +86,37 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
       ? crypto.createHash('sha256').update(conteudoHash).digest('hex')
       : null;
 
-    const resposta = await prisma.respostaChecklist.upsert({
-      where: {
-        organizacaoId_itemId: {
+    const resposta = await prisma.$transaction(async (tx) => {
+      const salva = await tx.respostaChecklist.upsert({
+        where: chave,
+        create: {
           organizacaoId: req.usuario.organizacaoId,
-          itemId: req.params.itemId
-        }
-      },
-      create: {
-        organizacaoId: req.usuario.organizacaoId,
-        itemId: req.params.itemId,
-        status, observacao: observacao || null,
-        evidenciaUrl: evidenciaUrl || null,
-        evidenciaHash,
-        validadoPor: req.usuario.id,
-        proximaRevisao: proximaRevisao ? new Date(proximaRevisao) : null
-      },
-      update: {
-        status,
-        observacao: observacao || null,
-        evidenciaUrl: evidenciaUrl || null,
-        evidenciaHash,
-        validadoPor: req.usuario.id,
-        ...(proximaRevisao && { proximaRevisao: new Date(proximaRevisao) })
-      }
+          itemId: req.params.itemId,
+          status, observacao: observacao || null,
+          evidenciaUrl: evidenciaUrl || null,
+          evidenciaHash,
+          validadoPor: req.usuario.id,
+          responsavelId: responsavelId || null,
+          proximaRevisao: proximaRevisao ? new Date(proximaRevisao) : null
+        },
+        update: {
+          status,
+          observacao: observacao || null,
+          evidenciaUrl: evidenciaUrl || null,
+          evidenciaHash,
+          validadoPor: req.usuario.id,
+          ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
+          ...(proximaRevisao && { proximaRevisao: new Date(proximaRevisao) })
+        },
+        include: { responsavel: { select: { id: true, nome: true } } }
+      });
+      // registroId = id do item do catalogo (unico por org via organizacaoId)
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'CHECKLIST_ITEM', registroId: req.params.itemId,
+        acao: anterior ? 'EDITAR' : 'CRIAR', usuarioId: req.usuario.id,
+        antes: anterior, depois: salva
+      });
+      return salva;
     });
 
     res.json(resposta);

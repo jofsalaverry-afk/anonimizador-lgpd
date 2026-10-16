@@ -1,8 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
 const { body } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
 const {
   gerarProtocolo,
   enriquecerSolicitacao,
@@ -16,8 +16,17 @@ const {
   enviarRespostaTitular
 } = require('../services/emailService');
 const { validar, validarEmail, validarCpf, validarCuid, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
+const { registrarHistorico } = require('../services/historico');
 
 const router = express.Router();
+
+// Campos da solicitacao que entram no HistoricoRegistro (titularNome/
+// Email/Cpf saem como "[omitido]" — ver services/historico.js).
+function paraHistorico(s) {
+  if (!s) return null;
+  const { evidencias, _count, ...resto } = s;
+  return resto;
+}
 const prisma = new PrismaClient();
 
 const TIPOS_DIREITO = ['CONFIRMACAO', 'ACESSO', 'CORRECAO', 'ANONIMIZACAO', 'PORTABILIDADE', 'ELIMINACAO', 'INFORMACAO', 'REVOGACAO', 'OPOSICAO', 'PETICAO', 'OUTRO'];
@@ -40,16 +49,8 @@ const validadoresConfirmarOtp = [
 
 // ---------- Middlewares ----------
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 const requireModulo = async (req, res, next) => {
   try {
@@ -116,16 +117,23 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
     const dataLimite = new Date(dataRecebimento);
     dataLimite.setDate(dataLimite.getDate() + 15);
 
-    const sol = await prisma.solicitacaoTitular.create({
-      data: {
-        organizacaoId: req.usuario.organizacaoId,
-        protocolo,
-        titularNome, titularEmail, titularCpf: titularCpf || null,
-        tipoDireito, descricao,
-        dataRecebimento, dataLimite,
-        responsavelId: req.usuario.id
-      },
-      include: { evidencias: true }
+    const sol = await prisma.$transaction(async (tx) => {
+      const criada = await tx.solicitacaoTitular.create({
+        data: {
+          organizacaoId: req.usuario.organizacaoId,
+          protocolo,
+          titularNome, titularEmail, titularCpf: titularCpf || null,
+          tipoDireito, descricao,
+          dataRecebimento, dataLimite,
+          responsavelId: req.usuario.id
+        },
+        include: { evidencias: true }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: criada.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null, depois: paraHistorico(criada)
+      });
+      return criada;
     });
 
     // Envia confirmacao por email ao titular (fire-and-forget)
@@ -160,14 +168,22 @@ router.put('/solicitacoes/:id', authMiddleware, requireModulo, async (req, res) 
     if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
 
     const { status, responsavelId, descricao } = req.body;
-    const sol = await prisma.solicitacaoTitular.update({
-      where: { id: req.params.id },
-      data: {
-        ...(status !== undefined && { status }),
-        ...(responsavelId !== undefined && { responsavelId }),
-        ...(descricao !== undefined && { descricao })
-      },
-      include: { evidencias: true }
+    const sol = await prisma.$transaction(async (tx) => {
+      const atualizada = await tx.solicitacaoTitular.update({
+        where: { id: req.params.id },
+        data: {
+          ...(status !== undefined && { status }),
+          ...(responsavelId !== undefined && { responsavelId }),
+          ...(descricao !== undefined && { descricao })
+        },
+        include: { evidencias: true }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: req.params.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id,
+        antes: paraHistorico(existente), depois: paraHistorico(atualizada)
+      });
+      return atualizada;
     });
 
     res.json(enriquecerSolicitacao(sol));
@@ -194,14 +210,22 @@ router.post('/solicitacoes/:id/evidencias', authMiddleware, requireModulo, async
     const conteudoHash = descricao + (arquivoUrl || '') + new Date().toISOString();
     const hashSha256 = crypto.createHash('sha256').update(conteudoHash).digest('hex');
 
-    const evidencia = await prisma.evidenciaDSAR.create({
-      data: {
-        solicitacaoId: req.params.id,
-        tipo, descricao,
-        arquivoUrl: arquivoUrl || null,
-        hashSha256,
-        autorId: req.usuario.id
-      }
+    const evidencia = await prisma.$transaction(async (tx) => {
+      const criada = await tx.evidenciaDSAR.create({
+        data: {
+          solicitacaoId: req.params.id,
+          tipo, descricao,
+          arquivoUrl: arquivoUrl || null,
+          hashSha256,
+          autorId: req.usuario.id
+        }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: req.params.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id,
+        diff: { evidencia: { antes: null, depois: `${tipo}: ${descricao}` } }
+      });
+      return criada;
     });
 
     res.status(201).json(evidencia);
@@ -226,15 +250,23 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
     const { respostaTexto } = req.body;
     if (!respostaTexto) return res.status(400).json({ erro: 'respostaTexto é obrigatório' });
 
-    const sol = await prisma.solicitacaoTitular.update({
-      where: { id: req.params.id },
-      data: {
-        status: 'RESPONDIDA',
-        respostaTexto,
-        dataResposta: new Date(),
-        responsavelId: req.usuario.id
-      },
-      include: { evidencias: true }
+    const sol = await prisma.$transaction(async (tx) => {
+      const respondida = await tx.solicitacaoTitular.update({
+        where: { id: req.params.id },
+        data: {
+          status: 'RESPONDIDA',
+          respostaTexto,
+          dataResposta: new Date(),
+          responsavelId: req.usuario.id
+        },
+        include: { evidencias: true }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: req.params.id,
+        acao: 'STATUS', usuarioId: req.usuario.id,
+        antes: paraHistorico(existente), depois: paraHistorico(respondida)
+      });
+      return respondida;
     });
 
     // Envia resposta por email ao titular (fire-and-forget)
@@ -286,8 +318,8 @@ router.patch('/solicitacoes/:id/verificar-identidade', authMiddleware, requireMo
       .update(descricaoEvidencia + agora.toISOString())
       .digest('hex');
 
-    const [, sol] = await prisma.$transaction([
-      prisma.evidenciaDSAR.create({
+    const sol = await prisma.$transaction(async (tx) => {
+      await tx.evidenciaDSAR.create({
         data: {
           solicitacaoId: req.params.id,
           tipo: 'VERIFICACAO_IDENTIDADE',
@@ -295,8 +327,8 @@ router.patch('/solicitacoes/:id/verificar-identidade', authMiddleware, requireMo
           hashSha256,
           autorId: req.usuario.id
         }
-      }),
-      prisma.solicitacaoTitular.update({
+      });
+      const verificada = await tx.solicitacaoTitular.update({
         where: { id: req.params.id },
         data: {
           status: 'EM_ANALISE',
@@ -304,8 +336,18 @@ router.patch('/solicitacoes/:id/verificar-identidade', authMiddleware, requireMo
           responsavelId: req.usuario.id
         },
         include: { evidencias: true }
-      })
-    ]);
+      });
+      const diff = {
+        verificacaoIdentidade: { antes: null, depois: descricaoEvidencia },
+        status: { antes: existente.status, depois: 'EM_ANALISE' },
+        dataLimite: { antes: existente.dataLimite ? existente.dataLimite.toISOString() : null, depois: dataLimite.toISOString() }
+      };
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: req.params.id,
+        acao: 'STATUS', usuarioId: req.usuario.id, diff
+      });
+      return verificada;
+    });
 
     res.json(enriquecerSolicitacao(sol));
   } catch (err) {
@@ -402,6 +444,13 @@ router.post('/publico/confirmar-otp', validadoresConfirmarOtp, async (req, res) 
     if (!otp) return res.status(400).json({ erro: 'Código inválido ou expirado' });
 
     const sol = await criarSolicitacaoApartirDeOtp(otp);
+
+    // Historico sem usuario (canal publico). Falha aqui nao pode
+    // derrubar a resposta ao titular — a solicitacao ja foi criada.
+    registrarHistorico(prisma, {
+      organizacaoId: sol.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: sol.id,
+      acao: 'CRIAR', usuarioId: null, antes: null, depois: paraHistorico(sol)
+    }).catch(e => console.error('[dsar] falha historico canal publico:', e.message));
 
     // Envia confirmacao da solicitacao oficial
     const org = await prisma.organizacao.findUnique({

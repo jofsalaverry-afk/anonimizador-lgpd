@@ -67,6 +67,7 @@ export default function IncidenteList({ token, onNovo, onVer }) {
                 <th>Titulares Afetados</th>
                 <th>ANPD</th>
                 <th>Status</th>
+                <th>Responsável</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -87,6 +88,7 @@ export default function IncidenteList({ token, onNovo, onVer }) {
                       {STATUS_INC_LABEL[i.status] || i.status}
                     </span>
                   </td>
+                  <td>{i.responsavel?.nome || '-'}</td>
                   <td>
                     <button onClick={() => onVer(i.id)} className="btn-ghost btn-sm">Ver</button>
                   </td>

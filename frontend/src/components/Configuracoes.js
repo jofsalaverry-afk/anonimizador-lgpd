@@ -89,6 +89,8 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
             <button className="btn-primary btn-sm" type="button" onClick={iniciarSetup} disabled={loading}>
               {loading ? 'Gerando...' : 'Ativar autenticador'}
             </button>
+          ) : usuario?.mfaObrigatorioOrg ? (
+            <span className="text-muted text-sm">Obrigatório pela sua organização</span>
           ) : (
             <button
               className="btn-sm"

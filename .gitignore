@@ -15,3 +15,10 @@ backend/*.pdf
 backend/_lab_azure/
 
 .claude/
+
+# Scripts ad-hoc de seed/diagnóstico — não entram no repo
+backend/scripts/
+
+# Env de desenvolvimento local — nunca commitar
+.env.development
+.env.*.local

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "prisma migrate deploy && node src/server.js",
     "build": "prisma generate",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test": "node --test test/*.test.js"
   },
   "keywords": [],
   "author": "",

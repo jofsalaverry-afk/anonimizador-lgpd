@@ -158,6 +158,14 @@ app.use('/conformidade', crudLimiter);
 app.use('/conformidade', conformidadeRoutes);
 app.use('/treinamento', crudLimiter);
 app.use('/treinamento', treinamentoRoutes);
+// Transversais (Etapa 1 PoC): anexos, historico por registro e lista de
+// usuarios da organizacao para seletores de responsavel.
+app.use('/anexos', crudLimiter);
+app.use('/anexos', require('./routes/anexos'));
+app.use('/historico', crudLimiter);
+app.use('/historico', require('./routes/historico'));
+app.use('/usuarios', crudLimiter);
+app.use('/usuarios', require('./routes/usuarios'));
 
 // Healthcheck. Deve ser monitorado externamente por um uptime monitor
 // gratuito (UptimeRobot, BetterStack, Healthchecks.io) apontando para

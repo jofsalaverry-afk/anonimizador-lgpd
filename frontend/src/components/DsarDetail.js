@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import Anexos from './Anexos';
+import Historico from './Historico';
 
 const TIPO_LABEL = {
   ACESSO: 'Acesso aos dados', CORRECAO: 'Correção', ELIMINACAO: 'Eliminação',
@@ -39,6 +41,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   const [showVerifForm, setShowVerifForm] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState('');
+  const [versaoHistorico, setVersaoHistorico] = useState(0);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -46,6 +49,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
     try {
       const res = await axios.get(`${API}/dsar/solicitacoes/${solicitacaoId}`, { headers });
       setSol(res.data);
+      setVersaoHistorico(v => v + 1);
     } catch (err) {
       setErro('Erro ao carregar solicitação');
     }
@@ -246,7 +250,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
       )}
 
       {(sol.evidencias || []).length > 0 && (
-        <div className="card">
+        <div className="card mb-16">
           <div className="card-header">Evidências ({sol.evidencias.length})</div>
           <div className="timeline">
             {sol.evidencias.map((ev, i) => (
@@ -264,6 +268,9 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
           </div>
         </div>
       )}
+
+      <Anexos token={token} entidade="SOLICITACAO_DSAR" registroId={sol.id} titulo="Arquivos anexados" onEnviado={() => setVersaoHistorico(v => v + 1)} />
+      <Historico token={token} entidade="SOLICITACAO_DSAR" registroId={sol.id} versao={versaoHistorico} />
     </div>
   );
 }

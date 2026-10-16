@@ -248,6 +248,23 @@ export default function Admin() {
     }
   };
 
+  const toggleMfaObrigatorio = async (org) => {
+    const novo = !org.mfaObrigatorio;
+    if (novo) {
+      const semMfa = (org.usuarios || []).filter(u => u.ativo && !u.mfaAtivo).length;
+      const aviso = semMfa > 0
+        ? `${semMfa} usuário(s) ativo(s) ainda não têm MFA e terão que configurar no próximo login. Continuar?`
+        : 'Exigir MFA de todos os usuários desta organização?';
+      if (!window.confirm(aviso)) return;
+    }
+    try {
+      await axios.patch(`${API}/admin/camaras/${org.id}/mfa-obrigatorio`, { mfaObrigatorio: novo }, { headers });
+      carregar();
+    } catch (err) {
+      setErro('Erro ao alterar exigência de MFA');
+    }
+  };
+
   if (!token) {
     return (
       <div className="page-center">
@@ -431,6 +448,14 @@ export default function Admin() {
                     </div>
                   </div>
 
+                  <div className="mb-12">
+                    <div className="detail-label mb-8">Segurança</div>
+                    <label className="flex-center gap-8" style={{ cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!!o.mfaObrigatorio} onChange={() => toggleMfaObrigatorio(o)} />
+                      <span className="text-sm">Exigir autenticação em 2 etapas (MFA) no login</span>
+                    </label>
+                  </div>
+
                   <div>
                     <div className="detail-label mb-8">Usuários</div>
                     {(o.usuarios || []).map(u => (
@@ -439,6 +464,7 @@ export default function Admin() {
                           <span className="text-sm">{u.email}</span>
                           <span className="badge badge-purple">{PERFIL_LABEL[u.perfil] || u.perfil}</span>
                           <span className={u.ativo ? 'text-success text-sm' : 'text-error text-sm'}>{u.ativo ? 'ativo' : 'inativo'}</span>
+                          <span className={u.mfaAtivo ? 'badge badge-success' : 'badge badge-muted'}>{u.mfaAtivo ? 'MFA ativo' : 'sem MFA'}</span>
                         </div>
                         <div className="flex-center gap-8">
                           <button

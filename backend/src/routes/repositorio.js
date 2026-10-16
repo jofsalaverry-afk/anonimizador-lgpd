@@ -1,7 +1,11 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
+const { registrarHistorico } = require('../services/historico');
+const { responsavelValido } = require('../services/entidades');
+
+const INCIDENTE_INCLUDE = { responsavel: { select: { id: true, nome: true } } };
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -31,16 +35,8 @@ const DOC_SELECT_LISTA = {
   criadoEm: true, atualizadoEm: true
 };
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 const requireModulo = async (req, res, next) => {
   try {
@@ -224,6 +220,7 @@ router.get('/incidentes', async (req, res) => {
   try {
     const incidentes = await prisma.incidente.findMany({
       where: { organizacaoId: req.usuario.organizacaoId },
+      include: INCIDENTE_INCLUDE,
       orderBy: { criadoEm: 'desc' }
     });
     res.json(incidentes);
@@ -236,7 +233,8 @@ router.get('/incidentes', async (req, res) => {
 router.get('/incidentes/:id', async (req, res) => {
   try {
     const inc = await prisma.incidente.findFirst({
-      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
+      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId },
+      include: INCIDENTE_INCLUDE
     });
     if (!inc) return res.status(404).json({ erro: 'Incidente não encontrado' });
     res.json(inc);
@@ -250,20 +248,32 @@ router.post('/incidentes', async (req, res) => {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
       return res.status(403).json({ erro: 'Sem permissão' });
     }
-    const { titulo, dataOcorrencia, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao } = req.body;
+    const { titulo, dataOcorrencia, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, responsavelId } = req.body;
     if (!titulo || !dataOcorrencia || !tipoIncidente || !descricao) {
       return res.status(400).json({ erro: 'titulo, dataOcorrencia, tipoIncidente e descricao são obrigatórios' });
     }
-    const inc = await prisma.incidente.create({
-      data: {
-        organizacaoId: req.usuario.organizacaoId,
-        titulo, tipoIncidente, descricao,
-        dataOcorrencia: new Date(dataOcorrencia),
-        dadosAfetados: dadosAfetados || [],
-        qtdTitulares: qtdTitulares || 0,
-        planoAcao: planoAcao || null,
-        autorId: req.usuario.id
-      }
+    if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
+    const inc = await prisma.$transaction(async (tx) => {
+      const criado = await tx.incidente.create({
+        data: {
+          organizacaoId: req.usuario.organizacaoId,
+          titulo, tipoIncidente, descricao,
+          dataOcorrencia: new Date(dataOcorrencia),
+          dadosAfetados: dadosAfetados || [],
+          qtdTitulares: qtdTitulares || 0,
+          planoAcao: planoAcao || null,
+          responsavelId: responsavelId || null,
+          autorId: req.usuario.id
+        },
+        include: INCIDENTE_INCLUDE
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'INCIDENTE', registroId: criado.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null, depois: criado
+      });
+      return criado;
     });
     res.status(201).json(inc);
   } catch (err) {
@@ -282,19 +292,31 @@ router.put('/incidentes/:id', async (req, res) => {
     });
     if (!existente) return res.status(404).json({ erro: 'Incidente não encontrado' });
 
-    const { titulo, status, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, notificadoANPD } = req.body;
-    const inc = await prisma.incidente.update({
-      where: { id: req.params.id },
-      data: {
-        ...(titulo !== undefined && { titulo }),
-        ...(status !== undefined && { status }),
-        ...(tipoIncidente !== undefined && { tipoIncidente }),
-        ...(dadosAfetados !== undefined && { dadosAfetados }),
-        ...(qtdTitulares !== undefined && { qtdTitulares }),
-        ...(descricao !== undefined && { descricao }),
-        ...(planoAcao !== undefined && { planoAcao }),
-        ...(notificadoANPD !== undefined && { notificadoANPD })
-      }
+    const { titulo, status, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, notificadoANPD, responsavelId } = req.body;
+    if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
+    const inc = await prisma.$transaction(async (tx) => {
+      const atualizado = await tx.incidente.update({
+        where: { id: req.params.id },
+        data: {
+          ...(titulo !== undefined && { titulo }),
+          ...(status !== undefined && { status }),
+          ...(tipoIncidente !== undefined && { tipoIncidente }),
+          ...(dadosAfetados !== undefined && { dadosAfetados }),
+          ...(qtdTitulares !== undefined && { qtdTitulares }),
+          ...(descricao !== undefined && { descricao }),
+          ...(planoAcao !== undefined && { planoAcao }),
+          ...(notificadoANPD !== undefined && { notificadoANPD }),
+          ...(responsavelId !== undefined && { responsavelId: responsavelId || null })
+        },
+        include: INCIDENTE_INCLUDE
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'INCIDENTE', registroId: req.params.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id, antes: existente, depois: atualizado
+      });
+      return atualizado;
     });
     res.json(inc);
   } catch (err) {

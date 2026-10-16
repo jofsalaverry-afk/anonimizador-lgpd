@@ -1,8 +1,8 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const mammoth = require('mammoth');
 const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
 const Anthropic = require('@anthropic-ai/sdk');
 const {
   extrairItens,
@@ -132,17 +132,8 @@ DOCUMENTO:
 ${texto}`;
 }
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.usuario = decoded;
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 // Middleware que verifica se o modulo esta ativo para a organizacao do usuario.
 // Uso: router.post('/rota', authMiddleware, requireModulo('anonimizador'), ...)

@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import SeletorResponsavel from './SeletorResponsavel';
+import Anexos from './Anexos';
+import Historico from './Historico';
 
 const STATUS_OPTIONS = [
   { value: 'CONFORME', label: 'Conforme' },
@@ -41,8 +44,10 @@ function ChecklistPage({ token }) {
     status: 'CONFORME',
     observacao: '',
     evidenciaUrl: '',
-    proximaRevisao: ''
+    proximaRevisao: '',
+    responsavelId: ''
   });
+  const [versaoHistorico, setVersaoHistorico] = useState(0);
 
   const authHeader = { Authorization: `Bearer ${token}` };
 
@@ -76,13 +81,14 @@ function ChecklistPage({ token }) {
       evidenciaUrl: item.resposta?.evidenciaUrl || '',
       proximaRevisao: item.resposta?.proximaRevisao
         ? String(item.resposta.proximaRevisao).substring(0, 10)
-        : ''
+        : '',
+      responsavelId: item.resposta?.responsavelId || ''
     });
   };
 
   const cancelarResposta = () => {
     setExpandido(null);
-    setForm({ status: 'CONFORME', observacao: '', evidenciaUrl: '', proximaRevisao: '' });
+    setForm({ status: 'CONFORME', observacao: '', evidenciaUrl: '', proximaRevisao: '', responsavelId: '' });
   };
 
   const salvarResposta = async (itemId) => {
@@ -94,14 +100,16 @@ function ChecklistPage({ token }) {
           status: form.status,
           observacao: form.observacao,
           evidenciaUrl: form.evidenciaUrl,
-          proximaRevisao: form.proximaRevisao || null
+          proximaRevisao: form.proximaRevisao || null,
+          responsavelId: form.responsavelId
         },
         { headers: authHeader }
       );
       cancelarResposta();
+      setVersaoHistorico(v => v + 1);
       await carregar();
     } catch (e) {
-      setErro(e.response?.data?.error || 'Erro ao salvar resposta.');
+      setErro(e.response?.data?.erro || e.response?.data?.error || 'Erro ao salvar resposta.');
     }
   };
 
@@ -243,9 +251,15 @@ function ChecklistPage({ token }) {
                     </a>
                   </div>
                 )}
+                {item.resposta && (
+                  <div className="text-sm text-muted mb-8">
+                    <span className="detail-label">Responsável: </span>
+                    {item.resposta.responsavel?.nome || 'Não designado'}
+                  </div>
+                )}
                 {item.resposta?.proximaRevisao && (
                   <div className="text-sm text-muted mb-8">
-                    <span className="detail-label">Próxima revisão: </span>
+                    <span className="detail-label">Próxima revisão / prazo: </span>
                     {String(item.resposta.proximaRevisao).substring(0, 10)}
                   </div>
                 )}
@@ -286,8 +300,12 @@ function ChecklistPage({ token }) {
                         style={{ fontFamily: 'monospace' }}
                       />
                     </div>
+                    <div className="mb-8">
+                      <label className="detail-label">Responsável</label>
+                      <SeletorResponsavel token={token} value={form.responsavelId} onChange={(v) => setForm({ ...form, responsavelId: v })} />
+                    </div>
                     <div className="mb-12">
-                      <label className="detail-label">Próxima revisão</label>
+                      <label className="detail-label">Próxima revisão / prazo</label>
                       <input
                         type="date"
                         value={form.proximaRevisao}
@@ -307,6 +325,10 @@ function ChecklistPage({ token }) {
                       >
                         Cancelar
                       </button>
+                    </div>
+                    <div className="mt-16">
+                      <Anexos token={token} entidade="CHECKLIST_ITEM" registroId={item.id} titulo="Evidências anexadas" onEnviado={() => setVersaoHistorico(v => v + 1)} />
+                      <Historico token={token} entidade="CHECKLIST_ITEM" registroId={item.id} versao={versaoHistorico} />
                     </div>
                   </div>
                 ) : (
