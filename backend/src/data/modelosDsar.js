@@ -45,14 +45,46 @@ module.exports = [
 ( ) Confirmamos que a {nome_organizacao} realiza tratamento de dados pessoais seus.
 ( ) Informamos que não localizamos registro de tratamento de dados pessoais seus.`),
 
-  modelo('ACESSO', 'Acesso aos dados (art. 18, II)', 'acesso aos seus dados pessoais (art. 18, II, da LGPD)',
-    `DECLARAÇÃO (clara e completa, conforme o art. 19, II, da LGPD)
-Dados pessoais tratados: [liste os dados ou escreva: "Não há registro de dados pessoais seus em nossos sistemas."]
-Origem dos dados: [de onde vieram os dados — por exemplo, fornecidos por você em protocolo, cadastro de servidor, sistema de terceiros].
-Critérios utilizados: [critérios e procedimentos aplicados no tratamento].
-Finalidade do tratamento: [para que os dados são usados].
+  // ACESSO: texto integral definido pela Camara (nao usa a abertura e o
+  // fechamento padrao). Inclui uso compartilhado e prazo de guarda (art. 9º,
+  // II e V), forma de entrega (art. 19, § 2º) e as hipoteses do art. 18, § 4º.
+  {
+    tipoDireito: 'ACESSO',
+    titulo: 'MINUTA — revisar · Acesso aos dados (art. 18, II)',
+    conteudo: `MINUTA — revisar antes de enviar (apague esta linha após a revisão).
 
-Se o pedido não puder ser atendido, mantenha apenas: Pedido não atendido, pelo seguinte motivo: [indique as razões de fato ou de direito].`),
+Prezado(a) {nome_titular},
+
+Em atenção ao seu pedido de acesso aos dados pessoais (art. 18, II, da LGPD), protocolo {protocolo}, recebido em {data_pedido}, a {nome_organizacao} apresenta a seguinte resposta.
+
+PROVIDÊNCIAS ADOTADAS
+{providencias}
+
+DECLARAÇÃO CLARA E COMPLETA (art. 19, II, da LGPD)
+Dados pessoais tratados: [liste os dados ou escreva: "Não há registro de dados pessoais seus em nossos sistemas."]
+Origem dos dados: [de onde vieram os dados — por exemplo, fornecidos por você em protocolo, cadastro de servidor, sistema de terceiros]
+Critérios utilizados: [critérios e procedimentos aplicados no tratamento]
+Finalidade do tratamento: [para que os dados são usados]
+Uso compartilhado: [órgãos ou entidades com os quais os dados foram compartilhados e com que finalidade, ou "Não houve uso compartilhado."] (art. 9º, V, da LGPD)
+Prazo de guarda: [por quanto tempo os dados serão mantidos e o fundamento, como a tabela de temporalidade de documentos aplicável] (art. 9º, II, da LGPD)
+
+Os dados podem ser fornecidos por meio eletrônico ou sob forma impressa, conforme sua preferência (art. 19, § 2º, da LGPD).
+
+Se o pedido não puder ser atendido, mantenha apenas um dos parágrafos abaixo (art. 18, § 4º, da LGPD):
+- A {nome_organizacao} não é agente de tratamento dos dados solicitados. O agente responsável é: [indique, sempre que possível].
+- Pedido não atendido pelas seguintes razões de fato ou de direito: [indique as razões].
+
+Caso não esteja de acordo com esta resposta, você pode peticionar à Autoridade Nacional de Proteção de Dados (ANPD), conforme o art. 18, § 1º, da LGPD.
+
+Data da resposta: {data_resposta}
+
+Atenciosamente,
+{nome_organizacao}
+
+—
+Encarregado pelo tratamento de dados pessoais: {encarregado_nome}
+E-mail: {encarregado_email} · Telefone: {encarregado_telefone}`
+  },
 
   modelo('CORRECAO', 'Correção de dados (art. 18, III)', 'correção de dados incompletos, inexatos ou desatualizados (art. 18, III, da LGPD)', RESULTADO),
 

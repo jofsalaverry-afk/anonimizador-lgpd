@@ -127,7 +127,7 @@ test('19: modelos padrao, um por direito do art. 18, criados uma vez e marcados 
     assert.ok(m.conteudo.includes('art. 18, § 1º'), `${m.tipoDireito}: peticao a ANPD`);
   }
   const acesso = MODELOS_DSAR.find(m => m.tipoDireito === 'ACESSO').conteudo;
-  for (const x of ['Origem dos dados', 'Critérios utilizados', 'Finalidade do tratamento', 'Não há registro', 'art. 19, II']) assert.ok(acesso.includes(x), x);
+  for (const x of ['PROVIDÊNCIAS ADOTADAS', 'DECLARAÇÃO CLARA E COMPLETA (art. 19, II, da LGPD)', 'Origem dos dados', 'Critérios utilizados', 'Finalidade do tratamento', 'Não há registro', 'Uso compartilhado:', '(art. 9º, V, da LGPD)', 'Prazo de guarda:', '(art. 9º, II, da LGPD)', '(art. 19, § 2º, da LGPD)', '(art. 18, § 4º, da LGPD)', 'não é agente de tratamento']) assert.ok(acesso.includes(x), x);
 
   assert.equal((await garantirModelosDsar(db, s.orgA.id)).length, 9);
   assert.equal((await garantirModelosDsar(db, s.orgA.id)).length, 0, 'idempotente');
