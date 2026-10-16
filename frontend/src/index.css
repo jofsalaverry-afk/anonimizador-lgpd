@@ -1325,3 +1325,7 @@ label {
   background: var(--bg-sunken);
   color: var(--text-secondary);
 }
+
+/* Etapa 6b: o titulo da tela fica so no topo (content-header); sem o h2,
+   os botoes da tela continuam alinhados a direita */
+.page-header > .btn-row:only-child { margin-left: auto; }

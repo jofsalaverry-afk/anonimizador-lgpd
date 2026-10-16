@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { textoRetencao } from '../basesLegais';
 import SeletorResponsavel from './SeletorResponsavel';
 import Anexos from './Anexos';
 import Historico from './Historico';
@@ -61,7 +62,7 @@ export default function Descartes({ token, tratamentoId, onRegistrado }) {
 
       {r ? (
         <p className={r.vencido ? 'alert-error mb-12' : 'text-sm mb-12'}>
-          Retenção de {r.retencaoDias} dias, contada {r.origem === 'ULTIMO_DESCARTE' ? 'do último descarte' : 'da criação do tratamento'} ({fmt(r.contadoDesde)}).
+          Retenção de {textoRetencao(r.retencaoDias)}, contada {r.origem === 'ULTIMO_DESCARTE' ? 'do último descarte' : 'da criação do tratamento'} ({fmt(r.contadoDesde)}).
           {' '}{r.vencido ? `Prazo VENCIDO em ${fmt(r.venceEm)} — registre o descarte.` : `Vence em ${fmt(r.venceEm)} (${r.diasRestantes} dia(s)).`}
         </p>
       ) : (

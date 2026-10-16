@@ -5,6 +5,16 @@ const { registrarHistorico } = require('../services/historico');
 const { responsavelValido, idsDaOrganizacao } = require('../services/entidades');
 const { calcularRetencao } = require('../services/retencao');
 const { pendenciasMapeamento } = require('../services/indicadores');
+const { ART7, ART11, rotuloBaseLegal } = require('../services/basesLegais');
+
+// baseLegal so aceita art. 7; baseLegalSensivel so aceita art. 11 (ou vazio).
+function erroBaseLegal({ baseLegal, baseLegalSensivel }, { exigir }) {
+  if ((exigir || baseLegal !== undefined) && !ART7.includes(baseLegal)) return 'Base legal inválida: escolha uma hipótese do art. 7º da LGPD';
+  if (baseLegalSensivel !== undefined && baseLegalSensivel !== null && baseLegalSensivel !== '' && !ART11.includes(baseLegalSensivel)) {
+    return 'Base legal para dados sensíveis inválida: escolha uma hipótese do art. 11 da LGPD';
+  }
+  return null;
+}
 const { responderExport } = require('../services/exportadores');
 
 const router = express.Router();
@@ -157,12 +167,14 @@ router.post('/tratamentos', async (req, res) => {
     const {
       nome, finalidade, baseLegal, categoriasDados, categoriasTitulares,
       retencaoDias, formaDescarte, responsavelId, medidasSeguranca,
-      setorId, outrosMeios
+      setorId, outrosMeios, baseLegalSensivel
     } = req.body;
 
     if (!nome || !finalidade || !baseLegal) {
       return res.status(400).json({ erro: 'nome, finalidade e baseLegal são obrigatórios' });
     }
+    const erroBase = erroBaseLegal(req.body, { exigir: true });
+    if (erroBase) return res.status(400).json({ erro: erroBase });
     if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
@@ -174,6 +186,7 @@ router.post('/tratamentos', async (req, res) => {
         data: {
           organizacaoId: req.usuario.organizacaoId,
           nome, finalidade, baseLegal,
+          baseLegalSensivel: baseLegalSensivel || null,
           categoriasDados: categoriasDados || [],
           categoriasTitulares: categoriasTitulares || [],
           retencaoDias: retencaoDias || null,
@@ -220,8 +233,10 @@ router.put('/tratamentos/:id', async (req, res) => {
     const {
       nome, finalidade, baseLegal, categoriasDados, categoriasTitulares,
       retencaoDias, formaDescarte, responsavelId, medidasSeguranca, ativo,
-      setorId, outrosMeios
+      setorId, outrosMeios, baseLegalSensivel
     } = req.body;
+    const erroBase = erroBaseLegal(req.body, { exigir: false });
+    if (erroBase) return res.status(400).json({ erro: erroBase });
 
     if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
@@ -247,6 +262,7 @@ router.put('/tratamentos/:id', async (req, res) => {
           ...(nome !== undefined && { nome }),
           ...(finalidade !== undefined && { finalidade }),
           ...(baseLegal !== undefined && { baseLegal }),
+          ...(baseLegalSensivel !== undefined && { baseLegalSensivel: baseLegalSensivel || null }),
           ...(categoriasDados !== undefined && { categoriasDados }),
           ...(categoriasTitulares !== undefined && { categoriasTitulares }),
           ...(retencaoDias !== undefined && { retencaoDias }),
@@ -428,14 +444,15 @@ router.get('/export', async (req, res) => {
 
     if (formato === 'csv') {
       // Colunas novas entram no fim para nao deslocar planilhas existentes
-      const header = 'nome,finalidade,baseLegal,categoriasDados,categoriasTitulares,retencaoDias,formaDescarte,medidasSeguranca,ativo,criadoEm,compartilhamentos,responsavel,setor,sistemas,outrosMeios';
+      // baseLegal sai com o rotulo (art. 7); baseLegalSensivel (art. 11) entra no fim
+      const header = 'nome,finalidade,baseLegal,categoriasDados,categoriasTitulares,retencaoDias,formaDescarte,medidasSeguranca,ativo,criadoEm,compartilhamentos,responsavel,setor,sistemas,outrosMeios,baseLegalSensivel';
       const q = v => `"${String(v || '').replace(/"/g, '""')}"`;
       const rows = tratamentos.map(t => {
         const comp = t.compartilhamentos.map(c => `${c.terceiroNome}(${c.paisDestino})`).join('; ');
         return [
           `"${(t.nome || '').replace(/"/g, '""')}"`,
           `"${(t.finalidade || '').replace(/"/g, '""')}"`,
-          t.baseLegal,
+          q(rotuloBaseLegal(t.baseLegal)),
           `"${(t.categoriasDados || []).join('; ')}"`,
           `"${(t.categoriasTitulares || []).join('; ')}"`,
           t.retencaoDias || '',
@@ -447,7 +464,8 @@ router.get('/export', async (req, res) => {
           `"${(t.responsavelNome || '').replace(/"/g, '""')}"`,
           q(t.setor?.nome),
           q((t.sistemas || []).map(v => v.sistema?.nome).filter(Boolean).join('; ')),
-          q(t.outrosMeios)
+          q(t.outrosMeios),
+          q(rotuloBaseLegal(t.baseLegalSensivel))
         ].join(',');
       });
       const csv = [header, ...rows].join('\n');
@@ -456,8 +474,8 @@ router.get('/export', async (req, res) => {
       return res.send('\uFEFF' + csv); // BOM para Excel abrir UTF-8 correto
     }
 
-    // Default: JSON
-    res.json(tratamentos);
+    // Default: JSON (codigos + rotulos)
+    res.json(tratamentos.map(t => ({ ...t, baseLegalRotulo: rotuloBaseLegal(t.baseLegal), baseLegalSensivelRotulo: rotuloBaseLegal(t.baseLegalSensivel) || null })));
   } catch (err) {
     console.error('[GET /ropa/export]', err);
     res.status(500).json({ erro: 'Erro ao exportar tratamentos' });

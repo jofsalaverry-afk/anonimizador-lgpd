@@ -176,7 +176,6 @@ export default function Treinamento({ token, usuario, filtroInicial }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Treinamentos LGPD</h2>
         {podeVerRelatorio && (
           <div className="btn-row">
             <button className={aba === 'trilhas' ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'} onClick={() => setAba('trilhas')}>Minhas trilhas</button>

@@ -2,6 +2,7 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { verificarRegistro } = require('../services/entidades');
+const { PERGUNTAS } = require('../services/questionarioTerceiro');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -39,12 +40,23 @@ router.get('/', async (req, res) => {
     }
     const usuarios = ids.size === 0 ? [] : await prisma.usuario.findMany({
       where: { id: { in: [...ids] }, organizacaoId },
-      select: { id: true, nome: true }
+      select: { id: true, nome: true, perfil: true }
     });
+
+    // Rotulos de campos dinamicos: "questionario.SEG1" -> texto da pergunta
+    const rotulosCampos = {};
+    for (const h of itens) {
+      for (const campo of Object.keys(h.diff || {})) {
+        const m = campo.match(/^questionario\.(\w+)$/);
+        if (m && PERGUNTAS[m[1]]) rotulosCampos[campo] = `${PERGUNTAS[m[1]].texto} (${m[1]})`;
+      }
+    }
 
     res.json({
       itens,
-      usuarios: Object.fromEntries(usuarios.map(u => [u.id, u.nome]))
+      usuarios: Object.fromEntries(usuarios.map(u => [u.id, u.nome])),
+      perfis: Object.fromEntries(usuarios.map(u => [u.id, u.perfil])),
+      rotulosCampos
     });
   } catch (err) {
     console.error('[GET /historico]', err);

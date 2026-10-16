@@ -4,18 +4,19 @@ import { API } from '../config';
 import { baixarArquivo, BotoesExportar, BotaoPdfA } from './download';
 import Historico from './Historico';
 
-const STATUS_BADGE = { OK: 'badge badge-success', PENDENTE: 'badge badge-danger', INATIVO: 'badge badge-muted' };
+const STATUS_BADGE = { OK: 'badge badge-success', PENDENTE: 'badge badge-danger', INATIVO: 'badge badge-muted', SEM_DADOS: 'badge badge-muted' };
+const STATUS_TEXTO = { OK: 'OK', PENDENTE: 'Pendente', INATIVO: 'Módulo inativo', SEM_DADOS: 'Sem dados no mês' };
 const NOME_META = { ROPA: 'ROPA (processos mapeados)', CONTRATOS: 'Contratos críticos com aditivo', TREINAMENTOS: 'Servidores treinados', DSAR: 'DSAR no prazo' };
 const fmt = d => (d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—');
 
-function CardIndicador({ i, onAbrir }) {
+function CardIndicador({ i, onAbrir, metaPersonalizada }) {
   const clicavel = i.link && i.status !== 'INATIVO';
   return (
     <div className="card" style={{ cursor: clicavel ? 'pointer' : 'default', minHeight: 140 }} onClick={() => clicavel && onAbrir(i.link)}
       title={clicavel ? 'Abrir a lista de origem' : ''}>
       <div className="flex-between mb-8">
         <div className="detail-label">{i.titulo}</div>
-        <span className={STATUS_BADGE[i.status]}>{i.status === 'PENDENTE' ? 'Pendente' : i.status === 'OK' ? 'OK' : 'Módulo inativo'}</span>
+        <span className={STATUS_BADGE[i.status]}>{STATUS_TEXTO[i.status] || i.status}</span>
       </div>
       {i.chave === 'INCIDENTES' ? (
         i.status !== 'INATIVO' && (
@@ -25,14 +26,19 @@ function CardIndicador({ i, onAbrir }) {
           </>
         )
       ) : (
-        i.status !== 'INATIVO' && (
+        i.status === 'SEM_DADOS' ? (
+          <div className="text-sm text-muted" style={{ padding: '10px 0' }}>{i.observacao}</div>
+        ) : i.status !== 'INATIVO' && (
           <>
             <div style={{ fontSize: 30, fontWeight: 800 }}>{i.n}/{i.total}</div>
-            <div className="text-sm text-muted">{i.percentual === null ? 'sem base de cálculo' : `${i.percentual}%`} · meta {i.meta}%</div>
+            <div className="text-sm text-muted">
+              {i.percentual === null ? 'sem base de cálculo' : `${i.percentual}%`} · meta {i.meta}%
+              {metaPersonalizada && <span className="badge badge-muted" style={{ marginLeft: 6 }}>meta personalizada</span>}
+            </div>
           </>
         )
       )}
-      <div className="text-xs text-muted mt-8">{i.observacao}</div>
+      {i.status !== 'SEM_DADOS' && <div className="text-xs text-muted mt-8">{i.observacao}</div>}
     </div>
   );
 }
@@ -105,7 +111,7 @@ export default function PainelIndicadores({ token, usuario, onNavegar }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Painel de indicadores — {dados.mesReferencia}</h2>
+        <div className="text-muted">Mês de referência: <strong>{dados.mesReferencia}</strong></div>
         <div className="btn-row">
           <BotoesExportar token={token} caminho="/indicadores/export" nome="indicadores" onErro={setErro} />
           <BotaoPdfA token={token} tipo="indicadores" onErro={setErro} />
@@ -116,7 +122,7 @@ export default function PainelIndicadores({ token, usuario, onNavegar }) {
       {msg && <div className="alert-success mb-12">{msg}</div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }} className="mb-16">
-        {dados.indicadores.map(i => <CardIndicador key={i.chave} i={i} onAbrir={onNavegar} />)}
+        {dados.indicadores.map(i => <CardIndicador key={i.chave} i={i} onAbrir={onNavegar} metaPersonalizada={!!dados.metasPersonalizadas?.[i.chave]} />)}
       </div>
 
       {/* ---------- Metas ---------- */}
@@ -127,7 +133,7 @@ export default function PainelIndicadores({ token, usuario, onNavegar }) {
         </div>
         <p className="text-xs text-muted mb-8">
           Padrões: ROPA 100%, Contratos 100%, Treinamentos 80%, DSAR 100%; Incidentes fica OK com simulado nos últimos 12 meses.
-          As metas definitivas são fixadas no Plano de Trabalho (item 4.6.9 do TR).
+          As metas definitivas são fixadas no Plano de Trabalho.
         </p>
         {metas && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
@@ -162,7 +168,7 @@ export default function PainelIndicadores({ token, usuario, onNavegar }) {
         <div className="flex-between mb-8">
           <div className="card-header" style={{ marginBottom: 0 }}>Histórico mensal (fotos)</div>
           <div className="btn-row">
-            <BotoesExportar token={token} caminho="/indicadores/snapshots/export" nome="indicadores-snapshots" onErro={setErro} />
+            <BotoesExportar token={token} caminho="/indicadores/snapshots/export" nome="indicadores-snapshots" onErro={setErro} rotulo="histórico" />
             {gestor && <button className="btn-secondary btn-sm" onClick={gerarFoto}>Gerar foto agora</button>}
           </div>
         </div>

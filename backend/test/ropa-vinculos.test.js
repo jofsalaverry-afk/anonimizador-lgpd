@@ -86,7 +86,7 @@ test('exportacao do ROPA traz setor, sistemas e outros meios', async () => {
   const tA = tokenDe(s.gestorA);
   const csv = await (await chamar(tA, 'GET', '/ropa/export?formato=csv')).text();
   const [cab, ...linhas] = csv.replace(/^﻿/, '').split('\n');
-  assert.ok(cab.endsWith(',responsavel,setor,sistemas,outrosMeios'));
+  assert.ok(cab.endsWith(',responsavel,setor,sistemas,outrosMeios,baseLegalSensivel'));
   const linha = linhas.find(l => l.startsWith('"Atendimento ao cidadão"'));
   assert.ok(linha.includes('"Gabinete"'));
   assert.ok(linha.includes('"E-mail institucional"'));

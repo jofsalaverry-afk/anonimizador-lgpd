@@ -32,7 +32,6 @@ export default function TerceiroList({ token, onNovo, onVer, filtroInicial }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Terceiros e operadores</h2>
         <div className="btn-row">
           <BotoesExportar token={token} caminho="/terceiros/export" nome="terceiros-operadores" onErro={setErro} />
           <button onClick={onNovo} className="btn-primary btn-sm">+ Novo terceiro</button>
@@ -86,7 +85,7 @@ export default function TerceiroList({ token, onNovo, onVer, filtroInicial }) {
                 <tr key={t.id}>
                   <td>
                     {t.razaoSocial}
-                    {t.contratoCritico && <span className="badge badge-danger" style={{ marginLeft: 6 }}>crítico</span>}
+                    {t.contratoCritico && <span className="badge badge-muted" style={{ marginLeft: 6 }}>Contrato crítico</span>}
                     {!t.ativo && <span className="badge badge-muted" style={{ marginLeft: 6 }}>desativado</span>}
                   </td>
                   <td>{PAPEL_TERCEIRO_LABEL[t.papel]}</td>

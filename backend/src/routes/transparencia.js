@@ -1,7 +1,7 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const { FAQ_PADRAO } = require('../services/faqPadrao');
-const { BASE_LEGAL_LABEL } = require('../modelos-documentos/_comum');
+const { rotuloBaseLegal } = require('../services/basesLegais');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -38,7 +38,7 @@ router.get('/publico/:slug', async (req, res) => {
       ? await prisma.tratamento.findMany({
         where: { organizacaoId: org.id, ativo: true },
         select: {
-          nome: true, finalidade: true, baseLegal: true, categoriasDados: true, categoriasTitulares: true,
+          nome: true, finalidade: true, baseLegal: true, baseLegalSensivel: true, categoriasDados: true, categoriasTitulares: true,
           compartilhamentos: { select: { terceiroNome: true, finalidadeCompartilhamento: true, paisDestino: true } }
         },
         orderBy: { nome: 'asc' }
@@ -52,7 +52,8 @@ router.get('/publico/:slug', async (req, res) => {
       tratamentos: tratamentos.map(t => ({
         nome: t.nome,
         finalidade: t.finalidade,
-        baseLegal: BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal,
+        baseLegal: rotuloBaseLegal(t.baseLegal),
+        baseLegalSensivel: rotuloBaseLegal(t.baseLegalSensivel) || null,
         categoriasDados: t.categoriasDados,
         categoriasTitulares: t.categoriasTitulares,
         compartilhamentos: t.compartilhamentos.map(c => {

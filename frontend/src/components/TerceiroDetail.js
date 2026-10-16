@@ -20,6 +20,20 @@ function Campo({ label, children }) {
 
 const ACAO_VAZIA = { descricao: '', responsavelId: '', prazo: '' };
 
+// "Segurança da informação · 4/4 Sim · 1 crítica" (+ Não/Parcial/sem resposta, quando houver)
+function resumoBloco(b, respostas) {
+  const total = b.perguntas.length;
+  const conta = r => b.perguntas.filter(p => respostas[p.id]?.resposta === r).length;
+  const criticas = b.perguntas.filter(p => p.critica).length;
+  const semResposta = b.perguntas.filter(p => !respostas[p.id]?.resposta).length;
+  const partes = [b.titulo, `${conta('SIM')}/${total} Sim`];
+  if (conta('NAO')) partes.push(`${conta('NAO')} Não`);
+  if (conta('PARCIAL')) partes.push(`${conta('PARCIAL')} Parcial`);
+  if (semResposta) partes.push(`${semResposta} sem resposta`);
+  if (criticas) partes.push(`${criticas} crítica${criticas > 1 ? 's' : ''}`);
+  return partes.join(' · ');
+}
+
 export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, onEditar }) {
   const [t, setT] = useState(null);
   const [blocos, setBlocos] = useState([]);
@@ -108,7 +122,7 @@ export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, o
             <Campo label="Contato">{[t.contatoNome, t.contatoEmail].filter(Boolean).join(' · ')}</Campo>
           </div>
           <div>
-            <Campo label="Contrato">{t.contratoVigente ? 'Vigente' : 'Sem contrato vigente'}{t.contratoCritico ? ' · crítico' : ''}</Campo>
+            <Campo label="Contrato">{t.contratoVigente ? 'Vigente' : 'Sem contrato vigente'}{t.contratoCritico ? ' · Contrato crítico' : ''}</Campo>
             <Campo label="Aditivo LGPD">
               {t.aditivoLgpdAssinado ? `Assinado${t.dataAditivo ? ' em ' + new Date(t.dataAditivo).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : ''}` : 'Pendente'}
             </Campo>
@@ -132,9 +146,12 @@ export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, o
         <p className="text-sm mb-8">
           Risco atual: <BadgeRisco risco={t.risco} manual={t.riscoManual} />
           {' '}· calculado pelo questionário: <BadgeRisco risco={av.risco} />
-          {av.indice !== null && <span className="text-muted"> (índice {Math.round(av.indice * 100)}%, {av.respondidas}/{av.total} perguntas respondidas)</span>}
+          {av.indice !== null && <span className="text-muted"> (índice de não conformidade: {Math.round(av.indice * 100)}%, {av.respondidas}/{av.total} perguntas respondidas)</span>}
+          {/* Agravantes ao lado do nivel: sao o motivo de o risco nao ser o do indice */}
+          {av.agravantes.map(g => (
+            <span key={g} className="badge badge-warning" style={{ marginLeft: 6, whiteSpace: 'normal' }} title="Motivo do nível de risco">Motivo: {g}</span>
+          ))}
         </p>
-        {av.agravantes.length > 0 && <p className="text-sm text-muted mb-8">Agravantes: {av.agravantes.join('; ')}</p>}
         {t.riscoManual && <p className="text-sm mb-8"><span className="detail-label">Justificativa da classificação manual: </span>{t.riscoJustificativa}</p>}
         <p className="text-muted text-xs mb-12">
           Regra: Sim = 0, Parcial = 1, Não = 2 pontos (× peso da pergunta); N/A não conta. Índice abaixo de 25% = baixo, abaixo de 50% = médio, a partir de 50% = alto.
@@ -170,8 +187,9 @@ export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, o
       <div className="card mb-16">
         <div className="card-header">Questionário de conformidade</div>
         {blocos.map(b => (
-          <div key={b.id} className="mb-16">
-            <h3 className="mb-8" style={{ fontSize: 14 }}>{b.titulo}</h3>
+          <details key={b.id} className="mb-8" style={{ border: '1px solid #eef0f4', borderRadius: 8, padding: '8px 12px' }}>
+            <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>{resumoBloco(b, respostas)}</summary>
+            <div className="mt-8">
             {b.perguntas.map(p => {
               const atual = respostas[p.id] || { resposta: '', observacao: '' };
               const gravada = t.respostas.find(r => r.perguntaId === p.id);
@@ -197,9 +215,10 @@ export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, o
                 </div>
               );
             })}
-          </div>
+            </div>
+          </details>
         ))}
-        <button className="btn-primary btn-sm" onClick={salvarQuestionario} disabled={salvandoQ}>
+        <button className="btn-primary btn-sm mt-8" onClick={salvarQuestionario} disabled={salvandoQ}>
           {salvandoQ ? 'Salvando...' : 'Salvar questionário e recalcular risco'}
         </button>
       </div>

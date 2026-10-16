@@ -48,13 +48,13 @@ export default function TransparenciaPublica({ slug }) {
         {p.tratamentos.length === 0 ? <p className="text-muted">Informação em atualização.</p> : (
           <div style={{ overflowX: 'auto' }}>
             <table className="table">
-              <thead><tr><th>Atividade</th><th>Finalidade</th><th>Base legal</th><th>Dados</th><th>Titulares</th></tr></thead>
+              <thead><tr><th>Atividade</th><th>Finalidade</th><th>Base legal (LGPD, art. 7º ou art. 11)</th><th>Dados</th><th>Titulares</th></tr></thead>
               <tbody>
                 {p.tratamentos.map(t => (
                   <tr key={t.nome}>
                     <td><strong>{t.nome}</strong></td>
                     <td>{t.finalidade}</td>
-                    <td>{t.baseLegal}</td>
+                    <td>{t.baseLegal}{t.baseLegalSensivel && <div className="text-xs mt-4">{t.baseLegalSensivel}</div>}</td>
                     <td>{(t.categoriasDados || []).join(', ') || '—'}</td>
                     <td>{(t.categoriasTitulares || []).join(', ') || '—'}</td>
                   </tr>

@@ -30,7 +30,6 @@ export default function InventarioList({ token, onNovo, onVer }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Inventário de sistemas</h2>
         <div className="btn-row">
           <BotoesExportar token={token} caminho="/inventario/sistemas/export" nome="inventario-sistemas" onErro={setErro} />
           <button onClick={onNovo} className="btn-primary btn-sm">+ Novo sistema</button>

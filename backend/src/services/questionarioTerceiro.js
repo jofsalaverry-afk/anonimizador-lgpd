@@ -49,7 +49,7 @@ const BLOCOS = [
     titulo: 'Atendimento a direitos dos titulares',
     perguntas: [
       { id: 'DIR1', texto: 'Consegue localizar, corrigir e eliminar os dados de um titular a pedido da Câmara?', peso: 2 },
-      { id: 'DIR2', texto: 'Atende a pedidos da Câmara em prazo compatível com os 15 dias da LGPD?', peso: 1 },
+      { id: 'DIR2', texto: 'Atende a pedidos da Câmara em prazo que permita cumprir o art. 19 da LGPD?', peso: 1 },
       { id: 'DIR3', texto: 'Encaminha à Câmara pedidos de titulares recebidos diretamente?', peso: 1 }
     ]
   },

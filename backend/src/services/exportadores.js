@@ -10,6 +10,7 @@
 // e o dicionario-de-dados.md e montado a partir das colunas.
 
 const { pendenciasMapeamento } = require('./indicadores');
+const { rotuloBaseLegal } = require('./basesLegais');
 
 const iso = d => (d ? new Date(d).toISOString() : '');
 const lista = arr => (arr || []).join('; ');
@@ -27,7 +28,7 @@ const EXPORTADORES = {
     descricao: 'Registro das operações de tratamento (art. 37 LGPD), com sistemas, setor, compartilhamentos e situação do mapeamento.',
     colunas: [
       ['id', 'Identificador do tratamento'], ['nome', 'Nome do processo'], ['finalidade', 'Finalidade'],
-      ['baseLegal', 'Base legal (art. 7/11 LGPD)'], ['categoriasDados', 'Categorias de dados pessoais (separadas por "; ")'],
+      ['baseLegal', 'Base legal (LGPD, art. 7º) — rótulo com o artigo'], ['baseLegalSensivel', 'Base legal para dados sensíveis (LGPD, art. 11), quando houver'], ['categoriasDados', 'Categorias de dados pessoais (separadas por "; ")'],
       ['categoriasTitulares', 'Categorias de titulares'], ['setor', 'Setor responsável'], ['responsavel', 'Responsável (nome)'],
       ['retencaoDias', 'Prazo de retenção em dias'], ['formaDescarte', 'Forma de descarte'], ['medidasSeguranca', 'Medidas de segurança'],
       ['sistemas', 'Sistemas do inventário utilizados'], ['outrosMeios', 'Meios fora do inventário (papel, físico)'],
@@ -43,7 +44,7 @@ const EXPORTADORES = {
       const linhas = ts.map(t => {
         const pend = pendenciasMapeamento(t);
         return {
-          id: t.id, nome: t.nome, finalidade: t.finalidade, baseLegal: t.baseLegal,
+          id: t.id, nome: t.nome, finalidade: t.finalidade, baseLegal: rotuloBaseLegal(t.baseLegal), baseLegalSensivel: rotuloBaseLegal(t.baseLegalSensivel),
           categoriasDados: lista(t.categoriasDados), categoriasTitulares: lista(t.categoriasTitulares),
           setor: t.setor?.nome || '', responsavel: ctx.nome(t.responsavelId), retencaoDias: t.retencaoDias ?? '',
           formaDescarte: t.formaDescarte || '', medidasSeguranca: t.medidasSeguranca || '',
@@ -52,7 +53,7 @@ const EXPORTADORES = {
           mapeado: pend.length === 0, pendencias: lista(pend), ativo: t.ativo, criadoEm: iso(t.criadoEm), atualizadoEm: iso(t.atualizadoEm)
         };
       });
-      return { linhas, json: ts.map((t, i) => ({ ...t, responsavelNome: linhas[i].responsavel, mapeado: linhas[i].mapeado })) };
+      return { linhas, json: ts.map((t, i) => ({ ...t, baseLegalRotulo: linhas[i].baseLegal, baseLegalSensivelRotulo: linhas[i].baseLegalSensivel || null, responsavelNome: linhas[i].responsavel, mapeado: linhas[i].mapeado })) };
     }
   },
 

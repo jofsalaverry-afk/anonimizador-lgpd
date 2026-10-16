@@ -46,7 +46,7 @@ const RELATORIOS = {
       doc.fontSize(10).text(`${ativos.length} tratamento(s) ativo(s), ${ativos.filter(l => l.mapeado).length} com mapeamento completo.`).moveDown();
       for (const l of ativos) {
         bloco(doc, l.nome, [
-          ['Finalidade', l.finalidade], ['Base legal', l.baseLegal], ['Setor', l.setor], ['Responsável', l.responsavel],
+          ['Finalidade', l.finalidade], ['Base legal (LGPD, art. 7º ou art. 11)', [l.baseLegal, l.baseLegalSensivel].filter(Boolean).join(' / ')], ['Setor', l.setor], ['Responsável', l.responsavel],
           ['Categorias de dados', l.categoriasDados], ['Titulares', l.categoriasTitulares], ['Retenção (dias)', l.retencaoDias],
           ['Descarte', l.formaDescarte], ['Sistemas', l.sistemas], ['Outros meios', l.outrosMeios],
           ['Compartilhamentos', l.compartilhamentos], ['Medidas de segurança', l.medidasSeguranca],
@@ -95,7 +95,8 @@ const RELATORIOS = {
         const valor = i.chave === 'INCIDENTES'
           ? `${i.incidentesReaisNoMes ?? '-'} incidente(s) real(is) no mês; último simulado: ${fmtData(i.ultimoSimulado) || 'nenhum'}`
           : i.status === 'INATIVO' ? '' : `${i.n}/${i.total}${i.percentual !== null ? ` (${i.percentual}%)` : ''} — meta ${i.meta}%`;
-        bloco(doc, `${i.titulo}: ${i.status}`, [['Resultado', valor], ['Observação', i.observacao]]);
+        const situacao = { OK: 'OK', PENDENTE: 'Pendente', INATIVO: 'Módulo inativo', SEM_DADOS: 'Sem dados no mês' }[i.status] || i.status;
+        bloco(doc, `${i.titulo}: ${situacao}`, [['Resultado', i.status === 'SEM_DADOS' ? '' : valor], ['Observação', i.observacao]]);
       }
     }
   }

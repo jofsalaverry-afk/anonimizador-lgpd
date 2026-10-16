@@ -5,17 +5,8 @@ import Anexos from './Anexos';
 import Historico from './Historico';
 import Descartes from './Descartes';
 import { TIPO_SISTEMA_LABEL, BadgeRisco } from './rotulos';
+import { rotuloBaseLegal, ROTULO_CAMPO_BASE_LEGAL, textoRetencao } from '../basesLegais';
 
-const BASE_LEGAL_LABEL = {
-  CONSENTIMENTO: 'Consentimento',
-  OBRIGACAO_LEGAL: 'Obrigação Legal',
-  EXECUCAO_CONTRATO: 'Execução de Contrato',
-  INTERESSE_LEGITIMO: 'Interesse Legítimo',
-  PROTECAO_VIDA: 'Proteção à Vida',
-  TUTELA_SAUDE: 'Tutela da Saúde',
-  INTERESSE_PUBLICO: 'Interesse Público',
-  EXERCICIO_DIREITOS: 'Exercício de Direitos'
-};
 
 function Campo({ label, valor }) {
   if (!valor && valor !== 0) return null;
@@ -29,21 +20,14 @@ function Campo({ label, valor }) {
 
 export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) {
   const [tratamento, setTratamento] = useState(null);
-  const [historico, setHistorico] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [mostrarHistorico, setMostrarHistorico] = useState(false);
   const [versaoHistorico, setVersaoHistorico] = useState(0);
 
   useEffect(() => {
     (async () => {
       try {
-        const [tRes, hRes] = await Promise.all([
-          axios.get(`${API}/ropa/tratamentos`, { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get(`${API}/ropa/tratamentos/${tratamentoId}/historico`, { headers: { Authorization: `Bearer ${token}` } })
-        ]);
-        const t = tRes.data.find(x => x.id === tratamentoId);
-        setTratamento(t || null);
-        setHistorico(hRes.data);
+        const tRes = await axios.get(`${API}/ropa/tratamentos`, { headers: { Authorization: `Bearer ${token}` } });
+        setTratamento(tRes.data.find(x => x.id === tratamentoId) || null);
       } catch (err) {
         console.error(err);
       }
@@ -68,10 +52,11 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
         <div className="grid-2">
           <div>
             <Campo label="Finalidade" valor={tratamento.finalidade} />
-            <Campo label="Base legal" valor={BASE_LEGAL_LABEL[tratamento.baseLegal] || tratamento.baseLegal} />
+            <Campo label={ROTULO_CAMPO_BASE_LEGAL} valor={rotuloBaseLegal(tratamento.baseLegal)} />
+            <Campo label="Base legal para dados sensíveis (LGPD, art. 11)" valor={rotuloBaseLegal(tratamento.baseLegalSensivel)} />
             <Campo label="Responsável" valor={tratamento.responsavelNome || 'Não designado'} />
             <Campo label="Setor responsável" valor={tratamento.setor?.nome || 'Não informado'} />
-            <Campo label="Retenção" valor={tratamento.retencaoDias ? `${tratamento.retencaoDias} dias` : null} />
+            <Campo label="Retenção" valor={tratamento.retencaoDias ? textoRetencao(tratamento.retencaoDias) : null} />
             <Campo label="Forma de descarte" valor={tratamento.formaDescarte} />
           </div>
           <div>
@@ -124,44 +109,12 @@ export default function RopaDetail({ token, tratamentoId, onVoltar, onEditar }) 
 
         <div className="card-divider btn-row mt-16">
           <button onClick={() => onEditar(tratamento.id)} className="btn-primary btn-sm">Editar tratamento</button>
-          <button onClick={() => setMostrarHistorico(!mostrarHistorico)} className="btn-secondary btn-sm">
-            {mostrarHistorico ? 'Ocultar versões salvas' : `Versões salvas (${historico.length})`}
-          </button>
         </div>
       </div>
 
       <Descartes token={token} tratamentoId={tratamento.id} onRegistrado={() => setVersaoHistorico(v => v + 1)} />
       <Anexos token={token} entidade="TRATAMENTO" registroId={tratamento.id} onEnviado={() => setVersaoHistorico(v => v + 1)} />
       <Historico token={token} entidade="TRATAMENTO" registroId={tratamento.id} versao={versaoHistorico} />
-
-      {mostrarHistorico && (
-        <div className="card">
-          <h3 className="mb-12">Versões salvas (snapshots anteriores)</h3>
-          {historico.length === 0 ? (
-            <p className="text-muted">Nenhum histórico registrado.</p>
-          ) : (
-            <div className="timeline">
-              {historico.map((h, i) => {
-                const snap = h.snapshot || {};
-                return (
-                  <div key={h.id} className="timeline-item">
-                    <div className={`timeline-dot ${i === 0 ? 'timeline-dot-active' : ''}`} />
-                    <div className="timeline-date">
-                      {new Date(h.criadoEm).toLocaleString('pt-BR')} — por {h.alteradoPor}
-                    </div>
-                    <div className="timeline-content">
-                      <span className="comp-name">{snap.nome || '?'}</span>
-                      {' — '}
-                      <span>{BASE_LEGAL_LABEL[snap.baseLegal] || snap.baseLegal || '?'}</span>
-                      {snap.categoriasDados && <span className="text-muted"> [{snap.categoriasDados.join(', ')}]</span>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

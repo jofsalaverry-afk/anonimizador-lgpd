@@ -44,7 +44,7 @@ test('cada minuta com dados completos: sem variavel sobrando e com marca de minu
 test('conteudo puxado do ROPA, do encarregado e do terceiro', async () => {
   const t = tokenDe(s.dpoA);
   const priv = await (await chamar(t, 'POST', '/gerador/modelos/politica-privacidade/previa', {})).json();
-  assert.ok(priv.texto.includes('Folha de pagamento | Pagar servidores | Cumprimento de obrigação legal ou regulatória | Nome, CPF'));
+  assert.ok(priv.texto.includes('Folha de pagamento | Pagar servidores | Art. 7º, II — Cumprimento de obrigação legal ou regulatória pelo controlador | Nome, CPF'));
   assert.ok(priv.texto.includes('Nuvem Estrangeira Inc. | Hospedagem | Estados Unidos'));
   assert.ok(priv.texto.includes('art. 33 da LGPD'), 'aviso de transferência internacional');
   assert.ok(priv.texto.includes('Encarregada Fictícia — e-mail lgpd@teste.local'));

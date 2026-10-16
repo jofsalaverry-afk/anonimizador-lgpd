@@ -75,7 +75,7 @@ async function main() {
   if (!org) {
     cred.GESTOR = { email: 'gestor@demo-staging.local', senha: 'Demo-' + crypto.randomBytes(9).toString('base64url') };
     const c = await passo('Admin', 'criar organização (já com slug)', 'POST', '/admin/camaras', {
-      token: ctx.admin, body: { nome: 'Camara Demo Staging', cnpj: CNPJ, email: cred.GESTOR.email, senha: cred.GESTOR.senha }
+      token: ctx.admin, body: { nome: 'Camara Demo Staging', cnpj: CNPJ, nomeGestor: 'Gestora de Teste', email: cred.GESTOR.email, senha: cred.GESTOR.senha }
     }, 201, r => !!r.json.slug || 'sem slug');
     org = { id: c.json.id, slug: c.json.slug };
   } else {
@@ -146,6 +146,22 @@ async function main() {
   await passo('ROPA', 'lista com "mapeado"', 'GET', '/ropa/tratamentos', { token: G }, 200,
     r => r.json.some(t => t.id === trat?.json?.id && t.mapeado) || 'tratamento completo não ficou mapeado');
 
+  // ---------- Bases legais (Etapa 6b) ----------
+  const sens = await passo('Bases legais', 'tratamento com dado sensível sem art. 11', 'POST', '/ropa/tratamentos', { token: G, body: {
+    nome: `Junta médica ${Date.now()}`, finalidade: 'Perícias de servidores', baseLegal: 'OBRIGACAO_LEGAL', categoriasDados: ['Nome', 'Saúde'],
+    categoriasTitulares: ['Servidores'], retencaoDias: 1825, responsavelId: me.json?.id, setorId: setor?.json?.id, outrosMeios: 'Prontuário em papel'
+  } }, 201);
+  await passo('Bases legais', 'sem art. 11 não conta como mapeado', 'GET', '/ropa/tratamentos', { token: G }, 200,
+    r => (r.json.find(t => t.id === sens?.json?.id)?.mapeado === false) || 'deveria estar não mapeado');
+  await passo('Bases legais', 'art. 7 no campo do art. 11 é recusado (400)', 'PUT', `/ropa/tratamentos/${sens?.json?.id}`, { token: G, body: { baseLegalSensivel: 'OBRIGACAO_LEGAL' } }, 400);
+  await passo('Bases legais', 'informar art. 11, II, a', 'PUT', `/ropa/tratamentos/${sens?.json?.id}`, { token: G, body: { baseLegalSensivel: 'SENSIVEL_OBRIGACAO_LEGAL' } });
+  await passo('Bases legais', 'com art. 11 passa a mapeado', 'GET', '/ropa/tratamentos', { token: G }, 200,
+    r => (r.json.find(t => t.id === sens?.json?.id)?.mapeado === true) || 'deveria estar mapeado');
+  await passo('Bases legais', 'CSV com rótulo "Art. 7º, II — ..."', 'GET', '/ropa/export?formato=csv', { token: G, binario: true }, 200,
+    r => (r.buf.toString('utf8').includes('Art. 7º, II — Cumprimento de obrigação legal') && !/,OBRIGACAO_LEGAL,/.test(r.buf.toString('utf8'))) || 'código cru no CSV');
+  await passo('Histórico', 'nome + perfil e texto da pergunta', 'GET', `/historico?entidade=TERCEIRO&registroId=${terc?.json?.id}`, { token: G }, 200,
+    r => (Object.values(r.json.perfis || {}).includes('GESTOR') && Object.values(r.json.rotulosCampos || {}).some(t => t.includes('art. 19 da LGPD'))) || 'sem perfil ou sem texto da pergunta');
+
   // ---------- Anexos e historico ----------
   const fd = new FormData();
   fd.append('entidade', 'TRATAMENTO');
@@ -201,6 +217,10 @@ async function main() {
 
   // ---------- Indicadores ----------
   await passo('Indicadores', 'painel', 'GET', '/indicadores', { token: G }, 200, r => r.json.indicadores.length === 5 || 'faltam indicadores');
+  await passo('Indicadores', 'DSAR sem conclusões no mês = selo neutro', 'GET', '/indicadores', { token: G }, 200, r => {
+    const d = r.json.indicadores.find(i => i.chave === 'DSAR');
+    return d.total > 0 ? true : (d.status === 'SEM_DADOS' && d.ok === null) || `status ${d.status}`;
+  });
   await passo('Indicadores', 'salvar metas', 'PUT', '/indicadores/metas', { token: G, body: { metas: { TREINAMENTOS: 70 } } });
   await passo('Indicadores', 'foto mensal sob demanda', 'POST', '/indicadores/snapshots', { token: G }, 201);
   await passo('Indicadores', 'exportar CSV', 'GET', '/indicadores/export?formato=csv', { token: G, binario: true });
@@ -208,7 +228,7 @@ async function main() {
   // ---------- Gerador de minutas ----------
   await passo('Minutas', 'listar modelos', 'GET', '/gerador/modelos', { token: G }, 200, r => r.json.length === 9 || 'não são 9 modelos');
   await passo('Minutas', 'prévia sem pendências', 'POST', '/gerador/modelos/politica-privacidade/previa', { token: G, body: {} }, 200,
-    r => r.json.pendencias.length === 0 || `pendências: ${r.json.pendencias.join('; ')}`);
+    r => (r.json.pendencias.length === 0 && r.json.texto.includes('Art. 7º, II —')) || `pendências: ${r.json.pendencias.join('; ')} ou sem rótulo com artigo`);
   const ger = await passo('Minutas', 'gerar DOCX + PDF', 'POST', '/gerador/modelos/politica-privacidade/gerar', { token: G, body: {} }, 201);
   for (const d of ger?.json?.documentos || []) {
     await passo('Minutas', `baixar ${d.formato}`, 'GET', `/repositorio/documentos/${d.id}/download`, { token: G, binario: true }, 200, r => (d.formato === 'PDF' ? pdf(r.buf) : zip(r.buf)));
@@ -218,6 +238,8 @@ async function main() {
   // ---------- Transparencia (publica) ----------
   await passo('Transparência', 'página pública', 'GET', `/transparencia/publico/${ctx.org.slug}`, {}, 200,
     r => (r.json.tratamentos.length > 0 && !JSON.stringify(r.json).includes('"responsavelId"')) || 'sem tratamentos ou com campo interno');
+  await passo('Transparência', 'base legal com artigo (7 e 11)', 'GET', `/transparencia/publico/${ctx.org.slug}`, {}, 200,
+    r => (r.json.tratamentos.every(t => t.baseLegal.startsWith('Art. 7º')) && r.json.tratamentos.some(t => (t.baseLegalSensivel || '').startsWith('Art. 11, II, a'))) || 'rótulo sem artigo');
 
   // ---------- Portabilidade ----------
   await passo('Portabilidade', 'pacote ZIP', 'GET', '/portabilidade/pacote', { token: G, binario: true }, 200, r => zip(r.buf));

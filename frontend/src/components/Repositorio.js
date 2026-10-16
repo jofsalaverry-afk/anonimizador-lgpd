@@ -139,7 +139,6 @@ function RepositorioArquivos({ token, usuario }) {
       <div className="card">
         {ehDpo && <UploadDocumento token={token} onEnviado={carregar} />}
         {podeGerar && <GeradorDocumentos token={token} onGerado={carregar} />}
-        <h2 className="card-header">Repositório de Documentos</h2>
         <p className="text-muted">Nenhum documento disponível ainda. Os documentos são publicados pelo administrador do sistema.</p>
       </div>
     );
@@ -155,7 +154,6 @@ function RepositorioArquivos({ token, usuario }) {
   return (
     <div>
       <div className="card mb-16">
-        <h2 className="card-header">Repositório de Documentos</h2>
         <p className="text-sm" style={{ color: '#64748b' }}>
           Documentos institucionais e modelos disponibilizados pela sua organização. Clique em qualquer card para baixar.
         </p>

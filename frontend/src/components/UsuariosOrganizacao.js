@@ -45,7 +45,6 @@ export default function UsuariosOrganizacao({ token, usuario }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Usuários da organização</h2>
         {!form && <button className="btn-primary btn-sm" onClick={() => setForm(VAZIO)}>+ Novo usuário</button>}
       </div>
       {erro && <div className="alert-error mb-12">{erro}</div>}

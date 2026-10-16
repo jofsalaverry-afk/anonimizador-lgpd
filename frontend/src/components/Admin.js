@@ -48,7 +48,7 @@ export default function Admin() {
 
   const [orgs, setOrgs] = useState([]);
   const [stats, setStats] = useState(null);
-  const [form, setForm] = useState({ nome: '', cnpj: '', email: '', senha: '', plano: 'basico' });
+  const [form, setForm] = useState({ nome: '', cnpj: '', nomeGestor: '', email: '', senha: '', plano: 'basico' });
   const [msg, setMsg] = useState('');
   const [expandida, setExpandida] = useState(null);
   const [linkCopiadoId, setLinkCopiadoId] = useState(null);
@@ -244,7 +244,7 @@ export default function Admin() {
     setErro('');
     try {
       await axios.post(`${API}/admin/camaras`, form, { headers });
-      setForm({ nome: '', cnpj: '', email: '', senha: '', plano: 'basico' });
+      setForm({ nome: '', cnpj: '', nomeGestor: '', email: '', senha: '', plano: 'basico' });
       setMsg('Organização criada com sucesso');
       carregar();
     } catch (err) {
@@ -394,10 +394,12 @@ export default function Admin() {
         <div className="card mb-24">
           <h2 className="card-header">Criar nova organização</h2>
           <form onSubmit={criarOrg}>
-            <label>Nome</label>
+            <label>Nome da organização</label>
             <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Câmara Municipal de ..." required />
             <label>CNPJ</label>
             <input value={form.cnpj} onChange={e => setForm({ ...form, cnpj: e.target.value })} placeholder="00.000.000/0001-00" required />
+            <label>Nome da pessoa do primeiro usuário (Gestor)</label>
+            <input value={form.nomeGestor} onChange={e => setForm({ ...form, nomeGestor: e.target.value })} placeholder="Nome e sobrenome de quem vai usar a conta" required />
             <label>E-mail do primeiro usuário (Gestor)</label>
             <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="contato@camara.gov.br" required />
             <label>Senha inicial</label>

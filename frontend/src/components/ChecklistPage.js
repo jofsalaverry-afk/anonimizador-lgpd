@@ -132,9 +132,6 @@ function ChecklistPage({ token }) {
   if (loading) {
     return (
       <div>
-        <div className="page-header">
-          <h2 className="page-title">Checklist de Conformidade</h2>
-        </div>
         <p className="text-muted">Carregando...</p>
       </div>
     );
@@ -143,7 +140,6 @@ function ChecklistPage({ token }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Checklist de Conformidade</h2>
         <div className="btn-row">
           <BotoesExportar token={token} caminho="/conformidade/checklist/export" nome="checklist-conformidade" onErro={setErro} />
           {!atividadeForm && <button className="btn-primary btn-sm" onClick={() => setAtividadeForm({})}>+ Atividade própria</button>}

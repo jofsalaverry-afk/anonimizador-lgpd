@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { rotuloValor, PERFIL_LABEL } from './rotulos';
+import { rotuloBaseLegal } from '../basesLegais';
 
 const ACAO_LABEL = { CRIAR: 'Criou', EDITAR: 'Editou', EXCLUIR: 'Excluiu', STATUS: 'Mudou a situação' };
 
 // Nomes legiveis dos campos que aparecem nos diffs.
 const CAMPO_LABEL = {
-  nome: 'Nome', titulo: 'Título', finalidade: 'Finalidade', baseLegal: 'Base legal',
+  nome: 'Nome', titulo: 'Título', finalidade: 'Finalidade', baseLegal: 'Base legal (LGPD, art. 7º)',
+  baseLegalSensivel: 'Base legal para dados sensíveis (LGPD, art. 11)', perfil: 'Perfil', situacao: 'Situação',
+  evidenciaRequerida: 'Evidência requerida', modelo: 'Modelo', versao: 'Versão', faqPortal: 'FAQ do portal',
   categoriasDados: 'Categorias de dados', categoriasTitulares: 'Categorias de titulares',
   retencaoDias: 'Retenção (dias)', formaDescarte: 'Forma de descarte', medidasSeguranca: 'Medidas de segurança',
   compartilhamentos: 'Compartilhamentos', ativo: 'Ativo', responsavelId: 'Responsável',
@@ -30,18 +34,28 @@ const CAMPO_LABEL = {
   tratamento: 'Tratamento', prazo: 'Prazo', criticidade: 'Criticidade', texto: 'Texto do modelo', padrao: 'Modelo padrão'
 };
 
-function rotuloCampo(campo) {
-  if (campo.startsWith('questionario.')) return `Questionário ${campo.slice('questionario.'.length)}`;
+// rotulosCampos vem do backend (ex.: texto da pergunta do questionario)
+function rotuloCampo(campo, rotulosCampos) {
+  if (rotulosCampos?.[campo]) return rotulosCampos[campo];
+  if (campo.startsWith('questionario.')) return `Questionário — pergunta ${campo.slice('questionario.'.length)}`;
   return CAMPO_LABEL[campo] || campo;
 }
+
+// Codigo de enum sem rotulo conhecido (ex.: valor novo): melhor legivel que cru
+const humanizar = v => v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, ' ');
+const CODIGO_ENUM = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$|^[A-Z]{3,}$/;
+const CAMPOS_TEXTO_LIVRE = new Set(['protocolo', 'cnpj', 'nome', 'titulo', 'descricao', 'observacao', 'razaoSocial']);
 const CAMPOS_USUARIO = new Set(['responsavelId', 'validadoPor', 'autorId']);
 const ISO_DATA = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
-function formatar(campo, valor, usuarios) {
+function formatar(campo, valor, usuarios, entidade) {
   if (valor === null || valor === undefined || valor === '') return '—';
   if (CAMPOS_USUARIO.has(campo)) return usuarios[valor] || 'usuário removido';
   if (typeof valor === 'boolean') return valor ? 'Sim' : 'Não';
-  if (Array.isArray(valor)) return valor.length ? valor.join('; ') : '—';
+  if (Array.isArray(valor)) return valor.length ? valor.map(v => formatar(campo, v, usuarios, entidade)).join('; ') : '—';
+  const rot = rotuloValor(campo, valor, entidade, rotuloBaseLegal);
+  if (rot) return rot;
+  if (typeof valor === 'string' && CODIGO_ENUM.test(valor) && !CAMPOS_TEXTO_LIVRE.has(campo)) return humanizar(valor);
   if (typeof valor === 'string' && ISO_DATA.test(valor)) return new Date(valor).toLocaleString('pt-BR');
   if (typeof valor === 'object') return JSON.stringify(valor);
   return String(valor);
@@ -50,7 +64,7 @@ function formatar(campo, valor, usuarios) {
 // Historico de alteracoes de um registro: quem, quando e o que mudou.
 // "versao" muda quando o pai quer forcar recarga (ex.: apos anexar).
 export default function Historico({ token, entidade, registroId, versao = 0 }) {
-  const [dados, setDados] = useState({ itens: [], usuarios: {} });
+  const [dados, setDados] = useState({ itens: [], usuarios: {}, perfis: {}, rotulosCampos: {} });
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
 
@@ -66,6 +80,14 @@ export default function Historico({ token, entidade, registroId, versao = 0 }) {
 
   if (!registroId) return null;
 
+  // "Joana Salaverry (DPO)"
+  const quem = id => {
+    const nome = dados.usuarios[id];
+    if (!nome) return 'usuário removido';
+    const perfil = PERFIL_LABEL[dados.perfis?.[id]];
+    return perfil ? `${nome} (${perfil})` : nome;
+  };
+
   return (
     <div className="card mb-16">
       <div className="card-header">Histórico de alterações</div>
@@ -80,21 +102,21 @@ export default function Historico({ token, entidade, registroId, versao = 0 }) {
             <div key={h.id} className="timeline-item">
               <div className={`timeline-dot ${i === 0 ? 'timeline-dot-active' : ''}`} />
               <div className="timeline-date">
-                {new Date(h.criadoEm).toLocaleString('pt-BR')} — <strong>{h.usuarioId ? (dados.usuarios[h.usuarioId] || 'usuário removido') : 'Canal público / sistema'}</strong> · {ACAO_LABEL[h.acao] || h.acao}
+                {new Date(h.criadoEm).toLocaleString('pt-BR')} — <strong>{h.usuarioId ? quem(h.usuarioId) : 'Canal público / sistema'}</strong> · {ACAO_LABEL[h.acao] || h.acao}
               </div>
               <div className="timeline-content">
                 <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
                   <tbody>
                     {Object.entries(h.diff || {}).map(([campo, { antes, depois }]) => (
                       <tr key={campo}>
-                        <td style={{ padding: '2px 8px 2px 0', color: '#64748b', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{rotuloCampo(campo)}</td>
+                        <td style={{ padding: '2px 8px 2px 0', color: '#64748b', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{rotuloCampo(campo, dados.rotulosCampos)}</td>
                         {h.acao === 'CRIAR' ? (
-                          <td style={{ padding: '2px 0' }}>{formatar(campo, depois, dados.usuarios)}</td>
+                          <td style={{ padding: '2px 0' }}>{formatar(campo, depois, dados.usuarios, entidade)}</td>
                         ) : (
                           <td style={{ padding: '2px 0' }}>
-                            <span style={{ textDecoration: 'line-through', color: '#94a3b8' }}>{formatar(campo, antes, dados.usuarios)}</span>
+                            <span style={{ textDecoration: 'line-through', color: '#94a3b8' }}>{formatar(campo, antes, dados.usuarios, entidade)}</span>
                             {' → '}
-                            <span>{formatar(campo, depois, dados.usuarios)}</span>
+                            <span>{formatar(campo, depois, dados.usuarios, entidade)}</span>
                           </td>
                         )}
                       </tr>

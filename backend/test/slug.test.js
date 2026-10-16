@@ -26,7 +26,7 @@ test('slugDoNome: sem acento, minusculo, hifens', () => {
 });
 
 test('organizacao criada pelo admin ja nasce com slug unico', async () => {
-  const corpo = { nome: 'Câmara Demo Staging', cnpj: '11111111000191', email: 'g1@teste.local', senha: '12345678' };
+  const corpo = { nome: 'Câmara Demo Staging', cnpj: '11111111000191', email: 'g1@teste.local', senha: '12345678', nomeGestor: 'Gestora Fictícia' };
   const r1 = await (await chamar('POST', '/admin/camaras', corpo)).json();
   assert.equal(r1.slug, 'camara-demo-staging');
   const r2 = await (await chamar('POST', '/admin/camaras', { ...corpo, cnpj: '22222222000191', email: 'g2@teste.local' })).json();

@@ -2,17 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import { BotoesExportar, BotaoPdfA } from './download';
-
-const BASE_LEGAL_LABEL = {
-  CONSENTIMENTO: 'Consentimento',
-  OBRIGACAO_LEGAL: 'Obrigação Legal',
-  EXECUCAO_CONTRATO: 'Execução de Contrato',
-  INTERESSE_LEGITIMO: 'Interesse Legítimo',
-  PROTECAO_VIDA: 'Proteção à Vida',
-  TUTELA_SAUDE: 'Tutela da Saúde',
-  INTERESSE_PUBLICO: 'Interesse Público',
-  EXERCICIO_DIREITOS: 'Exercício de Direitos'
-};
+import { ROTULO_BASE_LEGAL as BASE_LEGAL_LABEL, ROTULO_CAMPO_BASE_LEGAL } from '../basesLegais';
 
 export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial }) {
   const [tratamentos, setTratamentos] = useState([]);
@@ -71,7 +61,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
   };
 
   const filtrados = tratamentos.filter(t => {
-    if (filtroBase && t.baseLegal !== filtroBase) return false;
+    if (filtroBase && t.baseLegal !== filtroBase && t.baseLegalSensivel !== filtroBase) return false;
     if (filtroStatus === 'ativo' && !t.ativo) return false;
     if (filtroStatus === 'inativo' && t.ativo) return false;
     if (filtroMapeamento === 'sim' && !t.mapeado) return false;
@@ -84,12 +74,11 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Mapeamento ROPA</h2>
         <div className="btn-row">
           <button onClick={() => exportar('csv')} className="btn-secondary btn-sm">Exportar CSV</button>
           <button onClick={() => exportar('json')} className="btn-secondary btn-sm">Exportar JSON</button>
           <BotaoPdfA token={token} tipo="ropa" onErro={setErro} />
-          <BotoesExportar token={token} caminho="/ropa/descartes/export" nome="ropa-descartes" onErro={setErro} extra={null} />
+          <BotoesExportar token={token} caminho="/ropa/descartes/export" nome="ropa-descartes" onErro={setErro} rotulo="descartes" />
           <button onClick={onNovo} className="btn-primary btn-sm">+ Novo tratamento</button>
         </div>
       </div>
@@ -98,7 +87,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
 
       <div className="filters mb-16">
         <select value={filtroBase} onChange={e => setFiltroBase(e.target.value)}>
-          <option value="">Todas as bases legais</option>
+          <option value="">{ROTULO_CAMPO_BASE_LEGAL}: todas</option>
           {Object.entries(BASE_LEGAL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
@@ -125,7 +114,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
               <tr>
                 <th>Nome</th>
                 <th>Finalidade</th>
-                <th>Base Legal</th>
+                <th>Base legal (LGPD, art. 7º ou art. 11)</th>
                 <th>Titulares</th>
                 <th>Status</th>
                 <th>Ações</th>
@@ -140,7 +129,8 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
                   </td>
                   <td className="table-cell-truncate">{t.finalidade}</td>
                   <td>
-                    <span className="badge badge-purple">{BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}</span>
+                    <span className="badge badge-purple" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}</span>
+                    {t.baseLegalSensivel && <div className="mt-4"><span className="badge badge-purple" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegalSensivel]}</span></div>}
                   </td>
                   <td className="text-muted">{(t.categoriasTitulares || []).join(', ') || '-'}</td>
                   <td>

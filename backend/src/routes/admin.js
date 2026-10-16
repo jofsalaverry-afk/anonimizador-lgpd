@@ -42,6 +42,8 @@ const validadoresAdminLogin = [
 
 const validadoresCriarCamara = [
   body('nome').trim().isLength({ min: 2, max: 200 }).withMessage('Nome inválido').escape(),
+  // Nome da PESSOA do primeiro usuario (Gestor) — antes recebia o nome da organizacao
+  body('nomeGestor').trim().isLength({ min: 2, max: 200 }).withMessage('Informe o nome da pessoa do primeiro usuário (Gestor)'),
   body('cnpj').trim().matches(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$|^\d{14}$/).withMessage('CNPJ inválido'),
   validarEmail('email'),
   body('senha').isLength({ min: 8, max: 200 }).withMessage('Senha deve ter ao menos 8 caracteres'),
@@ -108,7 +110,7 @@ router.get('/camaras', adminAuth, async (req, res) => {
 
 router.post('/camaras', adminAuth, validadoresCriarCamara, async (req, res) => {
   try {
-    const { nome, cnpj, email, senha, plano } = req.body;
+    const { nome, cnpj, email, senha, plano, nomeGestor } = req.body;
     const nomeNormalizado = nome ? nome.normalize('NFC') : nome;
     const senhaHash = await bcrypt.hash(senha, 10);
     // Slug publico gerado do nome (antes nao havia como definir: paginas
@@ -120,7 +122,7 @@ router.post('/camaras', adminAuth, validadoresCriarCamara, async (req, res) => {
         data: { nome: nomeNormalizado, cnpj, plano: plano || 'basico', slug }
       });
       const usuario = await tx.usuario.create({
-        data: { email, senhaHash, nome: nomeNormalizado, perfil: 'GESTOR', organizacaoId: org.id }
+        data: { email, senhaHash, nome: nomeGestor.normalize('NFC'), perfil: 'GESTOR', organizacaoId: org.id }
       });
       return { org, usuario };
     });

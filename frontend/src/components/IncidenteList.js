@@ -43,7 +43,6 @@ export default function IncidenteList({ token, onNovo, onVer, filtroInicial }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Incidentes de Segurança</h2>
         <div className="btn-row">
           <BotoesExportar token={token} caminho="/repositorio/incidentes/export" nome="incidentes" onErro={setErro} />
           <BotaoPdfA token={token} tipo="incidentes" onErro={setErro} />

@@ -7,6 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Rotulos e artigos em src/data/basesLegais.json. Valores existentes nunca
+// sao renomeados nem removidos; os novos entram no fim.
 enum BaseLegal {
   CONSENTIMENTO
   OBRIGACAO_LEGAL
@@ -16,6 +18,18 @@ enum BaseLegal {
   TUTELA_SAUDE
   INTERESSE_PUBLICO
   EXERCICIO_DIREITOS
+  // Etapa 6b: art. 7, IV e X
+  ESTUDOS_PESQUISA
+  PROTECAO_CREDITO
+  // Etapa 6b: art. 11 (dados sensiveis)
+  SENSIVEL_CONSENTIMENTO
+  SENSIVEL_OBRIGACAO_LEGAL
+  SENSIVEL_POLITICAS_PUBLICAS
+  SENSIVEL_ESTUDOS_PESQUISA
+  SENSIVEL_EXERCICIO_DIREITOS
+  SENSIVEL_PROTECAO_VIDA
+  SENSIVEL_TUTELA_SAUDE
+  SENSIVEL_PREVENCAO_FRAUDE
 }
 
 enum TipoDireito {
@@ -245,6 +259,8 @@ model Tratamento {
   nome                String
   finalidade          String
   baseLegal           BaseLegal
+  // Etapa 6b: base do art. 11 quando ha dado sensivel (art. 5, II).
+  baseLegalSensivel   BaseLegal?
   categoriasDados     String[]
   categoriasTitulares String[]
   retencaoDias        Int?

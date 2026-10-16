@@ -67,7 +67,6 @@ export default function DsarList({ token, onNova, onVer, filtroInicial }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Direitos do Titular (DSAR)</h2>
         <div className="btn-row">
           <BotoesExportar token={token} caminho="/dsar/export" nome="dsar-solicitacoes" onErro={setErro} />
           <BotaoPdfA token={token} tipo="dsar" onErro={setErro} />

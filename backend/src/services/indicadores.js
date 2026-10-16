@@ -5,9 +5,10 @@
 // INATIVO = modulo de origem desligado para a organizacao.
 
 const { TRILHAS_BASE } = require('../routes/treinamento');
+const { temDadoSensivel, ART11 } = require('./basesLegais');
 
 // Metas padrao (%) quando a organizacao nao cadastrou MetaIndicador.
-// As metas definitivas vao no Plano de Trabalho (item 4.6.9 do TR).
+// As metas definitivas vao no Plano de Trabalho.
 const METAS_PADRAO = { ROPA: 100, CONTRATOS: 100, TREINAMENTOS: 80, DSAR: 100 };
 const INDICADORES_COM_META = Object.keys(METAS_PADRAO);
 
@@ -50,6 +51,8 @@ function pendenciasMapeamento(t) {
   const falta = [];
   if (!t.finalidade || !String(t.finalidade).trim()) falta.push('finalidade');
   if (!t.baseLegal) falta.push('base legal');
+  // Dado sensivel (art. 5, II) exige tambem uma hipotese do art. 11
+  if (temDadoSensivel(t.categoriasDados) && !ART11.includes(t.baseLegalSensivel)) falta.push('base legal do art. 11 (dados sensíveis)');
   if (!(t.categoriasDados || []).length) falta.push('categorias de dados');
   if (!t.setorId) falta.push('setor');
   if (!t.responsavelId) falta.push('responsável');
@@ -171,14 +174,14 @@ async function calcularIndicadores(db, organizacaoId, { referencia = new Date(),
       else emAndamento++;
     }
     const total = noPrazo + atrasadas;
-    indicadores.push({
-      ...indicadorPercentual({
-        chave: 'DSAR', titulo: 'Solicitações de titulares atendidas no prazo (mês)', n: noPrazo, total, meta: metas.DSAR, okSemTotal: true,
-        observacao: `${atrasadas} atrasada(s); ${emAndamento} em andamento dentro do prazo (não contam)`,
-        link: { pagina: 'dsar', filtro: 'mes', mes: mesReferencia }
-      }),
-      emAndamento
+    const dsar = indicadorPercentual({
+      chave: 'DSAR', titulo: 'Solicitações de titulares atendidas no prazo (mês)', n: noPrazo, total, meta: metas.DSAR, okSemTotal: true,
+      observacao: `${atrasadas} atrasada(s); ${emAndamento} em andamento dentro do prazo (não contam)`,
+      link: { pagina: 'dsar', filtro: 'mes', mes: mesReferencia }
     });
+    // Nada a medir no mes: selo neutro (nem OK nem Pendente)
+    if (total === 0) Object.assign(dsar, { ok: null, status: 'SEM_DADOS', observacao: emAndamento ? `Sem solicitações concluídas ou vencidas no mês; ${emAndamento} em andamento dentro do prazo` : 'Sem solicitações no mês' });
+    indicadores.push({ ...dsar, emAndamento });
   } else indicadores.push(inativo('DSAR', 'Solicitações de titulares atendidas no prazo (mês)', 'dsar'));
 
   // e) Incidentes reais no mes + ultimo simulado. OK = simulado nos ultimos

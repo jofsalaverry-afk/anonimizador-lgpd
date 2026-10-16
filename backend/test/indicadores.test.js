@@ -38,7 +38,9 @@ test('borda: organizacao sem nenhum registro e sem meta', async () => {
   assert.equal(pega(r, 'CONTRATOS').percentual, null);
   assert.deepEqual([pega(r, 'TREINAMENTOS').n, pega(r, 'TREINAMENTOS').total, pega(r, 'TREINAMENTOS').meta], [0, 1, 80]);
   assert.equal(pega(r, 'TREINAMENTOS').status, 'PENDENTE');
-  assert.equal(pega(r, 'DSAR').status, 'OK', 'sem solicitação no mês');
+  assert.equal(pega(r, 'DSAR').status, 'SEM_DADOS', 'sem solicitação no mês: selo neutro, não OK');
+  assert.equal(pega(r, 'DSAR').ok, null);
+  assert.equal(pega(r, 'DSAR').observacao, 'Sem solicitações no mês');
   assert.equal(pega(r, 'DSAR').meta, 100);
   assert.equal(pega(r, 'INCIDENTES').incidentesReaisNoMes, 0);
   assert.equal(pega(r, 'INCIDENTES').ultimoSimulado, null);

@@ -52,7 +52,8 @@ test('pagina publica: informacao ao titular sem nada interno', async () => {
   }
 
   assert.deepEqual(p.tratamentos.map(t => t.nome), ['Folha de pagamento']);
-  assert.equal(p.tratamentos[0].baseLegal, 'Cumprimento de obrigação legal ou regulatória');
+  assert.equal(p.tratamentos[0].baseLegal, 'Art. 7º, II — Cumprimento de obrigação legal ou regulatória pelo controlador');
+  assert.equal(p.tratamentos[0].baseLegalSensivel, null);
   assert.deepEqual(p.tratamentos[0].compartilhamentos, [{ destinatario: 'Hospedagem SA', finalidade: 'Hospedagem', pais: 'Estados Unidos', transferenciaInternacional: true }]);
   assert.deepEqual(p.encarregado, { nome: 'Encarregada Pública', email: 'lgpd@camara-a.local', telefone: null });
   assert.equal(p.canalSolicitacao, '#solicitar/camara-a');

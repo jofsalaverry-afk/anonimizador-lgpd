@@ -24,13 +24,15 @@ export async function baixarArquivo(token, caminho, nomePadrao, params) {
   }
 }
 
-// Botoes padrao "CSV / JSON" de um modulo.
-export function BotoesExportar({ token, caminho, nome, onErro, extra }) {
+// Botoes padrao "CSV / JSON" de um modulo. rotulo: o que se exporta, quando
+// a tela tem mais de uma exportacao (ex.: "descartes") — evita botoes iguais.
+export function BotoesExportar({ token, caminho, nome, onErro, extra, rotulo }) {
   const baixar = (formato) => baixarArquivo(token, caminho, `${nome}.${formato}`, { formato }).catch(e => onErro && onErro(e.message));
+  const texto = f => (rotulo ? `Exportar ${rotulo} (${f})` : `Exportar ${f}`);
   return (
     <>
-      <button className="btn-secondary btn-sm" onClick={() => baixar('csv')}>Exportar CSV</button>
-      <button className="btn-secondary btn-sm" onClick={() => baixar('json')}>Exportar JSON</button>
+      <button className="btn-secondary btn-sm" onClick={() => baixar('csv')}>{texto('CSV')}</button>
+      <button className="btn-secondary btn-sm" onClick={() => baixar('json')}>{texto('JSON')}</button>
       {extra}
     </>
   );

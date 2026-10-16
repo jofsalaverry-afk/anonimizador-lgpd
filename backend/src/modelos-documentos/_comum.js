@@ -15,16 +15,8 @@
 // texto sai com "[PREENCHER: descricao]" e a pendencia aparece na previa.
 // Nunca deixe chaves {assim} no texto: o teste acusa variavel sobrando.
 
-const BASE_LEGAL_LABEL = {
-  CONSENTIMENTO: 'Consentimento do titular',
-  OBRIGACAO_LEGAL: 'Cumprimento de obrigação legal ou regulatória',
-  EXECUCAO_CONTRATO: 'Execução de contrato',
-  INTERESSE_LEGITIMO: 'Interesse legítimo',
-  PROTECAO_VIDA: 'Proteção da vida ou da incolumidade física',
-  TUTELA_SAUDE: 'Tutela da saúde',
-  INTERESSE_PUBLICO: 'Execução de políticas públicas / interesse público',
-  EXERCICIO_DIREITOS: 'Exercício regular de direitos'
-};
+// Rotulos das bases legais: fonte unica em src/data/basesLegais.json
+const { ROTULO_BASE_LEGAL: BASE_LEGAL_LABEL, rotuloBaseLegal } = require('../services/basesLegais');
 
 function dataPorExtenso(d) {
   return new Date(d).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
@@ -66,7 +58,8 @@ function criarContexto(dados) {
     tratamentos: (dados.tratamentos || []).map(t => ({
       nome: t.nome,
       finalidade: t.finalidade,
-      baseLegal: BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal,
+      // art. 7 e, havendo dado sensivel, a hipotese do art. 11
+      baseLegal: [rotuloBaseLegal(t.baseLegal), rotuloBaseLegal(t.baseLegalSensivel)].filter(Boolean).join(' / '),
       dados: (t.categoriasDados || []).join(', ') || 'não informado',
       titulares: (t.categoriasTitulares || []).join(', ') || 'não informado',
       retencao: retencaoTexto(t.retencaoDias),
