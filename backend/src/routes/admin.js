@@ -7,6 +7,7 @@ const { body } = require('express-validator');
 const { auditarLogin } = require('../middlewares/auditoria');
 const { validar, validarEmail } = require('../middlewares/seguranca');
 const { getTrilhasComOverrides, TRILHAS_BASE } = require('./treinamento');
+const { slugUnico, slugValido } = require('../services/slug');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -110,17 +111,20 @@ router.post('/camaras', adminAuth, validadoresCriarCamara, async (req, res) => {
     const { nome, cnpj, email, senha, plano } = req.body;
     const nomeNormalizado = nome ? nome.normalize('NFC') : nome;
     const senhaHash = await bcrypt.hash(senha, 10);
+    // Slug publico gerado do nome (antes nao havia como definir: paginas
+    // publicas da organizacao ficavam inacessiveis).
+    const slug = await slugUnico(prisma, nomeNormalizado);
     // Cria organizacao + primeiro usuario (GESTOR) em transacao
     const result = await prisma.$transaction(async (tx) => {
       const org = await tx.organizacao.create({
-        data: { nome: nomeNormalizado, cnpj, plano: plano || 'basico' }
+        data: { nome: nomeNormalizado, cnpj, plano: plano || 'basico', slug }
       });
       const usuario = await tx.usuario.create({
         data: { email, senhaHash, nome: nomeNormalizado, perfil: 'GESTOR', organizacaoId: org.id }
       });
       return { org, usuario };
     });
-    res.status(201).json({ id: result.org.id, nome: result.org.nome, email: result.usuario.email });
+    res.status(201).json({ id: result.org.id, nome: result.org.nome, slug: result.org.slug, email: result.usuario.email });
   } catch (err) {
     if (err.code === 'P2002') {
       return res.status(409).json({ erro: 'CNPJ ou email já cadastrado' });
@@ -156,6 +160,27 @@ router.patch('/camaras/:id/modulos', adminAuth, async (req, res) => {
     });
     res.json(org);
   } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ erro: 'Organização não encontrada' });
+    res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+// ---------- Slug publico da organizacao ----------
+// PATCH /admin/camaras/:id/slug { slug } — minusculas, numeros e hifens.
+// Trocar o slug quebra links ja divulgados (portal, canal do titular).
+router.patch('/camaras/:id/slug', adminAuth, async (req, res) => {
+  try {
+    const slug = typeof req.body?.slug === 'string' ? req.body.slug.trim().toLowerCase() : '';
+    if (!slugValido(slug)) {
+      return res.status(400).json({ erro: 'Slug inválido: use 3 a 60 caracteres, só letras minúsculas, números e hífens (ex.: camara-viamao)' });
+    }
+    const org = await prisma.organizacao.update({
+      where: { id: req.params.id }, data: { slug }, select: { id: true, nome: true, slug: true }
+    });
+    console.log(`[AUDIT] admin=${req.admin.email} slug=${slug} org=${org.id}`);
+    res.json(org);
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ erro: 'Este slug já está em uso por outra organização' });
     if (err.code === 'P2025') return res.status(404).json({ erro: 'Organização não encontrada' });
     res.status(500).json({ erro: 'Erro interno' });
   }

@@ -174,6 +174,17 @@ export default function Admin() {
     }
   };
 
+  const salvarSlug = async (org) => {
+    const novo = window.prompt('Endereço público (slug): só letras minúsculas, números e hífens. Atenção: trocar quebra links já divulgados.', org.slug || '');
+    if (novo === null) return;
+    try {
+      await axios.patch(`${API}/admin/camaras/${org.id}/slug`, { slug: novo }, { headers });
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao salvar slug');
+    }
+  };
+
   const mudarPerfil = async (id, perfil) => {
     try {
       await axios.patch(`${API}/admin/usuarios/${id}/perfil`, { perfil }, { headers });
@@ -436,6 +447,14 @@ export default function Admin() {
 
               {expandida === o.id && (
                 <div className="org-expand">
+                  <div className="mb-12">
+                    <div className="detail-label mb-8">Endereço público (slug)</div>
+                    <div className="flex-center gap-8">
+                      <code className="text-sm">{o.slug || 'não definido — páginas públicas indisponíveis'}</code>
+                      <button type="button" className="btn-ghost btn-sm" onClick={() => salvarSlug(o)}>{o.slug ? 'Alterar' : 'Definir'}</button>
+                      {o.slug && <a href={`${window.location.origin}/#transparencia/${o.slug}`} target="_blank" rel="noreferrer" className="btn-ghost btn-sm">Página de transparência</a>}
+                    </div>
+                  </div>
                   <div className="mb-12">
                     <div className="detail-label mb-8">Link público DSAR</div>
                     {(() => {
