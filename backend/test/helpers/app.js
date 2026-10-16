@@ -30,6 +30,10 @@ function criarApp() {
   app.use('/indicadores', require('../../src/routes/indicadores'));
   app.use('/relatorios', require('../../src/routes/relatorios'));
   app.use('/portabilidade', require('../../src/routes/portabilidade'));
+  app.use('/admin', require('../../src/routes/admin'));
+  app.use('/gerador', require('../../src/routes/gerador'));
+  app.use('/organizacao', require('../../src/routes/organizacao'));
+  app.use('/transparencia', require('../../src/routes/transparencia'));
   return app;
 }
 

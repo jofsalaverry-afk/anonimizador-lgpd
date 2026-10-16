@@ -127,6 +127,17 @@ model Organizacao {
   // Quando true, usuario sem MFA ativo nao recebe sessao no login: e
   // levado direto para a configuracao do autenticador.
   mfaObrigatorio Boolean    @default(false)
+  // Etapa 5 PoC: identificacao do encarregado (art. 41 LGPD) e endereco,
+  // usados na pagina publica de transparencia e nas minutas geradas.
+  // municipio ja existia acima.
+  encarregadoNome     String?
+  encarregadoEmail    String?
+  encarregadoTelefone String?
+  enderecoSede        String?
+  uf                  String?
+  // FAQ da pagina publica: [{ pergunta, resposta }]. null = FAQ padrao
+  // (src/services/faqPadrao.js).
+  faqPortal           Json?
   usuarios       Usuario[]
   documentos     Documento[]
   tratamentos    Tratamento[]

@@ -12,6 +12,8 @@ import AlertasCenter from './AlertasCenter';
 import Inventario from './Inventario';
 import Terceiros from './Terceiros';
 import PainelIndicadores from './PainelIndicadores';
+import UsuariosOrganizacao from './UsuariosOrganizacao';
+import { paginasVisiveis, somenteLeitura, PAGINAS_PESSOAIS } from '../permissoes';
 
 const PERFIL_LABEL = {
   ENCARREGADO_LGPD: 'DPO',
@@ -33,21 +35,55 @@ const PAGE_TITLES = {
   treinamento: 'Treinamentos LGPD',
   inventario: 'Inventário de Sistemas',
   terceiros: 'Terceiros e Operadores',
+  usuarios: 'Usuários da Organização',
   configuracoes: 'Configurações e Segurança'
 };
+
+// Item do menu: icone e rotulo
+const MENU = {
+  painel: ['📊', 'Painel'],
+  anonimizador: ['📄', 'Anonimizador'],
+  ropa: ['📋', 'Mapeamento ROPA'],
+  inventario: ['🖥️', 'Inventário'],
+  terceiros: ['🤝', 'Terceiros'],
+  dsar: ['🔒', 'DSAR'],
+  pesquisa: ['💬', 'Pesquisa'],
+  documentos: ['📁', 'Repositório'],
+  incidentes: ['⚠️', 'Incidentes'],
+  conformidade: ['✓', 'Conformidade'],
+  treinamento: ['🎓', 'Treinamentos'],
+  usuarios: ['👥', 'Usuários'],
+  configuracoes: ['⚙️', 'Configurações']
+};
+const FORA_DE_MODULOS = ['painel', 'usuarios', 'configuracoes'];
 
 export default function Dashboard({ usuario, token, onLogout, onTokenInvalido }) {
   // usuario vem do App.js ja com modulosAtivos fresco de /auth/me.
   const modulos = usuario?.modulosAtivos || ['anonimizador'];
   const showSidebar = modulos.length > 1;
-  // Com mais de um modulo, a tela inicial e o painel de indicadores.
-  const [pagina, setPagina] = useState(showSidebar ? 'painel' : 'anonimizador');
+  // Menu filtrado pelo perfil (src/permissoes.js)
+  const visiveis = paginasVisiveis(usuario?.perfil, modulos);
+  const inicial = showSidebar ? (visiveis.includes('painel') ? 'painel' : visiveis[0]) : 'anonimizador';
+  const [pagina, setPagina] = useState(inicial);
   // Filtro vindo de um card do painel (ex.: ROPA "nao mapeados").
   const [filtro, setFiltro] = useState(null);
   const irPara = (p) => { setFiltro(null); setPagina(p); };
-  const navegar = (link) => { setFiltro(link); setPagina(link.pagina); };
+  const navegar = (link) => {
+    if (!visiveis.includes(link.pagina)) return;
+    setFiltro(link);
+    setPagina(link.pagina);
+  };
   const chaveFiltro = filtro ? JSON.stringify(filtro) : 'sem-filtro';
   const initials = (usuario?.orgNome || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const leitura = somenteLeitura(usuario?.perfil) && !PAGINAS_PESSOAIS.includes(pagina);
+  // Pagina fora do que o perfil pode ver nao renderiza (ex.: estado antigo)
+  const pode = p => !showSidebar || visiveis.includes(p);
+
+  const item = (p) => (
+    <button key={p} onClick={() => irPara(p)} className={`nav-item ${pagina === p ? 'nav-item-active' : ''}`}>
+      <span className="nav-icon">{MENU[p][0]}</span> {MENU[p][1]}
+    </button>
+  );
 
   return (
     <div className={`app-layout ${showSidebar ? '' : 'app-layout-single'}`}>
@@ -62,63 +98,11 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           </div>
 
           <nav className="sidebar-nav">
-            <button onClick={() => irPara('painel')} className={`nav-item ${pagina === 'painel' ? 'nav-item-active' : ''}`}>
-              <span className="nav-icon">📊</span> Painel
-            </button>
+            {visiveis.includes('painel') && item('painel')}
             <div className="sidebar-section-label">Módulos</div>
-            {modulos.includes('anonimizador') && (
-              <button onClick={() => irPara('anonimizador')} className={`nav-item ${pagina === 'anonimizador' ? 'nav-item-active' : ''}`}>
-                <span className="nav-icon">📄</span> Anonimizador
-              </button>
-            )}
-            {modulos.includes('ropa') && (
-              <button onClick={() => irPara('ropa')} className={`nav-item ${pagina === 'ropa' ? 'nav-item-active' : ''}`}>
-                <span className="nav-icon">📋</span> Mapeamento ROPA
-              </button>
-            )}
-            {modulos.includes('inventario') && (
-              <button onClick={() => irPara('inventario')} className={`nav-item ${pagina === 'inventario' ? 'nav-item-active' : ''}`}>
-                <span className="nav-icon">🖥️</span> Inventário
-              </button>
-            )}
-            {modulos.includes('terceiros') && (
-              <button onClick={() => irPara('terceiros')} className={`nav-item ${pagina === 'terceiros' ? 'nav-item-active' : ''}`}>
-                <span className="nav-icon">🤝</span> Terceiros
-              </button>
-            )}
-            {modulos.includes('dsar') && (
-              <button onClick={() => irPara('dsar')} className={`nav-item ${pagina === 'dsar' ? 'nav-item-active' : ''}`}>
-                <span className="nav-icon">🔒</span> DSAR
-              </button>
-            )}
-            {modulos.includes('pesquisa') && (
-              <button onClick={() => irPara('pesquisa')} className={`nav-item ${pagina === 'pesquisa' ? 'nav-item-active' : ''}`}>
-                <span className="nav-icon">💬</span> Pesquisa
-              </button>
-            )}
-            {modulos.includes('repositorio') && (
-              <>
-                <button onClick={() => irPara('documentos')} className={`nav-item ${pagina === 'documentos' ? 'nav-item-active' : ''}`}>
-                  <span className="nav-icon">📁</span> Repositório
-                </button>
-                <button onClick={() => irPara('incidentes')} className={`nav-item ${pagina === 'incidentes' ? 'nav-item-active' : ''}`}>
-                  <span className="nav-icon">⚠️</span> Incidentes
-                </button>
-              </>
-            )}
-            {modulos.includes('checklist') && (
-              <button onClick={() => irPara('conformidade')} className={`nav-item ${pagina === 'conformidade' ? 'nav-item-active' : ''}`}>
-                <span className="nav-icon">✓</span> Conformidade
-              </button>
-            )}
-            {modulos.includes('treinamento') && (
-              <button onClick={() => irPara('treinamento')} className={`nav-item ${pagina === 'treinamento' ? 'nav-item-active' : ''}`}>
-                <span className="nav-icon">🎓</span> Treinamentos
-              </button>
-            )}
-            <button onClick={() => irPara('configuracoes')} className={`nav-item ${pagina === 'configuracoes' ? 'nav-item-active' : ''}`}>
-              <span className="nav-icon">⚙️</span> Configurações
-            </button>
+            {visiveis.filter(p => !FORA_DE_MODULOS.includes(p)).map(item)}
+            {visiveis.includes('usuarios') && item('usuarios')}
+            {item('configuracoes')}
           </nav>
 
           <div className="sidebar-footer">
@@ -148,18 +132,20 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           </div>
         </header>
 
-        <div className="content-body">
-          {pagina === 'painel' && <PainelIndicadores token={token} usuario={usuario} onNavegar={navegar} />}
-          {pagina === 'anonimizador' && <Anonimizador token={token} usuario={usuario} onTokenInvalido={onTokenInvalido} />}
-          {pagina === 'ropa' && <Ropa key={chaveFiltro} token={token} filtroInicial={filtro} />}
-          {pagina === 'dsar' && <Dsar key={chaveFiltro} token={token} usuario={usuario} filtroInicial={filtro} />}
-          {pagina === 'pesquisa' && <Pesquisa token={token} usuario={usuario} />}
-          {pagina === 'documentos' && <Repositorio token={token} usuario={usuario} subpagina="documentos" />}
-          {pagina === 'incidentes' && <Repositorio key={chaveFiltro} token={token} subpagina="incidentes" filtroInicial={filtro} />}
-          {pagina === 'conformidade' && <ChecklistPage token={token} />}
-          {pagina === 'treinamento' && <Treinamento key={chaveFiltro} token={token} usuario={usuario} filtroInicial={filtro} />}
-          {pagina === 'inventario' && <Inventario token={token} />}
-          {pagina === 'terceiros' && <Terceiros key={chaveFiltro} token={token} usuario={usuario} filtroInicial={filtro} />}
+        <div className={`content-body ${leitura ? 'modo-leitura' : ''}`}>
+          {leitura && <div className="aviso-leitura">Perfil Auditor: modo somente leitura.</div>}
+          {pagina === 'painel' && pode('painel') && <PainelIndicadores token={token} usuario={usuario} onNavegar={navegar} />}
+          {pagina === 'anonimizador' && pode('anonimizador') && <Anonimizador token={token} usuario={usuario} onTokenInvalido={onTokenInvalido} />}
+          {pagina === 'ropa' && pode('ropa') && <Ropa key={chaveFiltro} token={token} filtroInicial={filtro} />}
+          {pagina === 'dsar' && pode('dsar') && <Dsar key={chaveFiltro} token={token} usuario={usuario} filtroInicial={filtro} />}
+          {pagina === 'pesquisa' && pode('pesquisa') && <Pesquisa token={token} usuario={usuario} />}
+          {pagina === 'documentos' && pode('documentos') && <Repositorio token={token} usuario={usuario} subpagina="documentos" />}
+          {pagina === 'incidentes' && pode('incidentes') && <Repositorio key={chaveFiltro} token={token} subpagina="incidentes" filtroInicial={filtro} />}
+          {pagina === 'conformidade' && pode('conformidade') && <ChecklistPage token={token} />}
+          {pagina === 'treinamento' && pode('treinamento') && <Treinamento key={chaveFiltro} token={token} usuario={usuario} filtroInicial={filtro} />}
+          {pagina === 'inventario' && pode('inventario') && <Inventario token={token} />}
+          {pagina === 'terceiros' && pode('terceiros') && <Terceiros key={chaveFiltro} token={token} usuario={usuario} filtroInicial={filtro} />}
+          {pagina === 'usuarios' && pode('usuarios') && <UsuariosOrganizacao token={token} usuario={usuario} />}
           {pagina === 'configuracoes' && <Configuracoes token={token} usuario={usuario} />}
         </div>
       </div>

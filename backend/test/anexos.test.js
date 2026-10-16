@@ -71,7 +71,9 @@ test('anexo: rejeita tipo nao permitido, conteudo falsificado, >20MB e perfil se
 
   assert.equal((await enviar(tokenDe(s.auditorA), base)).status, 403);
 
-  assert.equal((await enviar(tA, { ...base, entidade: 'USUARIO' })).status, 400, 'entidade fora da lista');
+  assert.equal((await enviar(tA, { ...base, entidade: 'NAO_EXISTE' })).status, 400, 'entidade fora da lista');
+  assert.equal((await enviar(tA, { entidade: 'USUARIO', registroId: s.gestorA.id })).status, 400, 'entidade so de historico nao aceita anexo');
+  assert.equal((await enviar(tA, { entidade: 'ORGANIZACAO', registroId: s.orgA.id })).status, 400);
 });
 
 test('anexo: upload registra no historico do registro dono', async () => {

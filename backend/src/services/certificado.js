@@ -3,7 +3,7 @@ const PDFDocument = require('pdfkit');
 
 // URL publica do frontend para o link de verificacao impresso no
 // certificado. PUBLIC_APP_URL e opcional; sem ela, usa o dominio oficial.
-const APP_URL = (process.env.PUBLIC_APP_URL || 'https://anonimizadorldpd.com').replace(/\/$/, '');
+const { APP_URL } = require('./appUrl');
 
 // Codigo de verificacao: 12 caracteres base32 sem ambiguos (0/O, 1/I),
 // agrupados em 3x4. ~60 bits de entropia — nao da para adivinhar.

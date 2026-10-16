@@ -7,6 +7,7 @@ import Admin from './components/Admin';
 import SolicitarDireitos from './components/SolicitarDireitos';
 import PesquisaResultadosPublicos from './components/PesquisaResultadosPublicos';
 import VerificarCertificado from './components/VerificarCertificado';
+import TransparenciaPublica from './components/TransparenciaPublica';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -87,6 +88,11 @@ function App() {
   if (rota.startsWith('#pesquisa-resultados/')) {
     const slug = rota.split('/')[1] || '';
     return <PesquisaResultadosPublicos slug={slug} />;
+  }
+  // Pagina publica de transparencia LGPD: #transparencia/:slug
+  if (rota.startsWith('#transparencia/')) {
+    const slug = rota.split('/')[1] || '';
+    return <TransparenciaPublica slug={slug} />;
   }
   // Verificacao publica de certificado de treinamento: #certificado/:codigo
   if (rota.startsWith('#certificado/')) {

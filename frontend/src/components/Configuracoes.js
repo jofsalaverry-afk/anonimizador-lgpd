@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import Setores from './Setores';
+import DadosEncarregado from './DadosEncarregado';
+import PortalTransparencia from './PortalTransparencia';
 
 // Seccao de MFA/Seguranca. Carrega o status atual de /auth/me, mostra
 // setup (QR code) se nao estiver ativo e opcao de desativar se estiver.
@@ -212,6 +214,8 @@ export default function Configuracoes({ token, usuario }) {
         onStatusChange={setMfaAtivoLocal}
       />
 
+      <DadosEncarregado token={token} usuario={usuario} />
+      <PortalTransparencia token={token} usuario={usuario} />
       <Setores token={token} usuario={usuario} />
 
       <div className='card' style={{ marginBottom: 16 }}>

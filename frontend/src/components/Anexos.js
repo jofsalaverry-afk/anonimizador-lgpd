@@ -84,7 +84,7 @@ export default function Anexos({ token, entidade, registroId, somenteLeitura = f
         {!somenteLeitura && (
           <>
             <input ref={inputRef} type="file" accept={ACEITOS} onChange={enviar} style={{ display: 'none' }} />
-            <button type="button" onClick={() => inputRef.current?.click()} disabled={enviando} className="btn-secondary btn-sm">
+            <button type="button" onClick={() => inputRef.current?.click()} disabled={enviando} className="btn-secondary btn-sm acao-escrita">
               {enviando ? 'Enviando...' : '+ Anexar arquivo'}
             </button>
           </>

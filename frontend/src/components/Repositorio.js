@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API } from '../config';
 import IncidenteList from './IncidenteList';
 import IncidenteForm from './IncidenteForm';
+import GeradorDocumentos from './GeradorDocumentos';
 
 // Mapa das categorias do repositorio para rotulos legiveis. POLITICA e
 // MODELO sao legados (mantidos para documentos antigos). TERMO e ADITIVO
@@ -15,20 +16,18 @@ const CATEGORIA_LABEL = {
   ADITIVO: 'Aditivo contratual LGPD',
   TERMO: 'Termo',
   TERMO_USO: 'Termo de Uso',
-  OUTRO: 'Outros',
-  // legado
-  POLITICA: 'Política (legado)',
-  MODELO: 'Modelo (legado)'
+  POLITICA: 'Políticas e procedimentos',
+  MODELO: 'Modelos e formulários',
+  OUTRO: 'Outros'
 };
 
 // Categorias oferecidas no upload (sem os legados).
-const CATEGORIAS_UPLOAD = ['POLITICA_PRIVACIDADE', 'POLITICA_SEGURANCA', 'MODELO_DSAR', 'CONTRATO', 'ADITIVO', 'TERMO', 'TERMO_USO', 'OUTRO'];
+const CATEGORIAS_UPLOAD = ['POLITICA_PRIVACIDADE', 'POLITICA_SEGURANCA', 'POLITICA', 'MODELO_DSAR', 'MODELO', 'CONTRATO', 'ADITIVO', 'TERMO', 'TERMO_USO', 'OUTRO'];
 
 // Ordem de exibicao das categorias nos cards agrupados.
 const ORDEM_CATEGORIA = [
   'POLITICA_PRIVACIDADE', 'POLITICA_SEGURANCA', 'MODELO_DSAR',
-  'CONTRATO', 'ADITIVO', 'TERMO', 'TERMO_USO', 'OUTRO',
-  'POLITICA', 'MODELO'
+  'POLITICA', 'MODELO', 'CONTRATO', 'ADITIVO', 'TERMO', 'TERMO_USO', 'OUTRO'
 ];
 
 // Upload pelo DPO (rota /repositorio/upload ja existia, sem tela no cliente).
@@ -95,6 +94,7 @@ function iconePorMime(mime) {
 
 function RepositorioArquivos({ token, usuario }) {
   const ehDpo = usuario?.perfil === 'ENCARREGADO_LGPD';
+  const podeGerar = ['GESTOR', 'ENCARREGADO_LGPD'].includes(usuario?.perfil);
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
@@ -138,6 +138,7 @@ function RepositorioArquivos({ token, usuario }) {
     return (
       <div className="card">
         {ehDpo && <UploadDocumento token={token} onEnviado={carregar} />}
+        {podeGerar && <GeradorDocumentos token={token} onGerado={carregar} />}
         <h2 className="card-header">Repositório de Documentos</h2>
         <p className="text-muted">Nenhum documento disponível ainda. Os documentos são publicados pelo administrador do sistema.</p>
       </div>
@@ -160,6 +161,7 @@ function RepositorioArquivos({ token, usuario }) {
         </p>
       </div>
       {ehDpo && <UploadDocumento token={token} onEnviado={carregar} />}
+      {podeGerar && <GeradorDocumentos token={token} onGerado={carregar} />}
 
       {categoriasComDocs.map(cat => (
         <div key={cat} className="card mb-16">
@@ -187,7 +189,7 @@ function RepositorioArquivos({ token, usuario }) {
                   <button
                     type="button"
                     onClick={() => baixar(d)}
-                    className="btn-primary btn-sm"
+                    className="btn-primary acao-leitura btn-sm"
                     style={{ marginTop: 'auto' }}
                   >
                     ⬇ Baixar

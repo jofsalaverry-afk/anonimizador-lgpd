@@ -372,7 +372,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
       </div>
 
       {erro && <div className="alert-error">{erro}</div>}
-      <button className="btn-primary mb-24" onClick={handleSubmit} disabled={loading}>
+      <button className="btn-primary acao-leitura mb-24" onClick={handleSubmit} disabled={loading}>
         {loading ? '⏳ Processando... (pode levar até 1 minuto)' : 'Anonimizar documento'}
       </button>
 
@@ -424,7 +424,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
             <textarea value={resultado.textoAnonimizado} readOnly rows={10} style={{ fontFamily: 'monospace' }} />
           )}
           <div className="btn-row mt-16">
-            <button className="btn-primary btn-sm" onClick={baixarPDF} disabled={loadingPDF}>
+            <button className="btn-primary acao-leitura btn-sm" onClick={baixarPDF} disabled={loadingPDF}>
               {loadingPDF ? '⏳ Gerando...' : '⬇ Baixar PDF'}
             </button>
             <button className="btn-secondary btn-sm" onClick={baixarTXT}>⬇ Baixar TXT</button>

@@ -252,7 +252,7 @@ function ChecklistPage({ token }) {
                     <span className="badge badge-info">Atividade própria</span>
                     {' '}Responsável: {item.responsavel?.nome || 'não designado'}
                     {item.prazo && <> · Prazo: {new Date(item.prazo).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</>}
-                    {' '}<button className="btn-ghost btn-sm" onClick={() => setAtividadeForm(item)}>Editar atividade</button>
+                    {' '}<button className="btn-ghost btn-sm acao-escrita" onClick={() => setAtividadeForm(item)}>Editar atividade</button>
                   </div>
                 )}
                 <div className="badge-row mb-8">
@@ -360,7 +360,7 @@ function ChecklistPage({ token }) {
                 ) : (
                   <div className="btn-row">
                     <button
-                      className="btn-secondary btn-sm"
+                      className="btn-secondary btn-sm acao-escrita"
                       onClick={() => abrirResposta(item)}
                     >
                       Responder

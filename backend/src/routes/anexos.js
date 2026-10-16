@@ -63,7 +63,7 @@ router.get('/', async (req, res) => {
   try {
     const { entidade, registroId } = req.query;
     const falha = await verificarRegistro(prisma, {
-      entidade: String(entidade || ''), registroId: String(registroId || ''), organizacaoId: req.usuario.organizacaoId
+      entidade: String(entidade || ''), registroId: String(registroId || ''), organizacaoId: req.usuario.organizacaoId, paraAnexo: true
     });
     if (falha) return res.status(falha.status).json({ erro: falha.erro });
     const anexos = await prisma.anexo.findMany({
@@ -88,7 +88,7 @@ router.post('/', receberArquivo, async (req, res) => {
     const { entidade, registroId } = req.body;
     const organizacaoId = req.usuario.organizacaoId;
 
-    const falha = await verificarRegistro(prisma, { entidade, registroId, organizacaoId });
+    const falha = await verificarRegistro(prisma, { entidade, registroId, organizacaoId, paraAnexo: true });
     if (falha) return res.status(falha.status).json({ erro: falha.erro });
 
     if (!TIPOS_ACEITOS[req.file.mimetype](req.file.buffer)) {

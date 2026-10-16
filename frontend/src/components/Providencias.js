@@ -44,6 +44,7 @@ export default function Providencias({ token, incidenteId, providencias, onAdici
           ))}
         </div>
       )}
+      <div className="acao-escrita">
       <label>Nova providência</label>
       <textarea rows={2} value={nova.descricao} onChange={e => setNova({ ...nova, descricao: e.target.value })} placeholder="Ex: Senhas redefinidas e titulares comunicados" />
       <div className="form-grid mb-8">
@@ -57,6 +58,7 @@ export default function Providencias({ token, incidenteId, providencias, onAdici
         </div>
       </div>
       <button className="btn-secondary btn-sm" onClick={adicionar} disabled={salvando}>{salvando ? 'Salvando...' : '+ Registrar providência'}</button>
+      </div>
     </div>
   );
 }

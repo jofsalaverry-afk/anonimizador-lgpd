@@ -93,7 +93,7 @@ router.get('/camaras', adminAuth, async (req, res) => {
         _count: { select: { documentos: true, usuarios: true } },
         usuarios: {
           where: { deletedAt: null },
-          select: { id: true, email: true, perfil: true, ativo: true, ultimoAcesso: true, mfaAtivo: true },
+          select: { id: true, email: true, nome: true, perfil: true, ativo: true, ultimoAcesso: true, mfaAtivo: true },
           orderBy: { criadoEm: 'asc' }
         }
       },
@@ -188,12 +188,17 @@ router.patch('/camaras/:id/mfa-obrigatorio', adminAuth, async (req, res) => {
 router.post('/camaras/:id/usuarios', adminAuth, async (req, res) => {
   try {
     const { email, nome, senha, perfil } = req.body;
+    // Validacao (Etapa 5): antes a rota aceitava perfil/senha sem checar.
+    const PERFIS_VALIDOS = ['ENCARREGADO_LGPD', 'GESTOR', 'OPERADOR', 'AUDITOR', 'TREINANDO'];
+    if (perfil !== undefined && !PERFIS_VALIDOS.includes(perfil)) return res.status(400).json({ erro: 'Perfil inválido' });
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return res.status(400).json({ erro: 'E-mail inválido' });
+    if (typeof senha !== 'string' || senha.length < 8 || senha.length > 200) return res.status(400).json({ erro: 'Senha deve ter ao menos 8 caracteres' });
     const org = await prisma.organizacao.findUnique({ where: { id: req.params.id } });
     if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
     const senhaHash = await bcrypt.hash(senha, 10);
     const usuario = await prisma.usuario.create({
       data: {
-        email, senhaHash,
+        email: email.trim().toLowerCase(), senhaHash,
         nome: (nome || org.nome).normalize('NFC'),
         perfil: perfil || 'OPERADOR',
         organizacaoId: org.id

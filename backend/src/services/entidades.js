@@ -32,7 +32,24 @@ const ENTIDADES = {
   // Historico das metas do painel: registroId = id da propria organizacao.
   METAS_INDICADORES: {
     modulo: null,
+    somenteHistorico: true,
     buscar: async (db, id, organizacaoId) => (id === organizacaoId ? { id } : null)
+  },
+  DOCUMENTO: {
+    modulo: 'repositorio',
+    somenteHistorico: true,
+    buscar: (db, id, organizacaoId) => db.documentoRepositorio.findFirst({ where: { id, organizacaoId }, select: { id: true } })
+  },
+  // Dados da propria organizacao (encarregado, FAQ): registroId = id da org.
+  ORGANIZACAO: {
+    modulo: null,
+    somenteHistorico: true,
+    buscar: async (db, id, organizacaoId) => (id === organizacaoId ? { id } : null)
+  },
+  USUARIO: {
+    modulo: null,
+    somenteHistorico: true,
+    buscar: (db, id, organizacaoId) => db.usuario.findFirst({ where: { id, organizacaoId }, select: { id: true } })
   },
   MODELO_DSAR: {
     modulo: 'dsar',
@@ -55,9 +72,12 @@ const ENTIDADES = {
 
 // Valida entidade + modulo ativo + registro da organizacao.
 // Retorna { status, erro } quando falha, ou null quando ok.
-async function verificarRegistro(db, { entidade, registroId, organizacaoId }) {
+// paraAnexo: entidades marcadas somenteHistorico (usuario, organizacao,
+// metas, documento gerado) nao aceitam anexos.
+async function verificarRegistro(db, { entidade, registroId, organizacaoId, paraAnexo = false }) {
   const def = ENTIDADES[entidade];
   if (!def) return { status: 400, erro: 'Entidade inválida' };
+  if (paraAnexo && def.somenteHistorico) return { status: 400, erro: 'Esta entidade não aceita anexos' };
   if (!registroId || typeof registroId !== 'string') return { status: 400, erro: 'registroId obrigatório' };
   const org = await db.organizacao.findUnique({ where: { id: organizacaoId }, select: { modulosAtivos: true } });
   if (!org) return { status: 403, erro: 'Organização não encontrada' };

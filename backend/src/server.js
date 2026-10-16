@@ -107,6 +107,8 @@ const crudLimiter = rateLimit({
 app.use('/admin', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
 app.use('/perfil', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
 app.use('/repositorio', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
+// FAQ do portal pode passar dos 50kb do parser global
+app.use('/organizacao', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
 app.use(express.json({ limit: '50kb' }));
 app.use(express.urlencoded({ limit: '50kb', extended: true }));
 
@@ -195,6 +197,23 @@ app.use('/relatorios', crudLimiter);
 app.use('/relatorios', require('./routes/relatorios'));
 app.use('/portabilidade', crudLimiter);
 app.use('/portabilidade', require('./routes/portabilidade'));
+// Etapa 5 PoC: gerador de minutas, dados do encarregado/FAQ e pagina
+// publica de transparencia (sem login, com limite proprio).
+app.use('/gerador', crudLimiter);
+app.use('/gerador', require('./routes/gerador'));
+app.use('/organizacao', crudLimiter);
+app.use('/organizacao', require('./routes/organizacao'));
+const limiterTransparencia = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: ipKeyGenerator,
+  validate: { xForwardedForHeader: false },
+  message: { erro: 'Muitas requisições. Aguarde um momento.' }
+});
+app.use('/transparencia', limiterTransparencia);
+app.use('/transparencia', require('./routes/transparencia'));
 
 // Healthcheck. Deve ser monitorado externamente por um uptime monitor
 // gratuito (UptimeRobot, BetterStack, Healthchecks.io) apontando para

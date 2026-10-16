@@ -55,7 +55,7 @@ export default function Descartes({ token, tratamentoId, onRegistrado }) {
     <div className="card mb-16">
       <div className="flex-between mb-12">
         <div className="card-header" style={{ marginBottom: 0 }}>Retenção e descartes ({dados.descartes.length})</div>
-        <button className="btn-secondary btn-sm" onClick={() => setMostrarForm(!mostrarForm)}>{mostrarForm ? 'Cancelar' : '+ Registrar descarte'}</button>
+        <button className="btn-secondary btn-sm acao-escrita" onClick={() => setMostrarForm(!mostrarForm)}>{mostrarForm ? 'Cancelar' : '+ Registrar descarte'}</button>
       </div>
       {erro && <div className="alert-error mb-8">{erro}</div>}
 

@@ -31,6 +31,8 @@ const CATEGORIAS_REPO = [
   { value: 'CONTRATO', label: 'Contrato' },
   { value: 'TERMO_USO', label: 'Termo de uso' },
   { value: 'TERMO', label: 'Termo (confidencialidade, consentimento etc.)' },
+  { value: 'POLITICA', label: 'Políticas e procedimentos' },
+  { value: 'MODELO', label: 'Modelos e formulários' },
   { value: 'ADITIVO', label: 'Aditivo contratual LGPD' },
   { value: 'OUTRO', label: 'Outro' }
 ];
@@ -63,6 +65,8 @@ export default function Admin() {
   const [repoLoading, setRepoLoading] = useState(false);
   const [repoMsg, setRepoMsg] = useState('');
   const [repoErro, setRepoErro] = useState('');
+  // Novo usuario por organizacao: { [orgId]: { nome, email, senha, perfil } }
+  const [novoUsuario, setNovoUsuario] = useState({});
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -156,6 +160,26 @@ export default function Admin() {
       carregarRepoDocs(repoOrg);
     } catch (err) {
       alert(err.response?.data?.erro || 'Erro ao excluir');
+    }
+  };
+
+  const criarUsuario = async (orgId) => {
+    const dados = novoUsuario[orgId] || {};
+    try {
+      await axios.post(`${API}/admin/camaras/${orgId}/usuarios`, { perfil: 'OPERADOR', ...dados }, { headers });
+      setNovoUsuario(n => ({ ...n, [orgId]: undefined }));
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao criar usuário');
+    }
+  };
+
+  const mudarPerfil = async (id, perfil) => {
+    try {
+      await axios.patch(`${API}/admin/usuarios/${id}/perfil`, { perfil }, { headers });
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao alterar perfil');
     }
   };
 
@@ -465,8 +489,10 @@ export default function Admin() {
                     {(o.usuarios || []).map(u => (
                       <div key={u.id} className="user-row">
                         <div className="flex-center gap-8">
-                          <span className="text-sm">{u.email}</span>
-                          <span className="badge badge-purple">{PERFIL_LABEL[u.perfil] || u.perfil}</span>
+                          <span className="text-sm">{u.nome ? `${u.nome} · ` : ''}{u.email}</span>
+                          <select value={u.perfil} onChange={e => mudarPerfil(u.id, e.target.value)} style={{ width: 'auto', marginBottom: 0, fontSize: 12 }} title="Perfil de acesso">
+                            {Object.entries(PERFIL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                          </select>
                           <span className={u.ativo ? 'text-success text-sm' : 'text-error text-sm'}>{u.ativo ? 'ativo' : 'inativo'}</span>
                           <span className={u.mfaAtivo ? 'badge badge-success' : 'badge badge-muted'}>{u.mfaAtivo ? 'MFA ativo' : 'sem MFA'}</span>
                         </div>
@@ -490,6 +516,24 @@ export default function Admin() {
                         </div>
                       </div>
                     ))}
+                    {novoUsuario[o.id] ? (
+                      <div className="mt-8" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input placeholder="Nome" value={novoUsuario[o.id].nome || ''} style={{ width: 160, marginBottom: 0 }}
+                          onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], nome: e.target.value } }))} />
+                        <input placeholder="E-mail" type="email" value={novoUsuario[o.id].email || ''} style={{ width: 200, marginBottom: 0 }}
+                          onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], email: e.target.value } }))} />
+                        <input placeholder="Senha inicial (mín. 8)" type="password" autoComplete="new-password" value={novoUsuario[o.id].senha || ''} style={{ width: 170, marginBottom: 0 }}
+                          onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], senha: e.target.value } }))} />
+                        <select value={novoUsuario[o.id].perfil || 'OPERADOR'} style={{ width: 'auto', marginBottom: 0 }}
+                          onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], perfil: e.target.value } }))}>
+                          {Object.entries(PERFIL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                        </select>
+                        <button type="button" className="btn-primary btn-sm" onClick={() => criarUsuario(o.id)}>Criar</button>
+                        <button type="button" className="btn-ghost" onClick={() => setNovoUsuario(n => ({ ...n, [o.id]: undefined }))}>Cancelar</button>
+                      </div>
+                    ) : (
+                      <button type="button" className="btn-ghost mt-8" onClick={() => setNovoUsuario(n => ({ ...n, [o.id]: { perfil: 'OPERADOR' } }))}>+ Novo usuário</button>
+                    )}
                   </div>
                 </div>
               )}

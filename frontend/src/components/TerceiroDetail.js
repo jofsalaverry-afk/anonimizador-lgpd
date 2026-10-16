@@ -219,13 +219,14 @@ export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, o
             </div>
             <div className="flex-center gap-8">
               <span className={SITUACAO_ACAO_BADGE[a.situacao]}>{SITUACAO_ACAO_LABEL[a.situacao]}</span>
-              <select value={a.situacao} onChange={e => mudarSituacao(a, e.target.value)} style={{ width: 'auto', marginBottom: 0 }}>
+              <select className="acao-escrita" value={a.situacao} onChange={e => mudarSituacao(a, e.target.value)} style={{ width: 'auto', marginBottom: 0 }}>
                 {Object.entries(SITUACAO_ACAO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </div>
           </div>
         ))}
         <div className="card-divider mt-16" />
+        <div className="acao-escrita">
         <label>Nova ação</label>
         <input value={novaAcao.descricao} onChange={e => setNovaAcao({ ...novaAcao, descricao: e.target.value })} placeholder="Ex: Assinar aditivo contratual LGPD" />
         <div className="form-grid mb-8">
@@ -239,6 +240,7 @@ export default function TerceiroDetail({ token, usuario, terceiroId, onVoltar, o
           </div>
         </div>
         <button className="btn-secondary btn-sm" onClick={criarAcao}>+ Adicionar ação</button>
+        </div>
       </div>
 
       <Anexos token={token} entidade="TERCEIRO" registroId={t.id} titulo="Evidências (contrato, aditivo, certificações)" onEnviado={() => setVersao(v => v + 1)} />

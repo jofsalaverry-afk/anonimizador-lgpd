@@ -151,7 +151,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
                   <td>
                     <div className="btn-row">
                       <button onClick={() => onVer(t.id)} className="btn-secondary btn-sm">Ver</button>
-                      <button onClick={() => onEditar(t.id)} className="btn-ghost btn-sm">Editar</button>
+                      <button onClick={() => onEditar(t.id)} className="btn-ghost btn-sm acao-escrita">Editar</button>
                       {t.ativo && <button onClick={() => desativar(t.id)} className="btn-danger btn-sm">Desativar</button>}
                     </div>
                   </td>

@@ -210,9 +210,9 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
             ) : (
               <>
                 {sol.status === 'RECEBIDA' && (
-                  <button onClick={() => mudarStatus('EM_ANALISE')} className="btn-secondary btn-sm">Iniciar análise</button>
+                  <button onClick={() => mudarStatus('EM_ANALISE')} className="btn-secondary btn-sm acao-escrita">Iniciar análise</button>
                 )}
-                <button onClick={() => setShowEvidForm(!showEvidForm)} className="btn-secondary btn-sm">
+                <button onClick={() => setShowEvidForm(!showEvidForm)} className="btn-secondary btn-sm acao-escrita">
                   {showEvidForm ? 'Cancelar' : '+ Registrar providência'}
                 </button>
                 <button onClick={abrirResposta} className="btn-primary btn-sm">
