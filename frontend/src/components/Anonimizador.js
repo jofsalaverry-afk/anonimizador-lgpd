@@ -252,7 +252,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
     if (status === 422 && data.error === 'pdf_sem_texto_extraivel') {
       setPdfSemTextoModal({
         isOpen: true,
-        message: data.message || 'Este PDF parece estar digitalizado e não contém texto editável extraível.',
+        message: data.message || 'PDF digitalizado sem texto: não é possível processar; envie um PDF com texto selecionável.',
         suporte: data.suporte || 'contato@infolock.com.br'
       });
       return;
@@ -449,7 +449,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
             onClick={e => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: 8, padding: 24, maxWidth: 420, width: '90%', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
           >
-            <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>📄 Documento digitalizado detectado</h3>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>📄 PDF digitalizado sem texto</h3>
             <p className="text-sm mb-16" style={{ color: '#64748b' }}>
               {pdfSemTextoModal.message}
             </p>

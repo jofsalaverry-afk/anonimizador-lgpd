@@ -453,6 +453,12 @@ async function main() {
   fdP.append('arquivo', new Blob([pdfOk], { type: 'application/pdf' }), 'declaracao.pdf');
   await passo('Anonimizador 7a', 'sem IA: aviso diz o que tarja e não promete RG', 'POST', '/documents/anonymize', { token: G, form: fdP }, 200,
     r => (r.json.modoBasico === true && /apenas CPF, e-mail pessoal \(não institucional\) e telefone/.test(r.json.avisoIA) && /RG, endereço/.test(r.json.avisoIA) && /manualmente/.test(r.json.avisoIA)) || 'aviso inadequado');
+  // Etapa 7c: PDF digitalizado (sem texto) com o OCR desligado — 422 com a mensagem clara
+  const pdfImagem = await new Promise(res => { const PDFDocument = require('pdfkit'); const d = new PDFDocument(); const p = []; d.on('data', b => p.push(b)); d.on('end', () => res(Buffer.concat(p))); d.rect(50, 50, 400, 600).fill('#999999'); d.end(); });
+  const fdS = new FormData();
+  fdS.append('arquivo', new Blob([pdfImagem], { type: 'application/pdf' }), 'digitalizado.pdf');
+  await passo('Anonimizador 7c', 'PDF digitalizado sem texto: 422 com mensagem clara (OCR desligado)', 'POST', '/documents/anonymize', { token: G, form: fdS }, 422,
+    r => r.json.message === 'PDF digitalizado sem texto: não é possível processar; envie um PDF com texto selecionável.' || r.json.message);
   await passo('Anonimizador 7a', 'sem IA: texto colado recebe mensagem clara (503)', 'POST', '/documents/anonymize', { token: G, body: { texto: 'Fulano, CPF 123.456.789-09' } }, 503, r => /depende da inteligência artificial/.test(r.json.erro) || 'mensagem');
 
   // ---------- Etapa 7b ----------

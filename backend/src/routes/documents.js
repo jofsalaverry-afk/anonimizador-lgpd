@@ -71,6 +71,8 @@ function ehPdfInvalido(err) {
     || /invalid pdf|pdf header|xref|bad xref|unexpected (eof|end)/i.test(err.message || ''));
 }
 
+const MSG_PDF_SEM_TEXTO = 'PDF digitalizado sem texto: não é possível processar; envie um PDF com texto selecionável.';
+
 function mapearErroAnonimizacao(req, res, err) {
   if (ehPdfInvalido(err)) {
     res.status(400).json({ erro: 'O arquivo não é um PDF válido ou está corrompido. Gere o PDF novamente (por exemplo, "Salvar como PDF") e tente de novo.' });
@@ -86,7 +88,8 @@ function mapearErroAnonimizacao(req, res, err) {
     });
     res.status(422).json({
       error: 'pdf_sem_texto_extraivel',
-      message: 'Este PDF parece estar digitalizado e não contém texto editável extraível. O Anonimizador processa apenas documentos nativos. Para documentos digitalizados, entre em contato com o suporte.',
+      // Etapa 7c: texto pedido para a PoC (OCR desligado em producao)
+      message: MSG_PDF_SEM_TEXTO,
       suporte: 'contato@infolock.com.br'
     });
     return true;
