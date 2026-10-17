@@ -427,10 +427,11 @@ async function main() {
   });
   if (formula?.json?.id) await req('DELETE', `/ropa/tratamentos/${formula.json.id}`, { token: G });
   const fdA = new FormData();
-  fdA.append('arquivo', new Blob([Buffer.from('conteudo de teste')], { type: 'text/plain' }), 'fatura\u202Egpj.txt');
+  const pdfAnexo = await new Promise(res => { const PDFDocument = require('pdfkit'); const d = new PDFDocument(); const p = []; d.on('data', b => p.push(b)); d.on('end', () => res(Buffer.concat(p))); d.text('anexo de teste'); d.end(); });
+  fdA.append('arquivo', new Blob([pdfAnexo], { type: 'application/pdf' }), 'fatura\u202Egpj.pdf');
   fdA.append('entidade', 'CHECKLIST_ITEM');
   fdA.append('registroId', ctx.atividade?.json?.id || '');
-  await passo('Endurecimento 7a', 'nome de anexo sem caractere de direção (U+202E)', 'POST', '/anexos', { token: G, form: fdA }, 201, r => (r.json.nomeArquivo === 'faturagpj.txt') || `nome gravado: ${JSON.stringify(r.json.nomeArquivo)}`);
+  await passo('Endurecimento 7a', 'nome de anexo sem caractere de direção (U+202E)', 'POST', '/anexos', { token: G, form: fdA }, 201, r => (r.json.nomeArquivo === 'faturagpj.pdf') || `nome gravado: ${JSON.stringify(r.json.nomeArquivo)}`);
 
   // Anonimizador sem a chave da IA (poc nao tem a chave)
   const fdR = new FormData();
