@@ -131,10 +131,10 @@ test('relatorio: resumo "X de Y servidores", situacao, filtro, CSV e permissao',
   assert.deepEqual(concl.map(l => l.usuarioNome), ['DPO A']);
 
   const csv = await (await chamar(tG, 'GET', `/treinamento/relatorio?formato=csv&trilhaId=${TRILHA}`)).text();
-  const [cab, ...rows] = csv.replace(/^﻿/, '').split('\n');
-  assert.equal(cab, 'usuario,perfil,trilha,modulosConcluidos,totalModulos,situacao,concluidoEm,certificado');
+  const [cab, ...rows] = csv.replace(/^﻿/, '').split('\r\n');
+  assert.equal(cab, 'Servidor;Perfil;Trilha;Módulos concluídos;Total de módulos;Situação;Concluída em (Brasília);Certificado');
   assert.equal(rows.length, 3);
-  assert.ok(rows.some(r => r.startsWith('"DPO A"') && r.includes('"Concluída"') && /,\d{4}-\d{2}-\d{2},/.test(r)));
+  assert.ok(rows.some(r => r.startsWith('DPO A;DPO;') && r.includes(';Concluída;') && /;\d{2}\/\d{2}\/\d{4} \d{2}:\d{2};/.test(r)));
 
   assert.equal((await chamar(tokenDe(s.auditorA), 'GET', '/treinamento/relatorio')).status, 403);
 });

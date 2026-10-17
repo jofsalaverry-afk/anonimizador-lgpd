@@ -1,7 +1,7 @@
 const express = require('express');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { gerarCodigo, gerarCertificadoPdf } = require('../services/certificado');
-const { isoDiaSP } = require('../services/datas');
+const { isoDiaSP, fmtDataHoraCsv } = require('../services/datas');
 
 const router = express.Router();
 const { prisma } = require('../db');
@@ -31,6 +31,8 @@ const requireModulo = async (req, res, next) => {
 // admin pode trocar o titulo e informar um link de material complementar
 // (TrilhaOverride) sem alterar codigo.
 const TRILHAS_BASE = require('../data/trilhasTreinamento');
+const { documentoCsv } = require('../services/textoSeguro');
+const R = require('../services/rotulos');
 const MIN_ACERTOS = 2;
 
 // ---------- Merge com overrides ----------
@@ -274,15 +276,15 @@ router.get('/relatorio', async (req, res) => {
     else if (req.query.situacao) linhas = linhas.filter(l => l.situacao === req.query.situacao);
 
     if (req.query.formato === 'csv') {
-      const q = v => `"${String(v ?? '').replace(/^([=+\-@\t\r])/, "'$1").replace(/"/g, '""')}"`; // Etapa 7a: neutraliza formula
-      const cab = 'usuario,perfil,trilha,modulosConcluidos,totalModulos,situacao,concluidoEm,certificado';
+      // Etapa 7b: padrao unico (";", BOM, Brasilia, rotulos)
+      const cab = ['Servidor', 'Perfil', 'Trilha', 'Módulos concluídos', 'Total de módulos', 'Situação', 'Concluída em (Brasília)', 'Certificado'];
       const rows = linhas.map(l => [
-        q(l.usuarioNome), l.perfil, q(l.trilhaTitulo), l.modulosConcluidos, l.totalModulos,
-        q(SITUACAO_LABEL[l.situacao]), l.concluidoEm ? isoDiaSP(l.concluidoEm) : '', l.certificadoCodigo || ''
-      ].join(','));
+        l.usuarioNome, R.rotulo(R.PERFIL, l.perfil), l.trilhaTitulo, l.modulosConcluidos, l.totalModulos,
+        SITUACAO_LABEL[l.situacao], l.concluidoEm ? fmtDataHoraCsv(l.concluidoEm) : '', l.certificadoCodigo || ''
+      ]);
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename=relatorio-treinamento.csv');
-      return res.send('﻿' + [cab, ...rows].join('\n'));
+      return res.send(documentoCsv(cab, rows));
     }
     // ?resumo=1 devolve { resumo, linhas }; sem ele, a lista (formato antigo)
     if (req.query.resumo) return res.json({ resumo, linhas });

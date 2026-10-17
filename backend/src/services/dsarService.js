@@ -3,6 +3,7 @@
 
 const crypto = require('crypto');
 const { prisma } = require('../db');
+const { dataPura, hojeSP, isoDiaSP } = require('./datas');
 
 // ==================== Protocolo ====================
 
@@ -39,16 +40,48 @@ async function gerarProtocolo(organizacaoId) {
 
 // ==================== SLA ====================
 
-// Calcula SLA badge: verde (>5d), amarelo (2-5d), vermelho (<2d), vencido
-function calcularSLA(dataLimite) {
-  if (!dataLimite) return { cor: 'sem-prazo', dias: null, label: 'Sem prazo ativo' };
-  const agora = new Date();
-  const limite = new Date(dataLimite);
-  const diasRestantes = Math.ceil((limite - agora) / (1000 * 60 * 60 * 24));
-  if (diasRestantes < 0) return { cor: 'vencido', dias: diasRestantes, label: `Vencido ha ${Math.abs(diasRestantes)} dia(s)` };
-  if (diasRestantes < 2) return { cor: 'vermelho', dias: diasRestantes, label: `${diasRestantes} dia(s) restante(s)` };
-  if (diasRestantes <= 5) return { cor: 'amarelo', dias: diasRestantes, label: `${diasRestantes} dias restantes` };
-  return { cor: 'verde', dias: diasRestantes, label: `${diasRestantes} dias restantes` };
+// Etapa 7b: situacao do prazo calculada pelo STATUS da solicitacao.
+// Aceita a solicitacao (ou, por compatibilidade, so a dataLimite).
+// Dias contados no calendario de Sao Paulo (dia do prazo - hoje).
+// cor: verde (>5d), amarelo (2-5d), vermelho (0-1d), vencido, sem-prazo, encerrado
+function diasAte(dataLimite, agora = new Date()) {
+  const limite = dataPura(isoDiaSP(dataLimite));
+  return Math.round((limite - hojeSP(agora)) / 86400000);
+}
+const plural = (n, um, varios) => (n === 1 ? um : varios);
+function calcularSLA(s, agora = new Date()) {
+  const sol = s && typeof s === 'object' && !(s instanceof Date) ? s : { dataLimite: s, status: 'EM_ANALISE' };
+  const { status, dataLimite, dataResposta } = sol;
+  if (status === 'CANCELADA') return { cor: 'encerrado', dias: null, label: 'Cancelada' };
+  if (dataResposta && ['RESPONDIDA', 'ENCERRADA'].includes(status)) {
+    if (!dataLimite) return { cor: 'encerrado', dias: null, label: 'Respondido' };
+    const noPrazo = new Date(dataResposta) <= new Date(dataLimite);
+    return { cor: noPrazo ? 'verde' : 'vencido', dias: null, noPrazo, label: noPrazo ? 'Respondido no prazo' : 'Respondido fora do prazo' };
+  }
+  if (status === 'ENCERRADA') return { cor: 'encerrado', dias: null, label: 'Encerrada sem resposta registrada' };
+  if (!dataLimite) return { cor: 'sem-prazo', dias: null, label: 'Aguardando verificação de identidade (prazo ainda não iniciado)' };
+  const dias = diasAte(dataLimite, agora);
+  if (dias < 0) return { cor: 'vencido', dias, label: `Vencido há ${-dias} ${plural(-dias, 'dia', 'dias')}` };
+  if (dias === 0) return { cor: 'vermelho', dias, label: 'Vence hoje' };
+  if (dias < 2) return { cor: 'vermelho', dias, label: '1 dia restante' };
+  return { cor: dias <= 5 ? 'amarelo' : 'verde', dias, label: `${dias} dias restantes` };
+}
+
+// Prazo legal: 15 dias corridos a partir da verificacao da identidade
+// (mesma regra no canal publico e no cadastro interno).
+const DIAS_PRAZO = 15;
+function prazoAPartirDe(inicio) {
+  const d = new Date(inicio);
+  d.setDate(d.getDate() + DIAS_PRAZO);
+  return d;
+}
+
+// Texto da resposta que ainda e rascunho: marca MINUTA ou campo [entre colchetes]
+function erroTextoResposta(texto) {
+  if (/\bMINUTA\b/i.test(texto)) return 'A resposta ainda contém a marca "MINUTA". Revise o texto e retire a marca antes de enviar.';
+  const campo = texto.match(/\[[^\]\n]{1,200}\]/);
+  if (campo) return `A resposta ainda tem campo a preencher entre colchetes: ${campo[0]}. Complete o texto antes de enviar.`;
+  return null;
 }
 
 // identidade: { verificada, metodo, em, observacao }. Pedidos anteriores a
@@ -62,7 +95,7 @@ function identidadeDe(s) {
 }
 
 function enriquecerSolicitacao(s) {
-  return { ...s, sla: calcularSLA(s.dataLimite), identidade: identidadeDe(s) };
+  return { ...s, sla: calcularSLA(s), identidade: identidadeDe(s) };
 }
 
 // ==================== OTP ====================
@@ -162,13 +195,13 @@ async function getSolicitacoesPorPrazo(organizacaoId) {
       organizacaoId,
       status: { in: ['RECEBIDA', 'EM_ANALISE'] }
     },
-    select: { id: true, protocolo: true, titularNome: true, dataLimite: true }
+    select: { id: true, protocolo: true, titularNome: true, dataLimite: true, status: true, dataResposta: true }
   });
 
   const criticas = [];
   const alertas = [];
   for (const s of solicitacoes) {
-    const sla = calcularSLA(s.dataLimite);
+    const sla = calcularSLA(s);
     const enriched = { ...s, diasRestantes: sla.dias, cor: sla.cor };
     if (sla.cor === 'vermelho' || sla.cor === 'vencido') criticas.push(enriched);
     else if (sla.cor === 'amarelo') alertas.push(enriched);
@@ -179,6 +212,10 @@ async function getSolicitacoesPorPrazo(organizacaoId) {
 module.exports = {
   gerarProtocolo,
   calcularSLA,
+  identidadeDe,
+  prazoAPartirDe,
+  erroTextoResposta,
+  DIAS_PRAZO,
   enriquecerSolicitacao,
   gerarCodigoOTP,
   criarOtpDSAR,

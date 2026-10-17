@@ -4,6 +4,7 @@ const { MODELOS, porId } = require('../modelos-documentos');
 const { criarContexto } = require('../modelos-documentos/_comum');
 const { paraTexto, paraDocx, paraPdf, MARCA_MINUTA } = require('./renderDocumento');
 const { registrarHistorico } = require('./historico');
+const { converterParaPdfA, PdfaIndisponivelError } = require('./pdfa');
 const { urlTransparencia, urlCanalTitular } = require('./appUrl');
 
 const MIME_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -43,10 +44,22 @@ async function previa(db, organizacaoId, modeloId, opcoes) {
 
 // Gera DOCX e PDF e salva os dois no repositorio (status RASCUNHO) com a
 // mesma versao. Versao = maior versao ja gerada daquele modelo (+ terceiro) + 1.
-async function gerar(db, organizacaoId, modeloId, { terceiroId, usuarioId, agora = new Date() } = {}) {
+// Etapa 7b: o PDF sai em PDF/A-2b pelo mesmo conversor dos relatorios
+// (Ghostscript). Sem Ghostscript no servidor, sai PDF comum e o retorno
+// avisa (pdfa: false). opcoes.converterPdfA permite injetar nos testes.
+async function gerar(db, organizacaoId, modeloId, { terceiroId, usuarioId, agora = new Date(), converterPdfA = converterParaPdfA } = {}) {
   const m = await montar(db, organizacaoId, modeloId, { terceiroId, agora });
   const orgNome = m.org?.nome || '';
-  const [docx, pdf] = await Promise.all([paraDocx(m.titulo, m.blocos, { orgNome }), paraPdf(m.titulo, m.blocos, { orgNome })]);
+  const [docx, pdfComum] = await Promise.all([paraDocx(m.titulo, m.blocos, { orgNome }), paraPdf(m.titulo, m.blocos, { orgNome })]);
+  let pdf = pdfComum;
+  let pdfa = true;
+  try {
+    pdf = await converterPdfA(pdfComum, { titulo: m.titulo });
+  } catch (e) {
+    if (!(e instanceof PdfaIndisponivelError)) throw e;
+    pdfa = false;
+  }
+  const formatoPdf = pdfa ? 'PDF/A' : 'PDF';
 
   const tagModelo = `modelo:${m.modelo.id}${m.terceiro ? `:${m.terceiro.id}` : ''}`;
   const anteriores = await db.documentoRepositorio.findMany({
@@ -58,12 +71,12 @@ async function gerar(db, organizacaoId, modeloId, { terceiroId, usuarioId, agora
 
   const criados = await db.$transaction(async (tx) => {
     const salvos = [];
-    for (const [formato, buf, mime] of [['DOCX', docx, MIME_DOCX], ['PDF', pdf, 'application/pdf']]) {
+    for (const [formato, buf, mime] of [['DOCX', docx, MIME_DOCX], [formatoPdf, pdf, 'application/pdf']]) {
       const doc = await tx.documentoRepositorio.create({
         data: {
           organizacaoId, tipo: m.modelo.categoria, titulo: `${m.titulo} (v${versao}, ${formato})`,
           descricao: `${MARCA_MINUTA}. Gerada em ${data}.${m.pendencias.length ? ` Pendências: ${m.pendencias.join('; ')}.` : ''}`,
-          arquivo: buf, mimetype: mime, nomeArquivo: `${base}-v${versao}.${formato.toLowerCase()}`, tamanhoBytes: buf.length,
+          arquivo: buf, mimetype: mime, nomeArquivo: `${base}-v${versao}${formato === 'PDF/A' ? '-pdfa.pdf' : '.' + formato.toLowerCase()}`, tamanhoBytes: buf.length,
           versao, status: 'RASCUNHO', autorId: usuarioId, tags: ['minuta-gerada', tagModelo]
         },
         select: { id: true, titulo: true, versao: true, mimetype: true, nomeArquivo: true }
@@ -71,6 +84,7 @@ async function gerar(db, organizacaoId, modeloId, { terceiroId, usuarioId, agora
       await registrarHistorico(tx, {
         organizacaoId, entidade: 'DOCUMENTO', registroId: doc.id, acao: 'CRIAR', usuarioId,
         diff: {
+          origem: { antes: null, depois: 'Gerado a partir de modelo' },
           modelo: { antes: null, depois: m.modelo.titulo }, versao: { antes: null, depois: versao },
           formato: { antes: null, depois: formato }, ...(m.terceiro && { terceiro: { antes: null, depois: m.terceiro.razaoSocial } }),
           ...(m.pendencias.length && { pendencias: { antes: null, depois: m.pendencias } })
@@ -80,7 +94,7 @@ async function gerar(db, organizacaoId, modeloId, { terceiroId, usuarioId, agora
     }
     return salvos;
   });
-  return { versao, documentos: criados, pendencias: m.pendencias };
+  return { versao, documentos: criados, pendencias: m.pendencias, pdfa };
 }
 
 function listarModelos() {

@@ -16,6 +16,42 @@ const SELECT_DADOS = { id: true, nome: true, cnpj: true, slug: true, ...Object.f
 
 router.use(authUsuario);
 
+// ---------- MFA obrigatorio da propria camara (Etapa 7b) ----------
+// Gestor/DPO ligam ou desligam; fica no historico da organizacao.
+
+router.get('/mfa-obrigatorio', async (req, res) => {
+  try {
+    const o = await prisma.organizacao.findUnique({ where: { id: req.usuario.organizacaoId }, select: { id: true, mfaObrigatorio: true } });
+    res.json({ organizacaoId: o.id, mfaObrigatorio: !!o.mfaObrigatorio });
+  } catch (err) {
+    console.error('[GET /organizacao/mfa-obrigatorio]', err);
+    res.status(500).json({ erro: 'Erro ao carregar a configuração' });
+  }
+});
+
+router.put('/mfa-obrigatorio', async (req, res) => {
+  try {
+    if (!ehGestorOuDpo(req)) return res.status(403).json({ erro: 'Apenas Gestor ou DPO alteram esta configuração' });
+    const { mfaObrigatorio } = req.body || {};
+    if (typeof mfaObrigatorio !== 'boolean') return res.status(400).json({ erro: 'mfaObrigatorio deve ser true ou false' });
+    const orgId = req.usuario.organizacaoId;
+    const antes = await prisma.organizacao.findUnique({ where: { id: orgId }, select: { mfaObrigatorio: true } });
+    if (antes.mfaObrigatorio !== mfaObrigatorio) {
+      await prisma.$transaction(async (tx) => {
+        await tx.organizacao.update({ where: { id: orgId }, data: { mfaObrigatorio } });
+        await registrarHistorico(tx, {
+          organizacaoId: orgId, entidade: 'ORGANIZACAO', registroId: orgId, acao: 'EDITAR', usuarioId: req.usuario.id,
+          diff: { mfaObrigatorio: { antes: !!antes.mfaObrigatorio, depois: mfaObrigatorio } }
+        });
+      });
+    }
+    res.json({ organizacaoId: orgId, mfaObrigatorio });
+  } catch (err) {
+    console.error('[PUT /organizacao/mfa-obrigatorio]', err);
+    res.status(500).json({ erro: 'Erro ao salvar a configuração' });
+  }
+});
+
 // ---------- Dados do encarregado e da sede ----------
 
 router.get('/dados', async (req, res) => {

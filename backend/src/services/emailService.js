@@ -126,7 +126,11 @@ ${orgNome}`;
 }
 
 function tplConfirmacaoSolicitacao({ titularNome, protocolo, dataLimite, orgNome }) {
-  const prazo = new Date(dataLimite).toLocaleDateString('pt-BR');
+  // Etapa 7b: dia do prazo no fuso de Sao Paulo; sem prazo ainda (aguardando
+  // verificacao da identidade) o texto diz quando ele comeca.
+  const prazo = dataLimite
+    ? new Date(dataLimite).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    : '15 dias a partir da verificação da sua identidade pela câmara';
   const text = `Olá, ${titularNome}.
 
 Sua solicitação de direitos LGPD foi registrada.

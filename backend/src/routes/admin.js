@@ -47,7 +47,8 @@ const validadoresCriarCamara = [
   body('nome').trim().isLength({ min: 2, max: 200 }).withMessage('Nome inválido').escape(),
   // Nome da PESSOA do primeiro usuario (Gestor) — antes recebia o nome da organizacao
   body('nomeGestor').trim().isLength({ min: 2, max: 200 }).withMessage('Informe o nome da pessoa do primeiro usuário (Gestor)'),
-  body('cnpj').trim().matches(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$|^\d{14}$/).withMessage('CNPJ inválido'),
+  body('cnpj').trim().matches(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$|^\d{14}$/).withMessage('CNPJ inválido')
+    .bail().custom(v => require('../services/documentosId').cnpjValido(v)).withMessage('CNPJ inválido: confira os números (dígito verificador não confere)'),
   validarEmail('email'),
   body('senha').isLength({ min: 10, max: 200 }).withMessage('A senha inicial deve ter pelo menos 10 caracteres'),
   body('plano').optional().isIn(['basico', 'intermediario', 'avancado']).withMessage('Plano inválido'),
@@ -423,7 +424,7 @@ router.get('/repositorio', adminAuth, async (req, res) => {
     const organizacaoId = String(req.query.organizacaoId || '').trim();
     if (!organizacaoId) return res.status(400).json({ erro: 'organizacaoId é obrigatório' });
     const docs = await prisma.documentoRepositorio.findMany({
-      where: { organizacaoId },
+      where: { organizacaoId, excluidoEm: null },
       orderBy: { criadoEm: 'desc' },
       select: REPO_SELECT_LISTA
     });
@@ -452,20 +453,32 @@ router.post('/repositorio/upload', adminAuth, uploadRepo.single('arquivo'), asyn
     const org = await prisma.organizacao.findUnique({ where: { id: organizacaoId }, select: { id: true } });
     if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
 
-    const doc = await prisma.documentoRepositorio.create({
-      data: {
-        organizacaoId,
-        tipo: categoria,
-        titulo: String(titulo).trim(),
-        descricao: descricao ? String(descricao).trim() : null,
-        arquivo: req.file.buffer,
-        mimetype: req.file.mimetype,
-        nomeArquivo: req.file.originalname,
-        tamanhoBytes: req.file.size,
-        status: 'PUBLICADO',
-        conteudoMd: ''
-      },
-      select: REPO_SELECT_LISTA
+    const doc = await prisma.$transaction(async (tx) => {
+      const criado = await tx.documentoRepositorio.create({
+        data: {
+          organizacaoId,
+          tipo: categoria,
+          titulo: String(titulo).trim(),
+          descricao: descricao ? String(descricao).trim() : null,
+          arquivo: req.file.buffer,
+          mimetype: req.file.mimetype,
+          nomeArquivo: req.file.originalname,
+          tamanhoBytes: req.file.size,
+          status: 'PUBLICADO',
+          conteudoMd: ''
+        },
+        select: REPO_SELECT_LISTA
+      });
+      // Etapa 7b: historico do documento tambem para o envio pelo admin
+      await registrarHistorico(tx, {
+        organizacaoId, entidade: 'DOCUMENTO', registroId: criado.id, acao: 'CRIAR', usuarioId: null,
+        diff: {
+          origem: { antes: null, depois: 'Arquivo enviado ao repositório' }, titulo: { antes: null, depois: criado.titulo },
+          tipo: { antes: null, depois: categoria }, nomeArquivo: { antes: null, depois: req.file.originalname },
+          alteradoPorAdmin: { antes: null, depois: req.admin?.email || 'admin' }
+        }
+      });
+      return criado;
     });
     res.status(201).json(doc);
   } catch (err) {
@@ -482,10 +495,18 @@ router.delete('/repositorio/:id', adminAuth, async (req, res) => {
   try {
     const existente = await prisma.documentoRepositorio.findUnique({
       where: { id: req.params.id },
-      select: { id: true }
+      select: { id: true, organizacaoId: true, titulo: true, excluidoEm: true }
     });
-    if (!existente) return res.status(404).json({ erro: 'Documento não encontrado' });
-    await prisma.documentoRepositorio.delete({ where: { id: req.params.id } });
+    if (!existente || existente.excluidoEm) return res.status(404).json({ erro: 'Documento não encontrado' });
+    // Etapa 7b: exclusao logica tambem pelo admin, com historico
+    const motivo = (typeof req.body?.motivo === 'string' && req.body.motivo.trim()) || 'Excluído pelo administrador';
+    await prisma.$transaction(async (tx) => {
+      await tx.documentoRepositorio.update({ where: { id: existente.id }, data: { excluidoEm: new Date(), motivoExclusao: motivo.slice(0, 500) } });
+      await registrarHistorico(tx, {
+        organizacaoId: existente.organizacaoId, entidade: 'DOCUMENTO', registroId: existente.id, acao: 'EXCLUIR', usuarioId: null,
+        diff: { motivo: { antes: null, depois: motivo.slice(0, 500) }, titulo: { antes: existente.titulo, depois: null }, alteradoPorAdmin: { antes: null, depois: req.admin?.email || 'admin' } }
+      });
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error('[DELETE /admin/repositorio/:id]', err);

@@ -57,6 +57,7 @@ function ChecklistPage({ token }) {
     responsavelId: ''
   });
   const [versaoHistorico, setVersaoHistorico] = useState(0);
+  const [consultando, setConsultando] = useState(null);
   // null = fechado; {} = nova atividade; item = editar atividade propria
   const [atividadeForm, setAtividadeForm] = useState(null);
 
@@ -365,14 +366,26 @@ function ChecklistPage({ token }) {
                     </div>
                   </div>
                 ) : (
-                  <div className="btn-row">
-                    <button
-                      className="btn-secondary btn-sm acao-escrita"
-                      onClick={() => abrirResposta(item)}
-                    >
-                      Responder
-                    </button>
-                  </div>
+                  <>
+                    <div className="btn-row">
+                      <button
+                        className="btn-secondary btn-sm acao-escrita"
+                        onClick={() => abrirResposta(item)}
+                      >
+                        Responder
+                      </button>
+                      {/* Etapa 7b: consulta (inclusive pelo Auditor) sem abrir a edicao */}
+                      <button className="btn-ghost btn-sm" onClick={() => setConsultando(c => (c === item.id ? null : item.id))}>
+                        {consultando === item.id ? 'Ocultar evidências e histórico' : 'Evidências e histórico'}
+                      </button>
+                    </div>
+                    {consultando === item.id && (
+                      <div className="mt-16">
+                        <Anexos token={token} entidade="CHECKLIST_ITEM" registroId={item.id} titulo="Evidências anexadas" somenteLeitura />
+                        <Historico token={token} entidade="CHECKLIST_ITEM" registroId={item.id} versao={versaoHistorico} />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ))}

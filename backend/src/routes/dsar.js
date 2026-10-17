@@ -5,6 +5,9 @@ const { authUsuario } = require('../middlewares/authUsuario');
 const {
   gerarProtocolo,
   enriquecerSolicitacao,
+  identidadeDe,
+  prazoAPartirDe,
+  erroTextoResposta,
   criarOtpDSAR,
   validarOtpDSAR,
   criarSolicitacaoApartirDeOtp
@@ -18,9 +21,10 @@ const {
 const { validar, validarEmail, validarCpf, validarCuid, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
 const { registrarHistorico } = require('../services/historico');
 const { preencherModelo } = require('../services/modeloResposta');
-const { dataPura, fmtData, fmtDataHora, fmtDiaSP, hojeSP } = require('../services/datas');
+const { dataPura, fmtData, fmtDataHora, fmtDiaSP, hojeSP, isoDiaSP } = require('../services/datas');
 const R = require('../services/rotulos');
 const { erroLinkEvidencia } = require('../services/textoSeguro');
+const { cpfValido } = require('../services/documentosId');
 const { responderExport } = require('../services/exportadores');
 
 const router = express.Router();
@@ -119,11 +123,14 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
     if (!titularNome || !titularEmail || !tipoDireito || !descricao) {
       return res.status(400).json({ erro: 'titularNome, titularEmail, tipoDireito e descricao são obrigatórios' });
     }
+    if (!TIPOS_DIREITO.includes(tipoDireito)) return res.status(400).json({ erro: 'Tipo de direito inválido' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(titularEmail).trim())) return res.status(400).json({ erro: 'E-mail do titular inválido' });
+    if (titularCpf && !cpfValido(titularCpf)) return res.status(400).json({ erro: 'CPF inválido: confira os números (dígito verificador não confere)' });
 
+    // Etapa 7b: mesma regra do canal publico — o prazo de 15 dias so comeca
+    // quando a identidade do titular for verificada.
     const protocolo = await gerarProtocolo(req.usuario.organizacaoId);
     const dataRecebimento = new Date();
-    const dataLimite = new Date(dataRecebimento);
-    dataLimite.setDate(dataLimite.getDate() + 15);
 
     const sol = await prisma.$transaction(async (tx) => {
       const criada = await tx.solicitacaoTitular.create({
@@ -132,7 +139,7 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
           protocolo,
           titularNome, titularEmail, titularCpf: titularCpf || null,
           tipoDireito, descricao,
-          dataRecebimento, dataLimite,
+          dataRecebimento, dataLimite: null, status: 'AGUARDANDO_VERIFICACAO',
           responsavelId: req.usuario.id
         },
         include: { evidencias: true }
@@ -176,6 +183,14 @@ router.put('/solicitacoes/:id', authMiddleware, requireModulo, async (req, res) 
     if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
 
     const { status, responsavelId, descricao } = req.body;
+    if (status !== undefined) {
+      if (!['RECEBIDA', 'EM_ANALISE', 'ENCERRADA', 'CANCELADA'].includes(status)) {
+        return res.status(400).json({ erro: 'Situação inválida (a resposta é registrada em "Responder" e a verificação em "Registrar verificação de identidade")' });
+      }
+      if (['RECEBIDA', 'EM_ANALISE'].includes(status) && existente.status === 'AGUARDANDO_VERIFICACAO') {
+        return res.status(400).json({ erro: 'Registre a verificação de identidade antes de iniciar a análise' });
+      }
+    }
     const sol = await prisma.$transaction(async (tx) => {
       const atualizada = await tx.solicitacaoTitular.update({
         where: { id: req.params.id },
@@ -258,7 +273,14 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
     if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
 
     const { respostaTexto } = req.body;
-    if (!respostaTexto) return res.status(400).json({ erro: 'respostaTexto é obrigatório' });
+    if (!respostaTexto || !String(respostaTexto).trim()) return res.status(400).json({ erro: 'respostaTexto é obrigatório' });
+    if (['ENCERRADA', 'CANCELADA'].includes(existente.status)) return res.status(400).json({ erro: 'Solicitação encerrada ou cancelada' });
+    // Etapa 7b: nada de resposta sem identidade verificada nem com rascunho
+    if (existente.status === 'AGUARDANDO_VERIFICACAO' || !identidadeDe(existente).verificada) {
+      return res.status(400).json({ erro: 'Registre a verificação de identidade do titular antes de responder (se não houver documento, use "Outro" e descreva na observação como confirmou).' });
+    }
+    const erroTexto = erroTextoResposta(String(respostaTexto));
+    if (erroTexto) return res.status(400).json({ erro: erroTexto });
 
     const sol = await prisma.$transaction(async (tx) => {
       const respondida = await tx.solicitacaoTitular.update({
@@ -332,6 +354,8 @@ router.post('/solicitacoes/:id/envio', authMiddleware, requireModulo, async (req
     if (!MEIOS_ENVIO.includes(meio)) return res.status(400).json({ erro: 'Meio de envio inválido' });
     const quando = data ? dataPura(data) : hojeSP();
     if (!quando) return res.status(400).json({ erro: 'Data inválida (use AAAA-MM-DD)' });
+    if (quando > hojeSP()) return res.status(400).json({ erro: 'A data do envio não pode ser futura' });
+    if (quando < dataPura(isoDiaSP(existente.dataResposta))) return res.status(400).json({ erro: 'A data do envio não pode ser anterior à resposta' });
     const obs = typeof observacao === 'string' ? observacao.trim().slice(0, 1000) : '';
     if (meio === 'OUTRO' && !obs) return res.status(400).json({ erro: 'Descreva o meio de envio na observação' });
     const sol = await prisma.$transaction(async (tx) => {
@@ -377,8 +401,7 @@ router.patch('/solicitacoes/:id/verificar-identidade', authMiddleware, requireMo
     if (metodo === 'OUTRO' && !obs) return res.status(400).json({ erro: 'Descreva na observação como a identidade foi verificada' });
     const aguardando = existente.status === 'AGUARDANDO_VERIFICACAO';
     const agora = new Date();
-    const dataLimite = new Date(agora);
-    dataLimite.setDate(dataLimite.getDate() + 15);
+    const dataLimite = prazoAPartirDe(agora);
 
     const descricaoEvidencia = `Identidade do titular verificada por ${R.METODO_IDENTIDADE[metodo]}${obs ? ': ' + obs : ''}`;
     const hashSha256 = crypto.createHash('sha256')

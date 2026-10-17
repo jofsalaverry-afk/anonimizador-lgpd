@@ -29,6 +29,8 @@ function hojeSP(agora = new Date()) {
 const iso = d => (d ? new Date(d).toISOString().slice(0, 10) : '');
 const fmtData = d => (d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '');
 const fmtDataHora = d => (d ? new Date(d).toLocaleString('pt-BR', { timeZone: FUSO, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+// Etapa 7b: data e hora de Brasilia para CSV, sem virgula (dd/mm/aaaa hh:mm)
+const fmtDataHoraCsv = d => fmtDataHora(d).replace(', ', ' ');
 // Instante real mostrado so com o dia (em Sao Paulo)
 const fmtDiaSP = d => (d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: FUSO }) : '');
 // Dia (em Sao Paulo) de um instante, em AAAA-MM-DD — para CSV
@@ -72,6 +74,6 @@ function diaUtilAnterior(data) {
 }
 
 module.exports = {
-  FUSO, dataPura, hojeSP, iso, isoDiaSP, fmtData, fmtDataHora, fmtDiaSP, fmtDataExtenso,
+  FUSO, dataPura, hojeSP, iso, isoDiaSP, fmtData, fmtDataHora, fmtDataHoraCsv, fmtDiaSP, fmtDataExtenso,
   somarDiasUteis, diaUtilAnterior, ehDiaUtil
 };

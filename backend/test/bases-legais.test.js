@@ -81,10 +81,10 @@ test('ROPA valida o artigo de cada campo e exige art. 11 para ser "mapeado" com 
 
   // exportacoes e transparencia com rotulos (nunca o codigo)
   const csv = await (await chamar(t, 'GET', '/ropa/export?formato=csv')).text();
-  const linha = csv.split('\n').find(l => l.startsWith('"Junta médica"'));
-  assert.ok(linha.includes('"Art. 7º, II — Cumprimento de obrigação legal ou regulatória pelo controlador"'));
-  assert.ok(linha.endsWith('"Art. 11, II, a — Cumprimento de obrigação legal ou regulatória pelo controlador"'));
-  assert.ok(!/,OBRIGACAO_LEGAL,/.test(csv), 'código cru no CSV');
+  const linha = csv.split('\r\n').find(l => l.startsWith('Junta médica;'));
+  assert.ok(linha.includes(';"Art. 7º, II — Cumprimento de obrigação legal ou regulatória pelo controlador";'));
+  assert.ok(linha.endsWith(';"Art. 11, II, a — Cumprimento de obrigação legal ou regulatória pelo controlador"'));
+  assert.ok(!/OBRIGACAO_LEGAL/.test(csv), 'código cru no CSV');
   const exp = await (await chamar(t, 'GET', '/ropa/export?formato=json')).json();
   assert.equal(exp.find(x => x.id === sem11.id).baseLegal, 'OBRIGACAO_LEGAL', 'JSON mantém o código');
   assert.equal(exp.find(x => x.id === sem11.id).baseLegalRotulo, 'Art. 7º, II — Cumprimento de obrigação legal ou regulatória pelo controlador');

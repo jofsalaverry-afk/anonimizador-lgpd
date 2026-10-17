@@ -20,17 +20,29 @@ test('chave do limite e o IP do cliente (nao o objeto req)', () => {
   assert.equal(chaveIp({ ip: '2001:db8:1:2:3:4:5:6' }), chaveIp({ ip: '2001:db8:1:2:ffff::1' }), 'IPv6 agrupado por /64');
 });
 
-test('login de usuario: 10 falhas e a 11a recebe 429, mesmo passando por nos de borda diferentes', async () => {
+test('login: 10 falhas na MESMA conta e a 11a recebe 429, mesmo passando por nos de borda diferentes', async () => {
   const ip = '198.51.100.10';
   const st = [];
   for (let i = 0; i < 11; i++) {
     // cada tentativa chega por um no de borda diferente do Railway
-    st.push((await post('/auth/login', ip, { email: `x${i}@teste.local`, senha: 'errada-123' }, `35.0.0.${i + 1}`)).status);
+    st.push((await post('/auth/login', ip, { email: 'alvo@teste.local', senha: `errada-${i}` }, `35.0.0.${i + 1}`)).status);
   }
   assert.deepEqual(st.slice(0, 10), Array(10).fill(401));
   assert.equal(st[10], 429);
-  // outro cliente pelo MESMO no de borda nao e afetado
-  assert.equal((await post('/auth/login', '198.51.100.11', { email: 'y@teste.local', senha: 'errada-123' }, '35.0.0.1')).status, 401);
+  // Etapa 7b: um colega no MESMO IP (outra conta) nao e bloqueado
+  assert.equal((await post('/auth/login', ip, { email: 'colega@teste.local', senha: 'errada-123' })).status, 401, 'colega no mesmo IP');
+  // e-mail com maiusculas conta como a mesma conta
+  assert.equal((await post('/auth/login', ip, { email: 'ALVO@teste.local', senha: 'x' })).status, 429);
+  // outro cliente (outro IP) nao e afetado
+  assert.equal((await post('/auth/login', '198.51.100.11', { email: 'alvo@teste.local', senha: 'errada-123' }, '35.0.0.1')).status, 401);
+});
+
+test('teto por IP: 50 falhas somando varias contas e a 51a recebe 429', async () => {
+  const ip = '198.51.100.12';
+  const st = [];
+  for (let i = 0; i < 51; i++) st.push((await post('/auth/login', ip, { email: `conta${i % 6}@teste.local`, senha: 'errada' })).status);
+  assert.ok(st.slice(0, 50).every(x => x === 401), 'até 50 erros (nenhuma conta passou de 10)');
+  assert.equal(st[50], 429);
 });
 
 test('codigo MFA errado tambem conta no limite de /auth', async () => {
@@ -39,7 +51,7 @@ test('codigo MFA errado tambem conta no limite de /auth', async () => {
   assert.equal((await post('/auth/mfa/verificar', ip, { tempToken: 'x', codigo: '123456' })).status, 429);
 });
 
-test('login do Admin: 10 falhas e a 11a recebe 429 (contador proprio)', async () => {
+test('login do Admin: 10 falhas na conta e a 11a recebe 429 (contador proprio)', async () => {
   const ip = '198.51.100.30';
   const st = [];
   for (let i = 0; i < 11; i++) st.push((await post('/admin/login', ip, { email: 'admin@teste.local', senha: 'errada-123' })).status);

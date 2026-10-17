@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
-import { TIPO_DIREITO_LABEL } from './rotulos';
+import { TIPO_DIREITO_LABEL, SLA_BADGE, rotuloProvidenciaDsar } from './rotulos';
+import { erroTextoResposta } from '../documentosId';
 import Anexos from './Anexos';
 import Historico from './Historico';
 import { fmtDataHora, fmtDiaSP, fmtData, hojeInput } from '../datas';
@@ -22,11 +23,6 @@ const STATUS_BADGE = {
   EM_ANALISE: 'badge badge-warning',
   RESPONDIDA: 'badge badge-success', ENCERRADA: 'badge badge-muted',
   CANCELADA: 'badge badge-danger'
-};
-
-const SLA_BADGE = {
-  verde: 'badge badge-success', amarelo: 'badge badge-warning',
-  vermelho: 'badge badge-danger', vencido: 'badge badge-danger'
 };
 
 export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
@@ -67,7 +63,10 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   }, [solicitacaoId]);
 
   const responder = async () => {
-    if (!resposta.trim()) return;
+    setErro('');
+    if (!resposta.trim()) return setErro('Escreva a resposta antes de enviar');
+    const rascunho = erroTextoResposta(resposta);
+    if (rascunho) return setErro(rascunho);
     setRespondendo(true);
     try {
       await axios.post(`${API}/dsar/solicitacoes/${solicitacaoId}/responder`, { respostaTexto: resposta }, { headers });
@@ -84,6 +83,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   // aparecem primeiro. O backend preenche {nome_titular}, {protocolo} e
   // {nome_organizacao}.
   const abrirResposta = async () => {
+    setErro('');
     const abrir = !showRespForm;
     setShowRespForm(abrir);
     if (!abrir) return;
@@ -98,6 +98,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   };
 
   const usarModelo = async () => {
+    setErro('');
     if (!modeloId) return;
     if (resposta.trim() && !window.confirm('Substituir o texto atual pelo modelo?')) return;
     try {
@@ -109,7 +110,8 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   };
 
   const addEvidencia = async () => {
-    if (!evidForm.tipo.trim() || !evidForm.descricao.trim()) return;
+    setErro('');
+    if (!evidForm.tipo.trim() || !evidForm.descricao.trim()) return setErro('Preencha o tipo e a descrição da providência');
     setSalvandoEvid(true);
     try {
       await axios.post(`${API}/dsar/solicitacoes/${solicitacaoId}/evidencias`, evidForm, { headers });
@@ -123,6 +125,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   };
 
   const mudarStatus = async (status) => {
+    setErro('');
     try {
       await axios.put(`${API}/dsar/solicitacoes/${solicitacaoId}`, { status }, { headers });
       carregar();
@@ -132,6 +135,8 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   };
 
   const verificarIdentidade = async () => {
+    setErro('');
+    if (metodoVerif === 'OUTRO' && !observacaoVerif.trim()) return setErro('Com o método "Outro", descreva na observação como a identidade foi confirmada');
     setVerificando(true);
     try {
       await axios.patch(
@@ -150,6 +155,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   };
 
   const registrarEnvio = async () => {
+    setErro('');
     try {
       await axios.post(`${API}/dsar/solicitacoes/${solicitacaoId}/envio`, envioForm, { headers });
       setEnvioForm(null);
@@ -172,7 +178,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
         <button onClick={onVoltar} className="link-back">← Voltar</button>
         <h2 className="page-title">{sol.protocolo}</h2>
         <span className={STATUS_BADGE[sol.status] || 'badge badge-muted'}>{STATUS_LABEL[sol.status]}</span>
-        {!encerrada && sol.dataLimite && <span className={SLA_BADGE[sol.sla?.cor] || 'badge badge-muted'}>{sol.sla?.label}</span>}
+        {sol.sla?.label && <span className={SLA_BADGE[sol.sla.cor] || 'badge badge-muted'}>{sol.sla.label}</span>}
       </div>
 
       {erro && <div className="alert-error">{erro}</div>}
@@ -252,7 +258,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
                   </div>
                   <div className="form-group">
                     <label>Data do envio</label>
-                    <input type="date" value={envioForm.data} onChange={e => setEnvioForm({ ...envioForm, data: e.target.value })} />
+                    <input type="date" value={envioForm.data} max={hojeInput()} onChange={e => setEnvioForm({ ...envioForm, data: e.target.value })} />
                   </div>
                 </div>
                 <label>Observação {envioForm.meio === 'OUTRO' ? '(obrigatória)' : '(opcional)'}</label>
@@ -329,6 +335,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
               <button type="button" className="btn-secondary btn-sm" onClick={usarModelo}>Usar modelo</button>
             </div>
           )}
+          <p className="text-xs text-muted mb-8">Antes de enviar, retire a marca "MINUTA" e complete todos os campos entre colchetes [ ]: a resposta não é enviada com eles.</p>
           <label>Texto da resposta</label>
           <textarea value={resposta} onChange={e => setResposta(e.target.value)} rows={5} placeholder="Digite a resposta ao titular..." />
           <div className="btn-row mt-16">
@@ -368,7 +375,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
               <div key={ev.id} className="timeline-item">
                 <div className={`timeline-dot ${i === 0 ? 'timeline-dot-active' : ''}`} />
                 <div className="timeline-date">
-                  {fmtDataHora(ev.criadoEm)} — {ev.tipo}
+                  {fmtDataHora(ev.criadoEm)} — {rotuloProvidenciaDsar(ev.tipo)}
                 </div>
                 <div className="timeline-content">
                   <div>{ev.descricao}</div>

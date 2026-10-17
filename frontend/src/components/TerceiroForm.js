@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API } from '../config';
 import { PAPEL_TERCEIRO_LABEL } from './rotulos';
 import { paraInputData } from '../datas';
+import { cnpjValido, MSG_CNPJ } from '../documentosId';
 
 const VAZIO = {
   razaoSocial: '', cnpj: '', contatoNome: '', contatoEmail: '', papel: 'OPERADOR',
@@ -70,6 +71,7 @@ export default function TerceiroForm({ token, terceiroId, onVoltar, onSalvo }) {
           <div className="form-group">
             <label>CNPJ</label>
             <input value={form.cnpj} onChange={e => setForm({ ...form, cnpj: e.target.value })} placeholder="00.000.000/0001-00" />
+            {form.cnpj && !cnpjValido(form.cnpj) && <p className="text-xs text-error">{MSG_CNPJ}</p>}
           </div>
           <div className="form-group">
             <label>Contato (nome)</label>

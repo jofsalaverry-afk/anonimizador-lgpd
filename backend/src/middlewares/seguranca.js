@@ -3,6 +3,7 @@
 // Importado e composto em server.js.
 
 const rateLimit = require('express-rate-limit');
+const jwt = require('jsonwebtoken');
 const { ipKeyGenerator } = require('express-rate-limit');
 const { validationResult, body, param } = require('express-validator');
 
@@ -26,7 +27,6 @@ const chaveIp = (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || '
 // varios servidores de uma camara costumam sair pelo mesmo IP e dividiriam
 // um contador so. O token so e lido (sem verificar) para escolher a chave: a
 // autenticacao de verdade acontece depois, na rota. Sem sessao, vale o IP.
-const jwt = require('jsonwebtoken');
 function chaveUsuarioOuIp(req) {
   const h = req.headers?.authorization || '';
   if (h.startsWith('Bearer ')) {
@@ -43,24 +43,42 @@ function mensagemExcesso(minutos) {
   return { erro: `Muitas tentativas. Tente novamente em ${minutos} minutos.` };
 }
 
-// /auth/* — 10 requests / 15 min / IP. Cobre tanto login quanto token
-// refresh ou me; protege contra brute force e enumeracao de contas.
-// Conta so as falhas para nao penalizar quem ja logou.
-const limiterAuth = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: true,
-  keyGenerator: chaveIp,
-  validate: VALIDATE_OFF,
-  message: mensagemExcesso(15)
-});
+// Etapa 7b: a conta da tentativa — e-mail do corpo (login, esqueci a
+// senha) ou o usuario do token (MFA, troca de senha). So escolhe a chave;
+// a validacao de verdade e feita na rota.
+function contaDaTentativa(req) {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (email) return email.slice(0, 200);
+  for (const t of [req.body?.tempToken, req.body?.trocaToken, (req.headers?.authorization || '').replace(/^Bearer /, '')]) {
+    if (!t || typeof t !== 'string') continue;
+    const d = jwt.decode(t);
+    if (d && typeof d === 'object' && (d.userId || d.id)) return `u:${d.userId || d.id}`;
+  }
+  return '-';
+}
+const chaveIpConta = req => `${chaveIp(req)}|${contaDaTentativa(req)}`;
 
-// /admin/login — mesma regra do /auth, contador separado.
-const limiterAdminLogin = rateLimit({
+// /auth/* — por IP + CONTA: 10 erros / 15 min. Servidores da mesma camara
+// atras do mesmo IP nao se bloqueiam entre si (cada conta tem o seu
+// contador). Conta so as falhas para nao penalizar quem ja entrou.
+const LIMITE_POR_CONTA = 10;
+const TETO_POR_IP = 50;
+const limiterAuthConta = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: LIMITE_POR_CONTA,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: chaveIpConta,
+  validate: VALIDATE_OFF,
+  message: mensagemExcesso(15)
+});
+// ... e um teto so por IP: 50 erros / 15 min (varias contas tentadas do
+// mesmo IP). Fica DEPOIS do limitador da conta: tentativas numa conta ja
+// bloqueada nao consomem o teto dos colegas.
+const limiterAuthIp = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: TETO_POR_IP,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
@@ -68,6 +86,13 @@ const limiterAdminLogin = rateLimit({
   validate: VALIDATE_OFF,
   message: mensagemExcesso(15)
 });
+const limiterAuth = [limiterAuthConta, limiterAuthIp];
+
+// /admin/login — mesma regra do /auth, contadores separados.
+const limiterAdminLogin = [
+  rateLimit({ windowMs: 15 * 60 * 1000, max: LIMITE_POR_CONTA, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true, keyGenerator: chaveIpConta, validate: VALIDATE_OFF, message: mensagemExcesso(15) }),
+  rateLimit({ windowMs: 15 * 60 * 1000, max: TETO_POR_IP, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true, keyGenerator: chaveIp, validate: VALIDATE_OFF, message: mensagemExcesso(15) })
+];
 
 // /documents/* — 20 requests / hora / USUARIO (keyGenerator custom).
 // Para usuarios autenticados usa o id do JWT extraido do header; para
@@ -176,9 +201,13 @@ const validarEmail = (campo = 'email') =>
 const validarCpf = (campo = 'titularCpf', { opcional = false } = {}) => {
   let chain = body(campo).trim();
   if (opcional) chain = chain.optional({ checkFalsy: true });
+  // Etapa 7b: formato e digito verificador
   return chain
     .matches(/^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$|^\d{11}$/)
-    .withMessage('CPF inválido — use 11 dígitos');
+    .withMessage('CPF inválido — use 11 dígitos')
+    .bail()
+    .custom(v => require('../services/documentosId').cpfValido(v))
+    .withMessage('CPF inválido: confira os números (dígito verificador não confere)');
 };
 
 const validarCuid = (campo, loc = 'body') => {
@@ -202,6 +231,9 @@ module.exports = {
   limiterAuth,
   limiterAdminLogin,
   chaveIp,
+  chaveIpConta,
+  LIMITE_POR_CONTA,
+  TETO_POR_IP,
   chaveUsuarioOuIp,
   LIMITE_PAINEL_POR_MINUTO,
   limiterDocuments,

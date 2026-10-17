@@ -4,7 +4,7 @@ import { API } from '../config';
 import { baixarArquivo } from './download';
 
 // "Gerar documento": escolhe o modelo (e o terceiro, se for aditivo),
-// mostra a previa com pendencias e gera DOCX + PDF no repositorio.
+// mostra a previa com pendencias e gera DOCX + PDF/A no repositorio.
 export default function GeradorDocumentos({ token, onGerado }) {
   const [aberto, setAberto] = useState(false);
   const [modelos, setModelos] = useState([]);
@@ -81,7 +81,7 @@ export default function GeradorDocumentos({ token, onGerado }) {
       </div>
       <div className="btn-row mb-12">
         <button className="btn-secondary btn-sm" onClick={verPrevia} disabled={ocupado || !modeloId}>Pré-visualizar</button>
-        <button className="btn-primary btn-sm" onClick={gerar} disabled={ocupado || !previa}>{ocupado ? 'Gerando...' : 'Gerar DOCX e PDF'}</button>
+        <button className="btn-primary btn-sm" onClick={gerar} disabled={ocupado || !previa}>{ocupado ? 'Gerando...' : 'Gerar DOCX e PDF/A'}</button>
       </div>
 
       {previa && previa.pendencias.length > 0 && (
@@ -92,7 +92,7 @@ export default function GeradorDocumentos({ token, onGerado }) {
       )}
       {gerado && (
         <div className="alert-success mb-8">
-          Versão {gerado.versao} salva no repositório como rascunho.{' '}
+          Versão {gerado.versao} salva no repositório como rascunho{gerado.pdfa === false ? ' (PDF comum: o conversor PDF/A não está disponível neste servidor)' : ''}.{' '}
           {gerado.documentos.map(d => (
             <button key={d.id} className="btn-ghost btn-sm" onClick={() => baixarArquivo(token, `/repositorio/documentos/${d.id}/download`, d.nomeArquivo).catch(e => setErro(e.message))}>
               Baixar {d.formato}

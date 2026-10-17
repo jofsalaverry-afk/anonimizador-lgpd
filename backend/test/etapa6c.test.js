@@ -62,10 +62,10 @@ test('24: incidente informado como 16/10 volta 16/10 na API, no historico, no CS
 
   await chamar(t, 'POST', `/repositorio/incidentes/${inc.id}/providencias`, { descricao: 'Senhas trocadas', data: '2026-10-16' });
   const csv = await (await chamar(t, 'GET', '/repositorio/incidentes/export?formato=csv')).text();
-  const linha = csv.split('\n').find(l => l.includes('"Fuso"') || l.includes(',Fuso,'));
-  assert.ok(linha.includes('2026-10-15'), 'ocorrencia AAAA-MM-DD');
-  assert.ok(linha.includes('2026-10-16 — Senhas trocadas'));
-  assert.ok(!linha.includes('2026-10-15T'), 'data pura sem horario');
+  const linha = csv.split('\r\n').find(l => l.includes(';Fuso;'));
+  assert.ok(linha.includes(';15/10/2026;'), 'ocorrencia dd/mm/aaaa');
+  assert.ok(linha.includes('16/10/2026 — Senhas trocadas'));
+  assert.ok(!linha.includes('2026-10-15'), 'sem data ISO no CSV');
 });
 
 // ---------- 23 / 22. Incidente real: ciencia, risco e prazo ANPD ----------
@@ -158,16 +158,17 @@ test('17/20/19: identidade por codigo no e-mail ou registro manual; envio regist
   assert.ok(/- \d{2}\/\d{2}\/\d{4}: Levantados os dados no setor de protocolo/.test(p.texto), 'providencias puxadas');
   assert.ok(!/\{(nome_titular|protocolo|data_pedido|providencias)\}/.test(p.texto));
 
-  // envio: sem SMTP nao sai por e-mail -> registro manual
+  // envio: sem SMTP nao sai por e-mail -> registro manual (Etapa 7b: data nao futura nem anterior a resposta)
+  const hojeIso = require('../src/services/datas').isoDiaSP(new Date());
   assert.equal((await chamar(t, 'POST', `/dsar/solicitacoes/${sol.id}/envio`, { meio: 'CORREIOS' })).status, 400, 'antes de responder');
   const resp = await json(await chamar(t, 'POST', `/dsar/solicitacoes/${sol.id}/responder`, { respostaTexto: 'Segue declaração.' }));
   assert.equal(resp.respostaEnviadaEmailEm, null, 'sem SMTP: nao enviada por e-mail');
   assert.equal((await chamar(t, 'POST', `/dsar/solicitacoes/${sol.id}/envio`, { meio: 'POMBO' })).status, 400);
-  const env = await json(await chamar(t, 'POST', `/dsar/solicitacoes/${sol.id}/envio`, { meio: 'PESSOALMENTE', data: '2026-10-16' }));
+  const env = await json(await chamar(t, 'POST', `/dsar/solicitacoes/${sol.id}/envio`, { meio: 'PESSOALMENTE', data: hojeIso }));
   assert.equal(env.respostaEnvioMeio, 'PESSOALMENTE');
-  assert.equal(env.respostaEnvioData, '2026-10-16T00:00:00.000Z');
+  assert.equal(env.respostaEnvioData, hojeIso + 'T00:00:00.000Z');
   const h2 = db.__tabelas.historicoRegistro.filter(x => x.registroId === sol.id).pop();
-  assert.equal(h2.diff.envioResposta.depois, 'Entregue pessoalmente em 16/10/2026');
+  assert.equal(h2.diff.envioResposta.depois, 'Entregue pessoalmente em ' + hojeIso.split('-').reverse().join('/'));
 });
 
 test('17: pedido pelo canal publico (codigo no e-mail) ja nasce com identidade verificada', async () => {
@@ -234,7 +235,7 @@ test('30/31/33: atividade propria com um responsavel, codigo AP-001 e score com 
   assert.equal(score.respondidos, score.totalItens - score.porStatus.SEM_RESPOSTA);
   assert.ok(score.respondidos >= 1);
   const csv = await (await chamar(t, 'GET', '/conformidade/checklist/export?formato=csv')).text();
-  assert.ok(csv.includes(',AP-001,') || csv.includes('"AP-001"'));
+  assert.ok(csv.includes(';AP-001;'));
 });
 
 // ---------- 34/36. Citacao do art. 50 ----------

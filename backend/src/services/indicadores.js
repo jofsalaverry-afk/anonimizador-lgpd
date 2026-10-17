@@ -63,6 +63,13 @@ function pendenciasMapeamento(t) {
   return falta;
 }
 
+// Etapa 7b: pendente por falta de setor ou de sistema (sem sistema do
+// inventario e sem "outros meios") — o atalho do painel filtra esses.
+function faltaSetorOuSistema(t) {
+  const p = pendenciasMapeamento(t);
+  return p.includes('setor') || p.includes('sistemas ou outros meios');
+}
+
 function percentual(n, total) {
   return total === 0 ? null : Math.round((n / total) * 100);
 }
@@ -114,11 +121,16 @@ async function calcularIndicadores(db, organizacaoId, { referencia = new Date(),
       include: { sistemas: true }
     });
     const n = trats.filter(t => pendenciasMapeamento(t).length === 0).length;
-    indicadores.push(indicadorPercentual({
-      chave: 'ROPA', titulo: 'Processos mapeados no ROPA', n, total: trats.length, meta: metas.ROPA, okSemTotal: false,
-      observacao: trats.length === 0 ? 'Nenhum tratamento ativo cadastrado' : `${trats.length - n} tratamento(s) com campos pendentes`,
-      link: { pagina: 'ropa', filtro: 'nao-mapeados' }
-    }));
+    const semSetorOuSistema = trats.filter(faltaSetorOuSistema).length;
+    indicadores.push({
+      ...indicadorPercentual({
+        chave: 'ROPA', titulo: 'Processos mapeados no ROPA', n, total: trats.length, meta: metas.ROPA, okSemTotal: false,
+        observacao: trats.length === 0 ? 'Nenhum tratamento ativo cadastrado' : `${trats.length - n} tratamento(s) com campos pendentes`,
+        link: { pagina: 'ropa', filtro: 'nao-mapeados' }
+      }),
+      pendentesSetorSistema: semSetorOuSistema,
+      linkSetorSistema: { pagina: 'ropa', filtro: 'sem-setor-sistema' }
+    });
   } else indicadores.push(inativo('ROPA', 'Processos mapeados no ROPA', 'ropa'));
 
   // b) Contratos criticos com aditivo LGPD — sem contrato critico = OK
@@ -237,6 +249,7 @@ async function gerarSnapshotsMensais(db, agora = new Date()) {
 }
 
 module.exports = {
+  faltaSetorOuSistema,
   METAS_PADRAO, INDICADORES_COM_META, NIVEL_TRILHA_OBRIGATORIA, TRILHA_OBRIGATORIA,
   calcularIndicadores, gerarSnapshot, gerarSnapshotsMensais, carregarMetas,
   pendenciasMapeamento, mesReferenciaDe, limitesDoMes, mesAnterior

@@ -9,9 +9,11 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [filtroBase, setFiltroBase] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState(filtroInicial?.filtro === 'nao-mapeados' ? 'ativo' : 'todos');
-  // Vindo do painel: so os nao mapeados (mesma regra do indicador)
-  const [filtroMapeamento, setFiltroMapeamento] = useState(filtroInicial?.filtro === 'nao-mapeados' ? 'nao' : '');
+  const doPainel = ['nao-mapeados', 'sem-setor-sistema'].includes(filtroInicial?.filtro);
+  const [filtroStatus, setFiltroStatus] = useState(doPainel ? 'ativo' : 'todos');
+  // Vindo do painel: so os nao mapeados (mesma regra do indicador) ou,
+  // Etapa 7b, so os pendentes por falta de setor ou sistema
+  const [filtroMapeamento, setFiltroMapeamento] = useState(filtroInicial?.filtro === 'nao-mapeados' ? 'nao' : filtroInicial?.filtro === 'sem-setor-sistema' ? 'sem-setor-sistema' : '');
 
   const carregar = useCallback(async () => {
     try {
@@ -66,6 +68,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
     if (filtroStatus === 'inativo' && t.ativo) return false;
     if (filtroMapeamento === 'sim' && !t.mapeado) return false;
     if (filtroMapeamento === 'nao' && t.mapeado) return false;
+    if (filtroMapeamento === 'sem-setor-sistema' && !(t.pendenciasMapeamento || []).some(p => p === 'setor' || p === 'sistemas ou outros meios')) return false;
     return true;
   });
 
@@ -99,6 +102,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
           <option value="">Mapeamento: todos</option>
           <option value="sim">Mapeamento completo</option>
           <option value="nao">Não mapeados</option>
+          <option value="sem-setor-sistema">Sem setor ou sem sistema</option>
         </select>
       </div>
 

@@ -2,11 +2,17 @@
 
 // CSV: celula que comeca com = + - @ (ou tab/CR) vira formula ao abrir no
 // Excel/LibreOffice ("CSV injection"). Prefixa com apostrofo e aplica as
-// aspas do CSV quando precisa.
+// aspas do CSV quando precisa. Numero negativo nao e formula.
 function celulaCsv(v) {
   let s = v === null || v === undefined ? '' : String(v);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  if (/^[=+\-@\t\r]/.test(s) && !/^-\d+([.,]\d+)?$/.test(s)) s = `'${s}`;
   return /[",\n\r;]/.test(s) || s !== s.trim() ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// Etapa 7b: padrao unico dos CSV — separador ";", UTF-8 com BOM, CRLF.
+const SEPARADOR_CSV = ';';
+function documentoCsv(cabecalho, linhas) {
+  return '\uFEFF' + [cabecalho, ...linhas].map(l => l.map(celulaCsv).join(SEPARADOR_CSV)).join('\r\n');
 }
 
 // Link de evidencia: aceita referencia em texto (ex.: "Processo SEI 123") ou
@@ -35,4 +41,4 @@ function limparNomeArquivo(nome) {
   return (limpo || 'arquivo').slice(0, 200);
 }
 
-module.exports = { celulaCsv, erroLinkEvidencia, ehLinkHttp, limparNomeArquivo };
+module.exports = { celulaCsv, documentoCsv, SEPARADOR_CSV, erroLinkEvidencia, ehLinkHttp, limparNomeArquivo };

@@ -183,8 +183,8 @@ test('snapshot mensal: cron grava o mes anterior; manual faz upsert; isolado', a
   // estiver em outubro/2026, a foto manual substitui a de outubro.
   const csv = await (await chamar(tokenDe(s.gestorA), 'GET', '/indicadores/snapshots/export?formato=csv')).text();
   const linhas = csv.split('\r\n');
-  assert.ok(linhas[0].startsWith('mesReferencia,origem,geradoEm,indicador,n,total,percentual,meta,status'));
-  assert.ok(linhas.some(l => l.startsWith('2026-10,CRON,') && l.includes(',DSAR,1,4,25,100,PENDENTE')));
+  assert.ok(linhas[0].replace(/^\uFEFF/, '').startsWith('Mês (AAAA-MM);Foto automática ou manual;Geração (data e hora de Brasília);Indicador;'));
+  assert.ok(linhas.some(l => l.startsWith('2026-10;Automática;') && l.includes(';DSAR no prazo;1;4;25;100;Pendente')));
 
   assert.equal((await chamar(tokenDe(s.auditorA), 'POST', '/indicadores/snapshots')).status, 403);
   const man = await (await chamar(tokenDe(s.gestorA), 'POST', '/indicadores/snapshots')).json();

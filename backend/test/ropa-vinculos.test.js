@@ -11,7 +11,7 @@ before(async () => {
   setorA = await (await chamar(tA, 'POST', '/setores', { nome: 'Gabinete' })).json();
   sisA = await (await chamar(tA, 'POST', '/inventario/sistemas', { nome: 'Sistema de Protocolo', tipo: 'APLICACAO' })).json();
   sisA2 = await (await chamar(tA, 'POST', '/inventario/sistemas', { nome: 'E-mail institucional', tipo: 'NUVEM' })).json();
-  fornA = await (await chamar(tA, 'POST', '/terceiros', { razaoSocial: 'Correios Fictícios', cnpj: '00.000.000/0001-00' })).json();
+  fornA = await (await chamar(tA, 'POST', '/terceiros', { razaoSocial: 'Correios Fictícios', cnpj: '00.000.000/0001-91' })).json();
   setorB = await (await chamar(tB, 'POST', '/setores', { nome: 'Setor B' })).json();
   sisB = await (await chamar(tB, 'POST', '/inventario/sistemas', { nome: 'Sistema da B', tipo: 'OUTRO' })).json();
   fornB = await (await chamar(tB, 'POST', '/terceiros', { razaoSocial: 'Fornecedor da B' })).json();
@@ -34,7 +34,7 @@ test('ROPA <-> sistema: tratamento aparece no detalhe do sistema', async () => {
     ...BASE, setorId: setorA.id, sistemaIds: [sisA.id, sisA2.id], outrosMeios: 'Livro de protocolo em papel',
     compartilhamentos: [
       { terceiroId: fornA.id, terceiroNome: '', finalidadeCompartilhamento: 'Envio de correspondência' },
-      { terceiroNome: 'Cartório (cadastro antigo)', terceiroCNPJ: '11.111.111/0001-11', finalidadeCompartilhamento: 'Registro' }
+      { terceiroNome: 'Cartório (cadastro antigo)', terceiroCNPJ: '11.222.333/0001-81', finalidadeCompartilhamento: 'Registro' }
     ]
   });
   assert.equal(r.status, 201);
@@ -46,7 +46,7 @@ test('ROPA <-> sistema: tratamento aparece no detalhe do sistema', async () => {
   const [c1, c2] = t.compartilhamentos;
   assert.equal(c1.terceiroId, fornA.id);
   assert.equal(c1.terceiroNome, 'Correios Fictícios', 'nome herdado do cadastro');
-  assert.equal(c1.terceiroCNPJ, '00.000.000/0001-00');
+  assert.equal(c1.terceiroCNPJ, '00.000.000/0001-91');
   assert.equal(c2.terceiroId, null, 'compartilhamento no formato antigo continua valido');
   assert.equal(c2.terceiroNome, 'Cartório (cadastro antigo)');
 
@@ -85,12 +85,12 @@ test('ROPA recusa setor, sistema e terceiro de outra organizacao', async () => {
 test('exportacao do ROPA traz setor, sistemas e outros meios', async () => {
   const tA = tokenDe(s.gestorA);
   const csv = await (await chamar(tA, 'GET', '/ropa/export?formato=csv')).text();
-  const [cab, ...linhas] = csv.replace(/^﻿/, '').split('\n');
-  assert.ok(cab.endsWith(',responsavel,setor,sistemas,outrosMeios,baseLegalSensivel'));
-  const linha = linhas.find(l => l.startsWith('"Atendimento ao cidadão"'));
-  assert.ok(linha.includes('"Gabinete"'));
-  assert.ok(linha.includes('"E-mail institucional"'));
-  assert.ok(linha.includes('"Livro de protocolo em papel"'));
+  const [cab, ...linhas] = csv.replace(/^﻿/, '').split('\r\n');
+  assert.ok(cab.endsWith(';Responsável;Setor;Sistemas;Outros meios;"Base legal para dados sensíveis (LGPD, art. 11)"'));
+  const linha = linhas.find(l => l.startsWith('Atendimento ao cidadão;'));
+  assert.ok(linha.includes(';Gabinete;'));
+  assert.ok(linha.includes('E-mail institucional'));
+  assert.ok(linha.includes(';Livro de protocolo em papel;'));
 
   const json = await (await chamar(tA, 'GET', '/ropa/export?formato=json')).json();
   const t = json.find(x => x.nome === 'Atendimento ao cidadão');

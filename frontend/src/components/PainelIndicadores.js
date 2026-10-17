@@ -31,7 +31,16 @@ function CardIndicador({ i, onAbrir, metaPersonalizada }) {
           <div className="text-sm text-muted" style={{ padding: '10px 0' }}>{i.observacao}</div>
         ) : i.status !== 'INATIVO' && (
           <>
-            <div style={{ fontSize: 30, fontWeight: 800 }}>{i.n}/{i.total}</div>
+            <div className="flex-center gap-8" style={{ flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 30, fontWeight: 800 }}>{i.n}/{i.total}</div>
+              {/* Etapa 7b: ao lado do contador, os pendentes por falta de setor ou sistema */}
+              {i.chave === 'ROPA' && i.pendentesSetorSistema > 0 && (
+                <button type="button" className="badge badge-warning" style={{ border: 0, cursor: 'pointer' }}
+                  onClick={e => { e.stopPropagation(); onAbrir(i.linkSetorSistema); }} title="Ver os tratamentos sem setor ou sem sistema">
+                  {i.pendentesSetorSistema} sem setor ou sistema →
+                </button>
+              )}
+            </div>
             <div className="text-sm text-muted">
               {i.percentual === null ? 'sem base de cálculo' : `${i.percentual}%`} · meta {i.meta}%
               {metaPersonalizada && <span className="badge badge-muted" style={{ marginLeft: 6 }}>meta personalizada</span>}

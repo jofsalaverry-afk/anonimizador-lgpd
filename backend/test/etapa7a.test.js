@@ -184,8 +184,9 @@ test('6: CSV neutraliza formula; link de evidencia so http/https; nome de anexo 
   const g = sessaoDe(s.gestorA);
   await chamar(g, 'POST', '/ropa/tratamentos', { nome: '=cmd|calc', finalidade: '@soma', baseLegal: 'OBRIGACAO_LEGAL' });
   const csv = await (await chamar(g, 'GET', '/ropa/export?formato=csv')).text();
-  assert.ok(csv.includes(`"'=cmd|calc"`) && csv.includes(`"'@soma"`), 'fórmula neutralizada');
-  assert.ok(!/(^|,)"?=cmd/m.test(csv));
+  assert.ok(csv.includes(`;'=cmd|calc;`) || csv.includes(`\n'=cmd|calc;`), 'fórmula neutralizada');
+  assert.ok(csv.includes(`;'@soma;`));
+  assert.ok(!/(^|;)"?=cmd/m.test(csv));
   // evidencia
   const item = db.__tabelas.itemChecklist?.[0] || await db.itemChecklist.create({ data: { codigo: 'T-7A', categoria: 'X', titulo: 'x', descricao: 'x', fundamentoLegal: 'x', criticidade: 'MEDIA', evidenciaRequerida: 'DOCUMENTO' } });
   assert.equal((await chamar(g, 'POST', `/conformidade/checklist/${item.id}/responder`, { status: 'CONFORME', evidenciaUrl: 'javascript:alert(1)' })).status, 400);

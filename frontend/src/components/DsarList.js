@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
-import { TIPO_DIREITO_LABEL } from './rotulos';
+import { TIPO_DIREITO_LABEL, SLA_BADGE } from './rotulos';
 import { BotoesExportar, BotaoPdfA } from './download';
 
 // Mes AAAA-MM em horario de Brasilia (mesma regra do painel).
@@ -23,11 +23,6 @@ const STATUS_BADGE = {
   EM_ANALISE: 'badge badge-warning',
   RESPONDIDA: 'badge badge-success', ENCERRADA: 'badge badge-muted',
   CANCELADA: 'badge badge-danger'
-};
-
-const SLA_BADGE = {
-  verde: 'badge badge-success', amarelo: 'badge badge-warning',
-  vermelho: 'badge badge-danger', vencido: 'badge badge-danger'
 };
 
 export default function DsarList({ token, onNova, onVer, filtroInicial, onModelos }) {
@@ -101,7 +96,7 @@ export default function DsarList({ token, onNova, onVer, filtroInicial, onModelo
                 <th>Titular</th>
                 <th>Tipo de Direito</th>
                 <th>Status</th>
-                <th>SLA</th>
+                <th>Prazo</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -116,11 +111,8 @@ export default function DsarList({ token, onNova, onVer, filtroInicial, onModelo
                   <td><span className="badge badge-purple">{TIPO_LABEL[s.tipoDireito] || s.tipoDireito}</span></td>
                   <td><span className={STATUS_BADGE[s.status] || 'badge badge-muted'}>{STATUS_LABEL[s.status] || s.status}</span></td>
                   <td>
-                    {['ENCERRADA', 'CANCELADA'].includes(s.status) ? (
-                      <span className="badge badge-muted">Encerrado</span>
-                    ) : (
-                      <span className={SLA_BADGE[s.sla?.cor] || 'badge badge-muted'}>{s.sla?.label || '-'}</span>
-                    )}
+                    {/* Etapa 7b: situacao do prazo calculada pelo status */}
+                    <span className={SLA_BADGE[s.sla?.cor] || 'badge badge-muted'}>{s.sla?.label || '-'}</span>
                   </td>
                   <td>
                     <button onClick={() => onVer(s.id)} className="btn-ghost btn-sm">Ver</button>

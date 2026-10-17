@@ -14,10 +14,12 @@ function enviar(token, categoria) {
   return fetch(`${srv.base}/repositorio/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
 }
 
-test('upload do DPO aceita TERMO e ADITIVO e recusa categoria invalida', async () => {
+test('upload do DPO/Gestor aceita TERMO e ADITIVO e recusa categoria invalida', async () => {
   const dpo = tokenDe(s.dpoA);
   assert.equal((await enviar(dpo, 'ADITIVO')).status, 201);
   assert.equal((await enviar(dpo, 'TERMO')).status, 201);
   assert.equal((await enviar(dpo, 'CATEGORIA_INVENTADA')).status, 400);
-  assert.equal((await enviar(tokenDe(s.gestorA), 'TERMO')).status, 403, 'upload continua restrito ao DPO');
+  // Etapa 7b: o Gestor tambem envia; Operador e Auditor nao
+  assert.equal((await enviar(tokenDe(s.gestorA), 'TERMO')).status, 201, 'Gestor envia');
+  assert.equal((await enviar(tokenDe(s.auditorA), 'TERMO')).status, 403, 'Auditor não envia');
 });

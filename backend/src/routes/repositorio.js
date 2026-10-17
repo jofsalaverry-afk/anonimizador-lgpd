@@ -7,6 +7,7 @@ const { responderExport } = require('../services/exportadores');
 const { dataPura, hojeSP, fmtData } = require('../services/datas');
 const { comPrazo, RISCOS } = require('../services/incidentes');
 const { normalizarCategorias } = require('../services/basesLegais');
+const { limparNomeArquivo } = require('../services/textoSeguro');
 
 // Datas puras do incidente: AAAA-MM-DD, gravadas a meia-noite UTC.
 const DATAS_INCIDENTE = ['dataOcorrencia', 'dataCiencia', 'dataComunicacaoANPD', 'dataComunicacaoTitulares'];
@@ -25,7 +26,28 @@ function lerDatasIncidente(b) {
   }
   // Compatibilidade: "notificadoANPD" passa a refletir a data de comunicacao
   if (data.dataComunicacaoANPD !== undefined) data.notificadoANPD = !!data.dataComunicacaoANPD;
+  // Etapa 7b: nenhuma data no futuro
+  const hoje = hojeSP();
+  const NOMES = { dataOcorrencia: 'ocorrência', dataCiencia: 'ciência', dataComunicacaoANPD: 'comunicação à ANPD', dataComunicacaoTitulares: 'comunicação aos titulares' };
+  for (const c of DATAS_INCIDENTE) if (data[c] && data[c] > hoje) return { erro: `A data de ${NOMES[c]} não pode ser futura` };
+  if (b.qtdTitulares !== undefined && b.qtdTitulares !== null && b.qtdTitulares !== '') {
+    const n = Number(b.qtdTitulares);
+    if (!Number.isInteger(n) || n < 0) return { erro: 'Titulares afetados: informe um número inteiro, zero ou maior' };
+  }
   return { data };
+}
+
+// Etapa 7b: a ciencia nao pode ser anterior a ocorrencia (vale para o
+// registro ja salvo + o que chega na edicao).
+function erroOrdemDatas(existente, novos) {
+  const oc = novos.dataOcorrencia !== undefined ? novos.dataOcorrencia : existente?.dataOcorrencia;
+  const ci = novos.dataCiencia !== undefined ? novos.dataCiencia : existente?.dataCiencia;
+  if (oc && ci && new Date(ci) < new Date(oc)) return 'A data de ciência não pode ser anterior à data da ocorrência';
+  for (const c of ['dataComunicacaoANPD', 'dataComunicacaoTitulares']) {
+    const v = novos[c] !== undefined ? novos[c] : existente?.[c];
+    if (oc && v && new Date(v) < new Date(oc)) return 'A data de comunicação não pode ser anterior à data da ocorrência';
+  }
+  return null;
 }
 
 const INCIDENTE_INCLUDE = { responsavel: { select: { id: true, nome: true } } };
@@ -73,8 +95,10 @@ const DOC_SELECT_LISTA = {
   id: true, organizacaoId: true, tipo: true, titulo: true, descricao: true,
   conteudoMd: true, versao: true, status: true, autorId: true, tags: true,
   mimetype: true, nomeArquivo: true, tamanhoBytes: true,
+  excluidoEm: true, excluidoPorId: true, motivoExclusao: true,
   criadoEm: true, atualizadoEm: true
 };
+const ehGestorOuDpo = req => ['GESTOR', 'ENCARREGADO_LGPD'].includes(req.usuario.perfil);
 
 // Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
 const authMiddleware = authUsuario;
@@ -100,7 +124,7 @@ router.use(authMiddleware, requireModulo);
 
 router.get('/documentos', async (req, res) => {
   try {
-    const where = { organizacaoId: req.usuario.organizacaoId };
+    const where = { organizacaoId: req.usuario.organizacaoId, excluidoEm: req.query.excluidos === '1' ? { not: null } : null };
     if (req.query.categoria) where.tipo = String(req.query.categoria);
     const docs = await prisma.documentoRepositorio.findMany({
       where,
@@ -150,12 +174,12 @@ router.post('/documentos', async (req, res) => {
   }
 });
 
-// Upload de arquivo (PDF/DOCX ate 20MB). So ENCARREGADO_LGPD pode subir
-// arquivos no fluxo do modulo. O admin sobe pela rota /admin/repositorio.
+// Upload de arquivo (PDF/DOCX ate 20MB). Etapa 7b: Gestor ou DPO; fica no
+// historico do documento. O admin sobe pela rota /admin/repositorio.
 router.post('/upload', uploadArquivo.single('arquivo'), async (req, res) => {
   try {
-    if (req.usuario.perfil !== 'ENCARREGADO_LGPD') {
-      return res.status(403).json({ erro: 'Apenas o DPO (Encarregado LGPD) pode subir arquivos' });
+    if (!ehGestorOuDpo(req)) {
+      return res.status(403).json({ erro: 'Apenas Gestor ou DPO enviam arquivos ao repositório' });
     }
     if (!req.file) return res.status(400).json({ erro: 'Envie um arquivo no campo "arquivo"' });
     const { titulo, descricao, categoria } = req.body;
@@ -165,21 +189,32 @@ router.post('/upload', uploadArquivo.single('arquivo'), async (req, res) => {
     if (!CATEGORIAS_DOC.includes(categoria)) {
       return res.status(400).json({ erro: 'Categoria inválida' });
     }
-    const doc = await prisma.documentoRepositorio.create({
-      data: {
-        organizacaoId: req.usuario.organizacaoId,
-        tipo: categoria,
-        titulo: String(titulo).trim(),
-        descricao: descricao ? String(descricao).trim() : null,
-        arquivo: req.file.buffer,
-        mimetype: req.file.mimetype,
-        nomeArquivo: req.file.originalname,
-        tamanhoBytes: req.file.size,
-        status: 'PUBLICADO',
-        autorId: req.usuario.id,
-        conteudoMd: ''
-      },
-      select: DOC_SELECT_LISTA
+    const nomeArquivo = limparNomeArquivo(req.file.originalname);
+    const doc = await prisma.$transaction(async (tx) => {
+      const criado = await tx.documentoRepositorio.create({
+        data: {
+          organizacaoId: req.usuario.organizacaoId,
+          tipo: categoria,
+          titulo: String(titulo).trim().slice(0, 200),
+          descricao: descricao ? String(descricao).trim().slice(0, 1000) : null,
+          arquivo: req.file.buffer,
+          mimetype: req.file.mimetype,
+          nomeArquivo,
+          tamanhoBytes: req.file.size,
+          status: 'PUBLICADO',
+          autorId: req.usuario.id,
+          conteudoMd: ''
+        },
+        select: DOC_SELECT_LISTA
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'DOCUMENTO', registroId: criado.id, acao: 'CRIAR', usuarioId: req.usuario.id,
+        diff: {
+          origem: { antes: null, depois: 'Arquivo enviado ao repositório' }, titulo: { antes: null, depois: criado.titulo },
+          tipo: { antes: null, depois: categoria }, nomeArquivo: { antes: null, depois: nomeArquivo }
+        }
+      });
+      return criado;
     });
     res.status(201).json(doc);
   } catch (err) {
@@ -218,7 +253,7 @@ router.put('/documentos/:id', async (req, res) => {
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
     if (!existente) return res.status(404).json({ erro: 'Documento não encontrado' });
-
+    if (existente.excluidoEm) return res.status(400).json({ erro: 'Documento excluído não pode ser alterado' });
     const { titulo, tipo, conteudoMd, status, tags } = req.body;
     // Incrementa versao se conteudo mudou
     const novaVersao = conteudoMd !== undefined && conteudoMd !== existente.conteudoMd
@@ -251,9 +286,24 @@ router.delete('/documentos/:id', async (req, res) => {
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
     if (!existente) return res.status(404).json({ erro: 'Documento não encontrado' });
-    await prisma.documentoRepositorio.delete({ where: { id: req.params.id } });
+    if (existente.excluidoEm) return res.status(400).json({ erro: 'Documento já excluído' });
+    // Etapa 7b: exclusao LOGICA, com motivo; o arquivo e o historico ficam guardados
+    const motivo = typeof req.body?.motivo === 'string' ? req.body.motivo.trim() : '';
+    if (motivo.length < 3) return res.status(400).json({ erro: 'Informe o motivo da exclusão' });
+    const agora = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.documentoRepositorio.update({
+        where: { id: existente.id },
+        data: { excluidoEm: agora, excluidoPorId: req.usuario.id, motivoExclusao: motivo.slice(0, 500) }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'DOCUMENTO', registroId: existente.id, acao: 'EXCLUIR', usuarioId: req.usuario.id,
+        diff: { motivo: { antes: null, depois: motivo.slice(0, 500) }, titulo: { antes: existente.titulo, depois: null } }
+      });
+    });
     res.json({ ok: true });
   } catch (err) {
+    console.error('[DELETE /repositorio/documentos/:id]', err);
     res.status(500).json({ erro: 'Erro ao excluir documento' });
   }
 });
@@ -316,6 +366,9 @@ router.post('/incidentes', async (req, res) => {
     if (erroCls) return res.status(400).json({ erro: erroCls });
     const datas = lerDatasIncidente(req.body);
     if (datas.erro) return res.status(400).json({ erro: datas.erro });
+    if (!datas.data.dataOcorrencia) return res.status(400).json({ erro: 'Data de ocorrência inválida (use AAAA-MM-DD)' });
+    const erroOrdem = erroOrdemDatas(null, datas.data);
+    if (erroOrdem) return res.status(400).json({ erro: erroOrdem });
     if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
@@ -326,7 +379,7 @@ router.post('/incidentes', async (req, res) => {
           titulo, tipoIncidente, descricao,
           ...datas.data,
           dadosAfetados: normalizarCategorias(dadosAfetados),
-          qtdTitulares: qtdTitulares || 0,
+          qtdTitulares: Number(qtdTitulares) || 0,
           planoAcao: planoAcao || null,
           responsavelId: responsavelId || null,
           severidade: severidade || null,
@@ -364,6 +417,8 @@ router.put('/incidentes/:id', async (req, res) => {
     const datas = lerDatasIncidente(req.body);
     if (datas.erro) return res.status(400).json({ erro: datas.erro });
     if (datas.data.dataOcorrencia === null) return res.status(400).json({ erro: 'A data de ocorrência é obrigatória' });
+    const erroOrdem = erroOrdemDatas(existente, datas.data);
+    if (erroOrdem) return res.status(400).json({ erro: erroOrdem });
     if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
@@ -375,7 +430,7 @@ router.put('/incidentes/:id', async (req, res) => {
           ...(status !== undefined && { status }),
           ...(tipoIncidente !== undefined && { tipoIncidente }),
           ...(dadosAfetados !== undefined && { dadosAfetados: normalizarCategorias(dadosAfetados) }),
-          ...(qtdTitulares !== undefined && { qtdTitulares }),
+          ...(qtdTitulares !== undefined && { qtdTitulares: Number(qtdTitulares) || 0 }),
           ...(descricao !== undefined && { descricao }),
           ...(planoAcao !== undefined && { planoAcao }),
           ...(notificadoANPD !== undefined && datas.data.dataComunicacaoANPD === undefined && { notificadoANPD }),
@@ -413,6 +468,7 @@ router.post('/incidentes/:id/providencias', async (req, res) => {
     if (!desc) return res.status(400).json({ erro: 'Descreva a providência' });
     const quando = data ? dataPura(data) : hojeSP();
     if (!quando) return res.status(400).json({ erro: 'Data inválida (use AAAA-MM-DD)' });
+    if (quando > hojeSP()) return res.status(400).json({ erro: 'A data da providência não pode ser futura' });
     if (!(await responsavelValido(prisma, responsavelId, orgId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }

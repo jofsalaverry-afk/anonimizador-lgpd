@@ -19,6 +19,10 @@ const { dataPura, hojeSP } = require('../services/datas');
 
 const router = express.Router();
 const { prisma } = require('../db');
+const { documentoCsv } = require('../services/textoSeguro');
+const R = require('../services/rotulos');
+const { fmtDataHoraCsv } = require('../services/datas');
+const { cnpjValido } = require('../services/documentosId');
 
 // ---------- Middlewares ----------
 
@@ -85,10 +89,26 @@ function paraHistorico(t) {
   };
 }
 
+// Etapa 7b: retencao em dias, inteiro nao negativo (vazio = nao informado)
+function erroRetencao(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0) return 'Retenção inválida: informe um número inteiro de dias, zero ou maior';
+  return null;
+}
+const HIPOTESES_ART33 = Object.keys(R.HIPOTESE_ART33);
+// "Brasil" (com ou sem acento/caixa) ou vazio = territorio nacional
+const ehExterior = pais => {
+  const p = String(pais || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  return !!p && !['brasil', 'brazil', 'br'].includes(p);
+};
+
 // Valida setor, sistemas e terceiros (todos da mesma organizacao) e monta
 // os compartilhamentos. Compartilhamento com terceiroId herda nome/CNPJ
 // do cadastro quando vierem vazios; os antigos (so nome/CNPJ) seguem iguais.
-async function validarVinculos(body, organizacaoId) {
+// cnpjsAtuais: CNPJs ja gravados no tratamento (aceitos mesmo sem digito valido,
+// para nao travar a edicao de cadastro antigo).
+async function validarVinculos(body, organizacaoId, cnpjsAtuais = []) {
   const { setorId, sistemaIds, compartilhamentos } = body;
   if (setorId && !(await idsDaOrganizacao(prisma.setor, setorId, organizacaoId))) return { erro: 'Setor inválido' };
   if (sistemaIds !== undefined) {
@@ -108,12 +128,17 @@ async function validarVinculos(body, organizacaoId) {
       if (c.terceiroId && !t) return { erro: 'Terceiro inválido no compartilhamento' };
       const terceiroNome = (c.terceiroNome || '').trim() || t?.razaoSocial || '';
       if (!terceiroNome) return { erro: 'Informe o nome do terceiro no compartilhamento' };
+      // Etapa 7b: CNPJ com digito verificador; pais estrangeiro exige a hipotese do art. 33
+      if (c.terceiroCNPJ && !cnpjsAtuais.includes(c.terceiroCNPJ) && !cnpjValido(c.terceiroCNPJ)) return { erro: `CNPJ inválido no compartilhamento com ${terceiroNome}: confira os números (dígito verificador não confere)` };
+      if (ehExterior(c.paisDestino) && !HIPOTESES_ART33.includes(c.baseLegalTransferencia)) {
+        return { erro: `Compartilhamento com ${terceiroNome} vai para o exterior (${String(c.paisDestino).trim()}): escolha a hipótese do art. 33 da LGPD (incisos I a IX)` };
+      }
       comps.push({
         terceiroNome,
         terceiroCNPJ: c.terceiroCNPJ || t?.cnpj || null,
         finalidadeCompartilhamento: c.finalidadeCompartilhamento,
         paisDestino: c.paisDestino || 'Brasil',
-        baseLegalTransferencia: c.baseLegalTransferencia || null,
+        baseLegalTransferencia: ehExterior(c.paisDestino) ? c.baseLegalTransferencia : null,
         terceiroId: t ? t.id : null
       });
     }
@@ -173,6 +198,8 @@ router.post('/tratamentos', async (req, res) => {
     if (!nome || !finalidade || !baseLegal) {
       return res.status(400).json({ erro: 'nome, finalidade e baseLegal são obrigatórios' });
     }
+    const erroRet = erroRetencao(retencaoDias);
+    if (erroRet) return res.status(400).json({ erro: erroRet });
     const erroBase = erroBaseLegal(req.body, { exigir: true });
     if (erroBase) return res.status(400).json({ erro: erroBase });
     if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
@@ -237,11 +264,13 @@ router.put('/tratamentos/:id', async (req, res) => {
     } = req.body;
     const erroBase = erroBaseLegal(req.body, { exigir: false });
     if (erroBase) return res.status(400).json({ erro: erroBase });
+    const erroRet = erroRetencao(retencaoDias);
+    if (erroRet) return res.status(400).json({ erro: erroRet });
 
     if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
       return res.status(400).json({ erro: 'Responsável inválido' });
     }
-    const vinc = await validarVinculos(req.body, req.usuario.organizacaoId);
+    const vinc = await validarVinculos(req.body, req.usuario.organizacaoId, (existente.compartilhamentos || []).map(c => c.terceiroCNPJ).filter(Boolean));
     if (vinc.erro) return res.status(400).json({ erro: vinc.erro });
 
     // Grava snapshot do estado ANTES da alteracao
@@ -446,34 +475,23 @@ router.get('/export', async (req, res) => {
     if (formato === 'csv') {
       // Colunas novas entram no fim para nao deslocar planilhas existentes
       // baseLegal sai com o rotulo (art. 7); baseLegalSensivel (art. 11) entra no fim
-      const header = 'nome,finalidade,baseLegal,categoriasDados,categoriasTitulares,retencaoDias,formaDescarte,medidasSeguranca,ativo,criadoEm,compartilhamentos,responsavel,setor,sistemas,outrosMeios,baseLegalSensivel';
-      // Etapa 7a: todas as celulas de texto passam por q() (neutraliza formula)
-      const q = v => `"${String(v ?? '').replace(/^([=+\-@\t\r])/, "'$1").replace(/"/g, '""')}"`;
+      // Etapa 7b: padrao unico (";", BOM, Brasilia, rotulos); textos neutralizados contra formula
+      const cab = ['Nome', 'Finalidade', 'Base legal (LGPD, art. 7º)', 'Categorias de dados', 'Categorias de titulares', 'Retenção (dias)',
+        'Forma de descarte', 'Medidas de segurança', 'Ativo', 'Criado em (Brasília)', 'Compartilhamentos', 'Responsável', 'Setor', 'Sistemas',
+        'Outros meios', 'Base legal para dados sensíveis (LGPD, art. 11)'];
       const rows = tratamentos.map(t => {
-        const comp = t.compartilhamentos.map(c => `${c.terceiroNome}(${c.paisDestino})`).join('; ');
+        const comp = t.compartilhamentos.map(c => `${c.terceiroNome} (${c.paisDestino}${c.baseLegalTransferencia ? ' — ' + R.rotulo(R.HIPOTESE_ART33, c.baseLegalTransferencia) : ''})`).join('; ');
         return [
-          q(t.nome),
-          q(t.finalidade),
-          q(rotuloBaseLegal(t.baseLegal)),
-          q(normalizarCategorias(t.categoriasDados).join('; ')),
-          q(normalizarCategorias(t.categoriasTitulares).join('; ')),
-          t.retencaoDias || '',
-          q(t.formaDescarte),
-          q(t.medidasSeguranca),
-          t.ativo,
-          t.criadoEm.toISOString(),
-          q(comp),
-          q(t.responsavelNome),
-          q(t.setor?.nome),
-          q((t.sistemas || []).map(v => v.sistema?.nome).filter(Boolean).join('; ')),
-          q(t.outrosMeios),
-          q(rotuloBaseLegal(t.baseLegalSensivel))
-        ].join(',');
+          t.nome, t.finalidade, rotuloBaseLegal(t.baseLegal),
+          normalizarCategorias(t.categoriasDados).join('; '), normalizarCategorias(t.categoriasTitulares).join('; '),
+          t.retencaoDias ?? '', t.formaDescarte, t.medidasSeguranca, t.ativo ? 'Sim' : 'Não', fmtDataHoraCsv(t.criadoEm),
+          comp, t.responsavelNome, t.setor?.nome, (t.sistemas || []).map(v => v.sistema?.nome).filter(Boolean).join('; '),
+          t.outrosMeios, rotuloBaseLegal(t.baseLegalSensivel)
+        ];
       });
-      const csv = [header, ...rows].join('\n');
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename=ropa-tratamentos.csv');
-      return res.send('\uFEFF' + csv); // BOM para Excel abrir UTF-8 correto
+      return res.send(documentoCsv(cab, rows));
     }
 
     // Default: JSON (codigos + rotulos)

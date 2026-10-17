@@ -5,7 +5,9 @@ import IncidenteList from './IncidenteList';
 import IncidenteForm from './IncidenteForm';
 import IncidenteDetail from './IncidenteDetail';
 import GeradorDocumentos from './GeradorDocumentos';
-import { fmtDiaSP } from '../datas';
+import Historico from './Historico';
+import { baixarArquivo } from './download';
+import { fmtDiaSP, fmtDataHora } from '../datas';
 
 // Mapa das categorias do repositorio para rotulos legiveis. POLITICA e
 // MODELO sao legados (mantidos para documentos antigos). TERMO e ADITIVO
@@ -32,7 +34,7 @@ const ORDEM_CATEGORIA = [
   'POLITICA', 'MODELO', 'CONTRATO', 'ADITIVO', 'TERMO', 'TERMO_USO', 'OUTRO'
 ];
 
-// Upload pelo DPO (rota /repositorio/upload ja existia, sem tela no cliente).
+// Envio de arquivo por Gestor ou DPO (Etapa 7b).
 function UploadDocumento({ token, onEnviado }) {
   const [form, setForm] = useState({ titulo: '', descricao: '', categoria: 'ADITIVO' });
   const [arquivo, setArquivo] = useState(null);
@@ -41,6 +43,7 @@ function UploadDocumento({ token, onEnviado }) {
   const [enviando, setEnviando] = useState(false);
 
   const enviar = async () => {
+    setErro('');
     if (!form.titulo.trim() || !arquivo) return setErro('Informe o título e escolha o arquivo (PDF ou DOCX)');
     setEnviando(true);
     setErro('');
@@ -94,57 +97,105 @@ function iconePorMime(mime) {
   return '📄';
 }
 
+// Card de um documento: baixar, historico (enviado/gerado/excluido, por quem
+// e quando) e exclusao logica com motivo (Gestor/DPO).
+function CardDocumento({ token, d, podeExcluir, onExcluido, onErro }) {
+  const [verHistorico, setVerHistorico] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+  const [motivo, setMotivo] = useState('');
+  const [salvando, setSalvando] = useState(false);
+
+  const excluir = async () => {
+    onErro('');
+    if (motivo.trim().length < 3) return onErro('Informe o motivo da exclusão');
+    setSalvando(true);
+    try {
+      await axios.delete(`${API}/repositorio/documentos/${d.id}`, { headers: { Authorization: `Bearer ${token}` }, data: { motivo: motivo.trim() } });
+      setExcluindo(false);
+      onExcluido();
+    } catch (err) {
+      onErro(err.response?.data?.erro || 'Erro ao excluir documento');
+    }
+    setSalvando(false);
+  };
+
+  return (
+    <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 28 }}>{iconePorMime(d.mimetype)}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.titulo}</div>
+          <div className="text-muted text-xs">
+            {fmtDiaSP(d.criadoEm)}
+            {d.tamanhoBytes ? ` · ${(d.tamanhoBytes / 1024).toFixed(0)} KB` : ''}
+          </div>
+        </div>
+      </div>
+      {d.descricao && <div className="text-sm" style={{ color: '#475569' }}>{d.descricao}</div>}
+      {d.excluidoEm && (
+        <div className="text-xs" style={{ color: '#b91c1c' }}>Excluído em {fmtDataHora(d.excluidoEm)} — motivo: {d.motivoExclusao}</div>
+      )}
+      <div className="btn-row" style={{ marginTop: 'auto' }}>
+        {d.mimetype ? (
+          <button type="button" onClick={() => baixarArquivo(token, `/repositorio/documentos/${d.id}/download`, d.nomeArquivo || `${d.titulo}.pdf`).catch(e => onErro(e.message))} className="btn-primary acao-leitura btn-sm">
+            ⬇ Baixar
+          </button>
+        ) : (
+          <span className="text-muted text-xs">Documento de texto (sem arquivo)</span>
+        )}
+        <button type="button" className="btn-ghost btn-sm" onClick={() => setVerHistorico(v => !v)}>{verHistorico ? 'Ocultar histórico' : 'Histórico'}</button>
+        {podeExcluir && !d.excluidoEm && !excluindo && (
+          <button type="button" className="btn-ghost btn-sm acao-escrita" style={{ color: '#b91c1c' }} onClick={() => { onErro(''); setExcluindo(true); }}>Excluir</button>
+        )}
+      </div>
+      {excluindo && (
+        <div className="mt-8">
+          <label className="text-xs">Motivo da exclusão (obrigatório; o documento fica guardado e a exclusão vai para o histórico)</label>
+          <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Ex.: versão substituída pela v3" autoFocus />
+          <div className="btn-row">
+            <button type="button" className="btn-danger btn-sm" onClick={excluir} disabled={salvando}>{salvando ? 'Excluindo...' : 'Confirmar exclusão'}</button>
+            <button type="button" className="btn-secondary btn-sm" onClick={() => { setExcluindo(false); setMotivo(''); }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+      {verHistorico && <Historico token={token} entidade="DOCUMENTO" registroId={d.id} />}
+    </div>
+  );
+}
+
 function RepositorioArquivos({ token, usuario }) {
-  const ehDpo = usuario?.perfil === 'ENCARREGADO_LGPD';
-  const podeGerar = ['GESTOR', 'ENCARREGADO_LGPD'].includes(usuario?.perfil);
+  // Etapa 7b: Gestor ou DPO enviam, geram e excluem (exclusao logica)
+  const podeGerir = ['GESTOR', 'ENCARREGADO_LGPD'].includes(usuario?.perfil);
   const [docs, setDocs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [excluidos, setExcluidos] = useState(null);
+  const [carregado, setCarregado] = useState(false);
   const [erro, setErro] = useState('');
 
+  // Recarrega sem trocar a tela por "Carregando..." (o gerador e o envio
+  // continuam montados e mostram a mensagem e os botoes de baixar).
   const carregar = useCallback(async () => {
-    setLoading(true);
-    setErro('');
     try {
-      const res = await axios.get(`${API}/repositorio/documentos`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const h = { Authorization: `Bearer ${token}` };
+      const res = await axios.get(`${API}/repositorio/documentos`, { headers: h });
       setDocs(res.data);
     } catch (err) {
       setErro(err.response?.data?.erro || 'Erro ao carregar documentos');
     }
-    setLoading(false);
+    setCarregado(true);
+  }, [token]);
+
+  const carregarExcluidos = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/repositorio/documentos?excluidos=1`, { headers: { Authorization: `Bearer ${token}` } });
+      setExcluidos(res.data);
+    } catch (err) {
+      setErro(err.response?.data?.erro || 'Erro ao carregar documentos excluídos');
+    }
   }, [token]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  const baixar = async (doc) => {
-    try {
-      const res = await axios.get(`${API}/repositorio/documentos/${doc.id}/download`, {
-        headers: { Authorization: `Bearer ${token}` },
-        responseType: 'blob'
-      });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = doc.nomeArquivo || `${doc.titulo}.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (err) {
-      alert(err.response?.data?.erro || 'Erro ao baixar arquivo');
-    }
-  };
-
-  if (loading) return <p className="text-muted">Carregando...</p>;
-  if (erro) return <div className="alert-error">{erro}</div>;
-  if (!docs.length) {
-    return (
-      <div className="card">
-        {ehDpo && <UploadDocumento token={token} onEnviado={carregar} />}
-        {podeGerar && <GeradorDocumentos token={token} onGerado={carregar} />}
-        <p className="text-muted">Nenhum documento disponível ainda. Os documentos são publicados pelo administrador do sistema.</p>
-      </div>
-    );
-  }
+  const aposExcluir = () => { carregar(); if (excluidos) carregarExcluidos(); };
 
   // Agrupa por categoria (tipo)
   const grupos = {};
@@ -157,51 +208,39 @@ function RepositorioArquivos({ token, usuario }) {
     <div>
       <div className="card mb-16">
         <p className="text-sm" style={{ color: '#64748b' }}>
-          Documentos institucionais e modelos disponibilizados pela sua organização. Clique em qualquer card para baixar.
+          Documentos institucionais e modelos da sua organização, organizados por categoria. Cada documento mostra o histórico de envio, geração e exclusão.
         </p>
       </div>
-      {ehDpo && <UploadDocumento token={token} onEnviado={carregar} />}
-      {podeGerar && <GeradorDocumentos token={token} onGerado={carregar} />}
+      {erro && <div className="alert-error mb-8">{erro}</div>}
+      {podeGerir && <UploadDocumento token={token} onEnviado={carregar} />}
+      {podeGerir && <GeradorDocumentos token={token} onGerado={carregar} />}
+
+      {!carregado ? <p className="text-muted">Carregando...</p> : docs.length === 0 && (
+        <div className="card mb-16"><p className="text-muted">Nenhum documento no repositório ainda.</p></div>
+      )}
 
       {categoriasComDocs.map(cat => (
         <div key={cat} className="card mb-16">
           <h3 className="card-header">{CATEGORIA_LABEL[cat] || cat}</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
             {grupos[cat].map(d => (
-              <div
-                key={d.id}
-                style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 28 }}>{iconePorMime(d.mimetype)}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.titulo}</div>
-                    <div className="text-muted text-xs">
-                      {fmtDiaSP(d.criadoEm)}
-                      {d.tamanhoBytes ? ` · ${(d.tamanhoBytes / 1024).toFixed(0)} KB` : ''}
-                    </div>
-                  </div>
-                </div>
-                {d.descricao && (
-                  <div className="text-sm" style={{ color: '#475569' }}>{d.descricao}</div>
-                )}
-                {d.mimetype ? (
-                  <button
-                    type="button"
-                    onClick={() => baixar(d)}
-                    className="btn-primary acao-leitura btn-sm"
-                    style={{ marginTop: 'auto' }}
-                  >
-                    ⬇ Baixar
-                  </button>
-                ) : (
-                  <span className="text-muted text-xs" style={{ marginTop: 'auto' }}>Documento de texto (sem arquivo)</span>
-                )}
-              </div>
+              <CardDocumento key={d.id} token={token} d={d} podeExcluir={podeGerir} onExcluido={aposExcluir} onErro={setErro} />
             ))}
           </div>
         </div>
       ))}
+
+      <div className="card mb-16">
+        <div className="flex-between">
+          <h3 className="card-header" style={{ marginBottom: 0 }}>Documentos excluídos</h3>
+          <button className="btn-ghost btn-sm" onClick={() => (excluidos ? setExcluidos(null) : carregarExcluidos())}>{excluidos ? 'Ocultar' : 'Mostrar'}</button>
+        </div>
+        {excluidos && (excluidos.length === 0 ? <p className="text-muted text-sm mt-8">Nenhum documento excluído.</p> : (
+          <div className="mt-8" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+            {excluidos.map(d => <CardDocumento key={d.id} token={token} d={d} podeExcluir={false} onExcluido={aposExcluir} onErro={setErro} />)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

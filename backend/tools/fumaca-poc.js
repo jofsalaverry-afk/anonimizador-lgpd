@@ -29,6 +29,9 @@ const CNPJ = '00.000.000/0001-91';
 const TODOS_MODULOS = ['anonimizador', 'ropa', 'dsar', 'repositorio', 'treinamento', 'checklist', 'pesquisa', 'inventario', 'terceiros'];
 const linhas = [];
 const ctx = {};
+// dia de hoje em Sao Paulo (AAAA-MM-DD)
+const HOJE = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const AMANHA = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + 86400000));
 
 async function req(metodo, rota, { token, body, form, binario } = {}) {
   const headers = {};
@@ -184,7 +187,7 @@ async function main() {
 
   // ---------- Incidentes ----------
   const inc = await passo('Incidentes', 'registrar simulado', 'POST', '/repositorio/incidentes', { token: G, body: {
-    titulo: 'Simulado anual', dataOcorrencia: new Date().toISOString().slice(0, 10), tipoIncidente: 'VAZAMENTO', descricao: 'Exercício', severidade: 'MEDIA', tipoRegistro: 'SIMULADO'
+    titulo: 'Simulado anual', dataOcorrencia: HOJE, tipoIncidente: 'VAZAMENTO', descricao: 'Exercício', severidade: 'MEDIA', tipoRegistro: 'SIMULADO'
   } }, 201);
   await passo('Incidentes', 'registrar providência', 'POST', `/repositorio/incidentes/${inc?.json?.id}/providencias`, { token: G, body: { descricao: 'Senhas trocadas' } }, 201);
   await passo('Incidentes', 'listar (filtro simulado)', 'GET', '/repositorio/incidentes?tipoRegistro=SIMULADO', { token: G });
@@ -196,9 +199,9 @@ async function main() {
     dadosAfetados: ['Nome', 'Endereço', 'Saúde'], planoAcao: 'Conferir destinatário antes do envio'
   } }, 201, r => (r.json.dataOcorrencia === '2026-10-16T00:00:00.000Z' && r.json.prazoComunicacao?.prazo === '2026-10-21') || `data ${r.json.dataOcorrencia} / prazo ${r.json.prazoComunicacao?.prazo}`);
   await passo('Incidentes', 'data 16/10 sem deslocar no CSV', 'GET', '/repositorio/incidentes/export?formato=csv', { token: G, binario: true }, 200,
-    r => (r.buf.toString('utf8').includes(',2026-10-16,') && r.buf.toString('utf8').includes('2026-10-21')) || 'data deslocada ou sem prazo');
+    r => (r.buf.toString('utf8').includes(';16/10/2026;') && r.buf.toString('utf8').includes('21/10/2026')) || 'data deslocada ou sem prazo');
   await passo('Incidentes', 'registrar comunicação ANPD/titulares', 'PUT', `/repositorio/incidentes/${real?.json?.id}`, { token: G, body: {
-    dataComunicacaoANPD: '2026-10-19', dataComunicacaoTitulares: '2026-10-19'
+    dataComunicacaoANPD: HOJE, dataComunicacaoTitulares: HOJE
   } }, 200, r => (r.json.prazoComunicacao?.situacao === 'COMUNICADO' && r.json.notificadoANPD === true) || 'não marcou comunicado');
   await passo('Incidentes', 'risco inválido recusado (400)', 'POST', '/repositorio/incidentes', { token: G, body: {
     titulo: 'x', dataOcorrencia: '2026-10-16', tipoIncidente: 'PERDA', descricao: 'x', riscoRelevante: 'TALVEZ'
@@ -225,8 +228,8 @@ async function main() {
     r => (r.json.texto.includes('Dados levantados no protocolo') && r.json.texto.includes('lgpd@demo-staging.local') && !/\{(providencias|protocolo|nome_titular)\}/.test(r.json.texto)) || 'variável não preenchida');
   await passo('DSAR', 'responder (sem SMTP: não sai por e-mail)', 'POST', `/dsar/solicitacoes/${sol?.json?.id}/responder`, { token: G, body: { respostaTexto: 'Segue a declaração.' } }, 200,
     r => r.json.respostaEnviadaEmailEm === null || 'marcou e-mail enviado sem SMTP');
-  await passo('DSAR', 'registrar envio por outro meio', 'POST', `/dsar/solicitacoes/${sol?.json?.id}/envio`, { token: G, body: { meio: 'PESSOALMENTE', data: '2026-10-16' } }, 200,
-    r => (r.json.respostaEnvioMeio === 'PESSOALMENTE' && r.json.respostaEnvioData === '2026-10-16T00:00:00.000Z') || 'envio não gravado');
+  await passo('DSAR', 'registrar envio por outro meio', 'POST', `/dsar/solicitacoes/${sol?.json?.id}/envio`, { token: G, body: { meio: 'PESSOALMENTE', data: HOJE } }, 200,
+    r => (r.json.respostaEnvioMeio === 'PESSOALMENTE' && r.json.respostaEnvioData === HOJE + 'T00:00:00.000Z') || 'envio não gravado');
   await passo('DSAR', 'exportar CSV', 'GET', '/dsar/export?formato=csv', { token: G, binario: true });
 
   // ---------- Checklist ----------
@@ -282,9 +285,12 @@ async function main() {
   await passo('Minutas', 'listar modelos', 'GET', '/gerador/modelos', { token: G }, 200, r => r.json.length === 9 || 'não são 9 modelos');
   await passo('Minutas', 'prévia sem pendências', 'POST', '/gerador/modelos/politica-privacidade/previa', { token: G, body: {} }, 200,
     r => (r.json.pendencias.length === 0 && r.json.texto.includes('Art. 7º, II —')) || `pendências: ${r.json.pendencias.join('; ')} ou sem rótulo com artigo`);
-  const ger = await passo('Minutas', 'gerar DOCX + PDF', 'POST', '/gerador/modelos/politica-privacidade/gerar', { token: G, body: {} }, 201);
+  const ger = await passo('Minutas', 'gerar DOCX + PDF/A (Etapa 7b)', 'POST', '/gerador/modelos/politica-privacidade/gerar', { token: G, body: {} }, 201,
+    r => (r.json.pdfa === true && r.json.documentos.map(d => d.formato).join('+') === 'DOCX+PDF/A') || `formatos ${r.json.documentos?.map(d => d.formato)} pdfa=${r.json.pdfa}`);
   for (const d of ger?.json?.documentos || []) {
-    await passo('Minutas', `baixar ${d.formato}`, 'GET', `/repositorio/documentos/${d.id}/download`, { token: G, binario: true }, 200, r => (d.formato === 'PDF' ? pdf(r.buf) : zip(r.buf)));
+    const b = await passo('Minutas', `baixar ${d.formato}`, 'GET', `/repositorio/documentos/${d.id}/download`, { token: G, binario: true }, 200,
+      r => (d.formato.startsWith('PDF') ? (pdf(r.buf) === true && (d.formato !== 'PDF/A' || /pdfaid:part/.test(r.buf.toString('latin1'))) ? true : 'sem identificação PDF/A') : zip(r.buf)));
+    if (b?.status === 200 && d.formato === 'PDF/A') fs.writeFileSync(path.join(SAIDA, 'documento-gerado-pdfa.pdf'), b.buf);
   }
   await passo('Minutas', 'aditivo com terceiro', 'POST', '/gerador/modelos/aditivo-lgpd/gerar', { token: G, body: { terceiroId: terc?.json?.id } }, 201);
 
@@ -423,7 +429,7 @@ async function main() {
   const formula = await passo('Endurecimento 7a', 'tratamento com nome iniciando por "="', 'POST', '/ropa/tratamentos', { token: G, body: { nome: '=1+1 fumaça 7a', finalidade: '@soma', baseLegal: 'OBRIGACAO_LEGAL' } }, 201);
   await passo('Endurecimento 7a', 'CSV da ROPA neutraliza a fórmula', 'GET', '/ropa/export?formato=csv', { token: G, binario: true }, 200, r => {
     const t = r.buf.toString('utf8');
-    return (t.includes(`"'=1+1 fumaça 7a"`) && t.includes(`"'@soma"`)) || 'fórmula sem apóstrofo';
+    return (t.includes(`'=1+1 fumaça 7a;`) && t.includes(`;'@soma;`)) || 'fórmula sem apóstrofo';
   });
   if (formula?.json?.id) await req('DELETE', `/ropa/tratamentos/${formula.json.id}`, { token: G });
   const fdA = new FormData();
@@ -449,19 +455,68 @@ async function main() {
     r => (r.json.modoBasico === true && /apenas CPF, e-mail pessoal \(não institucional\) e telefone/.test(r.json.avisoIA) && /RG, endereço/.test(r.json.avisoIA) && /manualmente/.test(r.json.avisoIA)) || 'aviso inadequado');
   await passo('Anonimizador 7a', 'sem IA: texto colado recebe mensagem clara (503)', 'POST', '/documents/anonymize', { token: G, body: { texto: 'Fulano, CPF 123.456.789-09' } }, 503, r => /depende da inteligência artificial/.test(r.json.erro) || 'mensagem');
 
-  // ---------- Limites de tentativas (por último: bloqueiam o IP por 15 min) ----------
+  // ---------- Etapa 7b ----------
+  // DSAR
+  await passo('DSAR 7b', 'CPF com dígito errado recusado (400)', 'POST', '/dsar/solicitacoes', { token: G, body: { titularNome: 'Titular CPF', titularEmail: 'cpf@demo-staging.local', titularCpf: '529.982.247-24', tipoDireito: 'ACESSO', descricao: 'x' } }, 400);
+  const s7 = await passo('DSAR 7b', 'pedido interno nasce aguardando verificação, sem prazo', 'POST', '/dsar/solicitacoes', { token: G, body: { titularNome: 'Titular 7b', titularEmail: 't7b@demo-staging.local', titularCpf: '529.982.247-25', tipoDireito: 'OPOSICAO', descricao: 'Oposição a tratamento' } }, 201,
+    r => (r.json.status === 'AGUARDANDO_VERIFICACAO' && r.json.dataLimite === null && /Aguardando verificação/.test(r.json.sla.label)) || `status ${r.json.status}`);
+  const id7 = s7?.json?.id;
+  await passo('DSAR 7b', 'responder sem identidade verificada é bloqueado (400)', 'POST', `/dsar/solicitacoes/${id7}/responder`, { token: G, body: { respostaTexto: 'Resposta completa.' } }, 400);
+  await passo('DSAR 7b', 'verificação "Outro" com observação', 'PATCH', `/dsar/solicitacoes/${id7}/verificar-identidade`, { token: G, body: { metodo: 'OUTRO', observacao: 'Confirmado por telefone com os dados do cadastro' } }, 200,
+    r => (r.json.status === 'EM_ANALISE' && r.json.sla.label === '15 dias restantes') || `prazo: ${r.json.sla?.label}`);
+  await passo('DSAR 7b', 'resposta com "MINUTA" é bloqueada (400)', 'POST', `/dsar/solicitacoes/${id7}/responder`, { token: G, body: { respostaTexto: 'MINUTA — revisar\nPrezado Titular 7b, segue.' } }, 400);
+  await passo('DSAR 7b', 'resposta com [campo] entre colchetes é bloqueada (400)', 'POST', `/dsar/solicitacoes/${id7}/responder`, { token: G, body: { respostaTexto: 'Prezado [NOME], segue.' } }, 400);
+  await passo('DSAR 7b', 'resposta completa → "Respondido no prazo"', 'POST', `/dsar/solicitacoes/${id7}/responder`, { token: G, body: { respostaTexto: 'Prezado Titular 7b, registramos a sua oposição.' } }, 200,
+    r => r.json.sla?.label === 'Respondido no prazo' || r.json.sla?.label);
+  await passo('DSAR 7b', 'data de envio futura recusada (400)', 'POST', `/dsar/solicitacoes/${id7}/envio`, { token: G, body: { meio: 'CORREIOS', data: AMANHA } }, 400);
+  await passo('DSAR 7b', 'CSV: rótulo no lugar de VERIFICACAO_IDENTIDADE, ";" e Brasília', 'GET', '/dsar/export?formato=csv', { token: G, binario: true }, 200, r => {
+    const t = r.buf.toString('utf8');
+    return (t.includes('Verificação de identidade — ') && !t.includes('VERIFICACAO_IDENTIDADE') && t.split('\r\n')[0].includes(';') && !/\d{4}-\d{2}-\d{2}T\d{2}/.test(t) && t.includes('Respondido no prazo')) || 'CSV fora do padrão';
+  });
+  // Repositorio
+  const fdD = new FormData();
+  fdD.append('titulo', 'Política de teste 7b'); fdD.append('categoria', 'POLITICA');
+  fdD.append('arquivo', new Blob([await new Promise(res => { const PDFDocument = require('pdfkit'); const d = new PDFDocument(); const p = []; d.on('data', b => p.push(b)); d.on('end', () => res(Buffer.concat(p))); d.text('politica de teste'); d.end(); })], { type: 'application/pdf' }), 'politica-7b.pdf');
+  const doc7 = await passo('Repositório 7b', 'Gestor envia arquivo', 'POST', '/repositorio/upload', { token: G, form: fdD }, 201);
+  await passo('Repositório 7b', 'excluir sem motivo é recusado (400)', 'DELETE', `/repositorio/documentos/${doc7?.json?.id}`, { token: G, body: {} }, 400);
+  await passo('Repositório 7b', 'excluir com motivo (exclusão lógica)', 'DELETE', `/repositorio/documentos/${doc7?.json?.id}`, { token: G, body: { motivo: 'Fumaça: versão substituída' } });
+  await passo('Repositório 7b', 'excluído some da lista e aparece em "excluídos"', 'GET', '/repositorio/documentos?excluidos=1', { token: G }, 200,
+    r => r.json.some(d => d.id === doc7?.json?.id && d.motivoExclusao === 'Fumaça: versão substituída') || 'não está nos excluídos');
+  await passo('Repositório 7b', 'histórico do documento: enviado e excluído, por quem e quando', 'GET', `/historico?entidade=DOCUMENTO&registroId=${doc7?.json?.id}`, { token: G }, 200,
+    r => (r.json.itens.map(i => i.acao).sort().join(',') === 'CRIAR,EXCLUIR' && r.json.itens.every(i => i.usuarioId && i.criadoEm)) || 'histórico incompleto');
+  await passo('Checklist 7b', 'Auditor vê evidências e histórico do checklist', 'GET', `/historico?entidade=CHECKLIST_ITEM&registroId=${ctx.atividade?.json?.id}`, { token: ctx.t.AUDITOR }, 200);
+  // Validacoes
+  await passo('Validações 7b', 'retenção negativa recusada (400)', 'POST', '/ropa/tratamentos', { token: G, body: { nome: 'Ret 7b', finalidade: 'x', baseLegal: 'OBRIGACAO_LEGAL', retencaoDias: -1 } }, 400);
+  await passo('Validações 7b', 'país estrangeiro sem hipótese do art. 33 recusado (400)', 'POST', '/ropa/tratamentos', { token: G, body: { nome: 'Ext 7b', finalidade: 'x', baseLegal: 'OBRIGACAO_LEGAL', compartilhamentos: [{ terceiroNome: 'Nuvem EUA', finalidadeCompartilhamento: 'Hospedagem', paisDestino: 'Estados Unidos' }] } }, 400);
+  const ext = await passo('Validações 7b', 'país estrangeiro com art. 33, II aceito', 'POST', '/ropa/tratamentos', { token: G, body: { nome: 'Ext 7b', finalidade: 'x', baseLegal: 'OBRIGACAO_LEGAL', compartilhamentos: [{ terceiroNome: 'Nuvem EUA', finalidadeCompartilhamento: 'Hospedagem', paisDestino: 'Estados Unidos', baseLegalTransferencia: 'ART33_II' }] } }, 201);
+  if (ext?.json?.id) await req('DELETE', `/ropa/tratamentos/${ext.json.id}`, { token: G });
+  await passo('Validações 7b', 'CNPJ com dígito errado recusado (400)', 'POST', '/terceiros', { token: G, body: { razaoSocial: 'CNPJ errado', cnpj: '11.222.333/0001-82' } }, 400);
+  await passo('Validações 7b', 'incidente com data futura recusado (400)', 'POST', '/repositorio/incidentes', { token: G, body: { titulo: 'Futuro', tipoIncidente: 'PERDA', descricao: 'x', dataOcorrencia: AMANHA } }, 400);
+  await passo('Validações 7b', 'ciência anterior à ocorrência recusada (400)', 'POST', '/repositorio/incidentes', { token: G, body: { titulo: 'Ordem', tipoIncidente: 'PERDA', descricao: 'x', dataOcorrencia: '2026-10-10', dataCiencia: '2026-10-09' } }, 400);
+  await passo('Validações 7b', 'titulares negativos recusados (400)', 'POST', '/repositorio/incidentes', { token: G, body: { titulo: 'Neg', tipoIncidente: 'PERDA', descricao: 'x', dataOcorrencia: '2026-10-10', qtdTitulares: -1 } }, 400);
+  // MFA da camara pelo Gestor
+  await passo('MFA 7b', 'Gestor liga o MFA obrigatório da câmara', 'PUT', '/organizacao/mfa-obrigatorio', { token: G, body: { mfaObrigatorio: true } }, 200, r => r.json.mfaObrigatorio === true || 'não ligou');
+  await passo('MFA 7b', 'Gestor desliga (para o teste no navegador)', 'PUT', '/organizacao/mfa-obrigatorio', { token: G, body: { mfaObrigatorio: false } });
+  await passo('MFA 7b', 'histórico da câmara com quem ligou', 'GET', `/historico?entidade=ORGANIZACAO&registroId=${org.id}`, { token: G }, 200,
+    r => r.json.itens.some(h => h.diff?.mfaObrigatorio?.depois === true && h.usuarioId === gestorU?.id) || 'sem registro do Gestor');
+  // Indicador do ROPA
+  await passo('Indicadores 7b', 'ROPA mostra pendentes por falta de setor ou sistema, com link', 'GET', '/indicadores', { token: G }, 200,
+    r => { const i = (r.json.indicadores || []).find(x => x.chave === 'ROPA'); return (typeof i?.pendentesSetorSistema === 'number' && i.linkSetorSistema?.filtro === 'sem-setor-sistema') || 'sem o contador'; });
+
+  // ---------- Limites de tentativas (por último: bloqueiam a conta/IP por 15 min) ----------
   let st429 = null, n = 0;
   for (n = 1; n <= 12; n++) {
     const r = await req('POST', '/auth/login', { body: { email: 'nao-existe-7a@demo-staging.local', senha: 'senha-errada-7a' } });
     if (r.status === 429) { st429 = r; break; }
   }
-  linhas.push({ modulo: 'Limites 7a', descricao: `login de usuário: 429 ao passar de 10 erros em /auth na janela de 15 min (veio na tentativa ${n}; os erros esperados dos passos anteriores contam)`, metodo: 'POST', rota: '/auth/login', status: st429?.status || '-', ok: !!st429 && n <= 11, nota: st429 ? '' : 'nunca deu 429' });
+  linhas.push({ modulo: 'Limites 7b', descricao: `login: 429 na 11ª falha da MESMA conta (veio na tentativa ${n})`, metodo: 'POST', rota: '/auth/login', status: st429?.status || '-', ok: !!st429 && n === 11, nota: st429 ? (n === 11 ? '' : `na tentativa ${n}`) : 'nunca deu 429' });
+  await passo('Limites 7b', 'colega no mesmo IP (outra conta) não fica bloqueado', 'POST', '/auth/login', { body: { email: 'colega-7b@demo-staging.local', senha: 'senha-errada-7b' } }, 401);
   let ad429 = null, m = 0;
   for (m = 1; m <= 12; m++) {
     const r = await req('POST', '/admin/login', { body: { email: 'nao-existe-7a@demo-staging.local', senha: 'senha-errada-7a' } });
     if (r.status === 429) { ad429 = r; break; }
   }
-  linhas.push({ modulo: 'Limites 7a', descricao: `login do Admin: 429 depois de 10 erros (veio na tentativa ${m})`, metodo: 'POST', rota: '/admin/login', status: ad429?.status || '-', ok: !!ad429 && m === 11, nota: ad429 ? (m === 11 ? '' : `na tentativa ${m}`) : 'nunca deu 429' });
+  linhas.push({ modulo: 'Limites 7a', descricao: `login do Admin: 429 na 11ª falha da mesma conta (veio na tentativa ${m})`, metodo: 'POST', rota: '/admin/login', status: ad429?.status || '-', ok: !!ad429 && m === 11, nota: ad429 ? (m === 11 ? '' : `na tentativa ${m}`) : 'nunca deu 429' });
 }
 
 main()

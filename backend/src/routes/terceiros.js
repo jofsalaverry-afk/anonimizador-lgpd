@@ -9,6 +9,7 @@ const { dataPura } = require('../services/datas');
 
 const router = express.Router();
 const { prisma } = require('../db');
+const { cnpjValido } = require('../services/documentosId');
 
 const PAPEIS = ['OPERADOR', 'CONTROLADOR_CONJUNTO', 'SUBOPERADOR'];
 const RISCOS = ['BAIXO', 'MEDIO', 'ALTO'];
@@ -40,7 +41,7 @@ function resumoAcao(a) {
 }
 
 // Valida campos cadastrais. parcial=true no PUT.
-function lerDados(b, { parcial }) {
+function lerDados(b, { parcial, cnpjAtual }) {
   const data = {};
   if (!parcial || b.razaoSocial !== undefined) {
     const r = typeof b.razaoSocial === 'string' ? b.razaoSocial.trim() : '';
@@ -52,6 +53,9 @@ function lerDados(b, { parcial }) {
     data.papel = b.papel;
   }
   if (b.contatoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.contatoEmail)) return { erro: 'E-mail de contato inválido' };
+  // Etapa 7b: CNPJ com digito verificador
+  // (um CNPJ ja gravado antes desta regra continua aceito, para nao travar a edicao)
+  if (b.cnpj && b.cnpj !== cnpjAtual && !cnpjValido(b.cnpj)) return { erro: 'CNPJ inválido: confira os números (dígito verificador não confere)' };
   for (const campo of ['cnpj', 'contatoNome', 'contatoEmail', 'descricaoServico']) {
     if (b[campo] !== undefined) data[campo] = b[campo] ? String(b[campo]).trim() : null;
   }
@@ -155,7 +159,7 @@ router.put('/:id', async (req, res) => {
     if (!podeEscrever(req)) return res.status(403).json({ erro: 'Sem permissão para editar terceiros' });
     const existente = await buscarDaOrg(req.params.id, req.usuario.organizacaoId);
     if (!existente) return res.status(404).json({ erro: 'Terceiro não encontrado' });
-    const lido = lerDados(req.body || {}, { parcial: true });
+    const lido = lerDados(req.body || {}, { parcial: true, cnpjAtual: existente.cnpj });
     if (lido.erro) return res.status(400).json({ erro: lido.erro });
     const terceiro = await prisma.$transaction(async (tx) => {
       let atualizado = await tx.terceiro.update({ where: { id: existente.id }, data: lido.data });

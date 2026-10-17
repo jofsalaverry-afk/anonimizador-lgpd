@@ -10,13 +10,19 @@
 // e o dicionario-de-dados.md e montado a partir das colunas.
 
 const { pendenciasMapeamento } = require('./indicadores');
-const { celulaCsv } = require('./textoSeguro');
+const { documentoCsv } = require('./textoSeguro');
+const R = require('./rotulos');
+const { fmtData, fmtDataHora, fmtDataHoraCsv } = require('./datas');
 const { rotuloBaseLegal, normalizarCategorias } = require('./basesLegais');
 
 const { prazoComunicacao } = require('./incidentes');
 const { codigosExibicao } = require('./checklistCodigos');
+const { calcularSLA, identidadeDe } = require('./dsarService');
 
-// Data-hora: ISO 8601 completo (instante, em UTC). Data pura: AAAA-MM-DD.
+// Nas LINHAS (usadas tambem pelos PDFs): data-hora em ISO 8601, data pura
+// AAAA-MM-DD e codigos. O CSV formata pela 3a posicao da coluna:
+// 'datahora' (Brasilia), 'data' (dd/mm/aaaa) ou um mapa de rotulos;
+// booleano vira Sim/Nao. O JSON mantem os codigos.
 const iso = d => (d ? new Date(d).toISOString() : '');
 const isoData = d => (d ? new Date(d).toISOString().slice(0, 10) : '');
 const lista = arr => (arr || []).join('; ');
@@ -36,10 +42,10 @@ const EXPORTADORES = {
       ['id', 'Identificador do tratamento'], ['nome', 'Nome do processo'], ['finalidade', 'Finalidade'],
       ['baseLegal', 'Base legal (LGPD, art. 7º) — rótulo com o artigo'], ['baseLegalSensivel', 'Base legal para dados sensíveis (LGPD, art. 11), quando houver'], ['categoriasDados', 'Categorias de dados pessoais (separadas por "; ")'],
       ['categoriasTitulares', 'Categorias de titulares'], ['setor', 'Setor responsável'], ['responsavel', 'Responsável (nome)'],
-      ['retencaoDias', 'Prazo de retenção em dias'], ['formaDescarte', 'Forma de descarte'], ['medidasSeguranca', 'Medidas de segurança'],
+      ['retencaoDias', 'Prazo de retenção (dias)'], ['formaDescarte', 'Forma de descarte'], ['medidasSeguranca', 'Medidas de segurança'],
       ['sistemas', 'Sistemas do inventário utilizados'], ['outrosMeios', 'Meios fora do inventário (papel, físico)'],
-      ['compartilhamentos', 'Compartilhamentos: terceiro (CNPJ) — finalidade — país'], ['mapeado', 'Mapeamento completo (true/false)'],
-      ['pendencias', 'Campos que faltam para o mapeamento completo'], ['ativo', 'Tratamento ativo'], ['criadoEm', 'Criação (ISO 8601)'], ['atualizadoEm', 'Última alteração (ISO 8601)']
+      ['compartilhamentos', 'Compartilhamentos: terceiro (CNPJ) — finalidade — país — hipótese do art. 33 (se exterior)'], ['mapeado', 'Mapeamento completo (Sim/Não)'],
+      ['pendencias', 'Campos que faltam para o mapeamento completo'], ['ativo', 'Tratamento ativo'], ['criadoEm', 'Criação (data e hora de Brasília)', 'datahora'], ['atualizadoEm', 'Última alteração (data e hora de Brasília)', 'datahora']
     ],
     async gerar(db, org, ctx) {
       const ts = await db.tratamento.findMany({
@@ -55,7 +61,7 @@ const EXPORTADORES = {
           setor: t.setor?.nome || '', responsavel: ctx.nome(t.responsavelId), retencaoDias: t.retencaoDias ?? '',
           formaDescarte: t.formaDescarte || '', medidasSeguranca: t.medidasSeguranca || '',
           sistemas: lista((t.sistemas || []).map(v => v.sistema?.nome)), outrosMeios: t.outrosMeios || '',
-          compartilhamentos: lista(t.compartilhamentos.map(c => `${c.terceiroNome}${c.terceiroCNPJ ? ` (${c.terceiroCNPJ})` : ''} — ${c.finalidadeCompartilhamento} — ${c.paisDestino}`)),
+          compartilhamentos: lista(t.compartilhamentos.map(c => `${c.terceiroNome}${c.terceiroCNPJ ? ` (${c.terceiroCNPJ})` : ''} — ${c.finalidadeCompartilhamento} — ${c.paisDestino}${c.baseLegalTransferencia ? ` — ${R.rotulo(R.HIPOTESE_ART33, c.baseLegalTransferencia)}` : ''}`)),
           mapeado: pend.length === 0, pendencias: lista(pend), ativo: t.ativo, criadoEm: iso(t.criadoEm), atualizadoEm: iso(t.atualizadoEm)
         };
       });
@@ -68,8 +74,8 @@ const EXPORTADORES = {
     descricao: 'Descartes de dados por tratamento do ROPA (retenção e descarte). As evidências estão em anexos/DESCARTE/.',
     colunas: [
       ['id', 'Identificador do descarte'], ['tratamentoId', 'Tratamento (id em ropa-tratamentos)'], ['tratamento', 'Nome do tratamento'],
-      ['dataDescarte', 'Data do descarte (AAAA-MM-DD)'], ['metodo', 'Método'], ['quantidade', 'Quantidade de registros'],
-      ['descricao', 'Descrição'], ['responsavel', 'Responsável (nome)'], ['criadoEm', 'Registro no sistema (ISO 8601)']
+      ['dataDescarte', 'Data do descarte', 'data'], ['metodo', 'Método'], ['quantidade', 'Quantidade de registros'],
+      ['descricao', 'Descrição'], ['responsavel', 'Responsável (nome)'], ['criadoEm', 'Registro no sistema (data e hora de Brasília)', 'datahora']
     ],
     async gerar(db, org, ctx) {
       const ds = await db.registroDescarte.findMany({ where: { organizacaoId: org }, orderBy: { dataDescarte: 'desc' } });
@@ -88,9 +94,10 @@ const EXPORTADORES = {
     descricao: 'Pedidos de titulares (art. 18 LGPD), prazos, respostas e providências. Contém dados pessoais dos titulares.',
     colunas: [
       ['id', 'Identificador'], ['protocolo', 'Protocolo'], ['titularNome', 'Nome do titular'], ['titularEmail', 'E-mail do titular'],
-      ['titularCpf', 'CPF do titular (se informado)'], ['tipoDireito', 'Direito solicitado'], ['descricao', 'Descrição do pedido'],
-      ['status', 'Situação'], ['dataRecebimento', 'Recebimento (ISO 8601)'], ['dataLimite', 'Prazo legal (ISO 8601)'],
-      ['dataResposta', 'Resposta (ISO 8601)'], ['noPrazo', 'Respondida até o prazo (true/false/vazio se pendente)'],
+      ['titularCpf', 'CPF do titular (se informado)'], ['tipoDireito', 'Direito solicitado', R.TIPO_DIREITO], ['descricao', 'Descrição do pedido'],
+      ['status', 'Situação', R.STATUS], ['situacaoPrazo', 'Situação do prazo'], ['dataRecebimento', 'Recebimento (data e hora de Brasília)', 'datahora'], ['dataLimite', 'Prazo legal (data e hora de Brasília)', 'datahora'],
+      ['identidade', 'Verificação de identidade'],
+      ['dataResposta', 'Resposta (data e hora de Brasília)', 'datahora'], ['noPrazo', 'Respondida até o prazo (Sim/Não; vazio se pendente)'],
       ['respostaTexto', 'Texto da resposta'], ['responsavel', 'Responsável (nome)'], ['providencias', 'Providências registradas: tipo — descrição']
     ],
     async gerar(db, org, ctx) {
@@ -100,8 +107,10 @@ const EXPORTADORES = {
         tipoDireito: s.tipoDireito, descricao: s.descricao, status: s.status, dataRecebimento: iso(s.dataRecebimento),
         dataLimite: iso(s.dataLimite), dataResposta: iso(s.dataResposta),
         noPrazo: s.dataResposta ? (!s.dataLimite || new Date(s.dataResposta) <= new Date(s.dataLimite)) : '',
+        situacaoPrazo: calcularSLA(s).label,
+        identidade: (() => { const i = identidadeDe(s); return i.verificada ? `Verificada${i.metodo ? ' por ' + R.rotulo(R.METODO_IDENTIDADE, i.metodo) : ''} em ${fmtDataHora(i.em)}${i.observacao ? ' — ' + i.observacao : ''}` : 'Não verificada'; })(),
         respostaTexto: s.respostaTexto || '', responsavel: ctx.nome(s.responsavelId),
-        providencias: lista((s.evidencias || []).map(e => `${e.tipo} — ${e.descricao}`))
+        providencias: lista((s.evidencias || []).map(e => `${R.rotulo(R.PROVIDENCIA_DSAR, e.tipo)} — ${e.descricao}`))
       }));
       return { linhas, json: ss };
     }
@@ -111,12 +120,12 @@ const EXPORTADORES = {
     arquivo: 'incidentes', titulo: 'Incidentes de segurança',
     descricao: 'Incidentes reais e simulados, com severidade, providências e responsáveis. Evidências em anexos/INCIDENTE/.',
     colunas: [
-      ['id', 'Identificador'], ['titulo', 'Título'], ['tipoRegistro', 'REAL ou SIMULADO'], ['tipoIncidente', 'Tipo'],
-      ['severidade', 'Severidade (ALTA/MEDIA/BAIXA)'], ['status', 'Situação'], ['dataOcorrencia', 'Ocorrência (AAAA-MM-DD)'],
-      ['dataDescoberta', 'Registro no sistema (ISO 8601)'], ['dataCiencia', 'Ciência pela câmara (AAAA-MM-DD)'],
-      ['riscoRelevante', 'Pode acarretar risco ou dano relevante aos titulares (SIM/NAO/EM_AVALIACAO)'],
-      ['prazoComunicacao', 'Prazo de comunicação à ANPD e aos titulares: 3 dias úteis da ciência (AAAA-MM-DD), só para REAL com risco SIM'],
-      ['dataComunicacaoANPD', 'Comunicação à ANPD (AAAA-MM-DD)'], ['dataComunicacaoTitulares', 'Comunicação aos titulares (AAAA-MM-DD)'],
+      ['id', 'Identificador'], ['titulo', 'Título'], ['tipoRegistro', 'Real ou simulado', R.TIPO_REGISTRO], ['tipoIncidente', 'Tipo', R.TIPO_INCIDENTE],
+      ['severidade', 'Severidade', R.NIVEL], ['status', 'Situação', R.STATUS], ['dataOcorrencia', 'Ocorrência', 'data'],
+      ['dataDescoberta', 'Registro no sistema (data e hora de Brasília)', 'datahora'], ['dataCiencia', 'Ciência pela câmara', 'data'],
+      ['riscoRelevante', 'Pode acarretar risco ou dano relevante aos titulares', R.RISCO_INCIDENTE],
+      ['prazoComunicacao', 'Prazo de comunicação à ANPD e aos titulares (3 dias úteis da ciência; só incidente real com risco relevante)', 'data'],
+      ['dataComunicacaoANPD', 'Comunicação à ANPD', 'data'], ['dataComunicacaoTitulares', 'Comunicação aos titulares', 'data'],
       ['dadosAfetados', 'Dados afetados'], ['qtdTitulares', 'Titulares afetados'],
       ['notificadoANPD', 'Comunicado à ANPD'], ['descricao', 'Descrição'], ['planoAcao', 'Medidas para evitar recorrência'],
       ['responsavel', 'Responsável (nome)'], ['providencias', 'Providências: data — descrição (responsável)']
@@ -131,7 +140,7 @@ const EXPORTADORES = {
         dadosAfetados: lista(normalizarCategorias(i.dadosAfetados)),
         qtdTitulares: i.qtdTitulares, notificadoANPD: i.notificadoANPD, descricao: i.descricao, planoAcao: i.planoAcao || '',
         responsavel: ctx.nome(i.responsavelId),
-        providencias: lista((i.providencias || []).map(p => `${isoData(p.data)} — ${p.descricao}${p.responsavelId ? ` (${ctx.nome(p.responsavelId)})` : ''}`))
+        providencias: lista((i.providencias || []).map(p => `${fmtData(p.data)} — ${p.descricao}${p.responsavelId ? ` (${ctx.nome(p.responsavelId)})` : ''}`))
       }));
       return { linhas, json: is };
     }
@@ -141,12 +150,12 @@ const EXPORTADORES = {
     arquivo: 'checklist-conformidade', titulo: 'Checklist de conformidade',
     descricao: 'Itens do catálogo global e atividades próprias da organização, com situação, responsável, prazo e evidência. Evidências em anexos/CHECKLIST_ITEM/.',
     colunas: [
-      ['itemId', 'Identificador do item'], ['codigo', 'Código (catálogo) ou AP-nnn (atividade própria)'], ['origem', 'GLOBAL (catálogo) ou PROPRIA (da organização)'],
+      ['itemId', 'Identificador do item'], ['codigo', 'Código (catálogo) ou AP-nnn (atividade própria)'], ['origem', 'Catálogo ou atividade própria', R.ORIGEM_ITEM_CHECKLIST],
       ['categoria', 'Categoria'], ['titulo', 'Atividade'], ['descricao', 'Descrição'], ['fundamentoLegal', 'Fundamento legal'],
-      ['criticidade', 'Criticidade'], ['responsavelAtividade', 'Responsável pela atividade própria'], ['prazoAtividade', 'Prazo da atividade própria (AAAA-MM-DD)'],
-      ['status', 'Situação (CONFORME, PARCIAL, NAO_CONFORME, NAO_APLICAVEL ou vazio)'], ['observacao', 'Observação'],
+      ['criticidade', 'Criticidade', R.NIVEL], ['responsavelAtividade', 'Responsável pela atividade própria'], ['prazoAtividade', 'Prazo da atividade própria', 'data'],
+      ['status', 'Situação (vazio se não respondido)', R.STATUS], ['observacao', 'Observação'],
       ['evidenciaUrl', 'Evidência (link/referência)'], ['responsavelResposta', 'Responsável pela resposta'],
-      ['proximaRevisao', 'Próxima revisão (AAAA-MM-DD)'], ['respondidoEm', 'Última resposta (ISO 8601)']
+      ['proximaRevisao', 'Próxima revisão', 'data'], ['respondidoEm', 'Última resposta (data e hora de Brasília)', 'datahora']
     ],
     async gerar(db, org, ctx) {
       const itens = codigosExibicao(await db.itemChecklist.findMany({ where: { OR: [{ organizacaoId: null }, { organizacaoId: org }] }, orderBy: { codigo: 'asc' } }));
@@ -170,9 +179,9 @@ const EXPORTADORES = {
     arquivo: 'inventario-sistemas', titulo: 'Inventário de sistemas',
     descricao: 'Sistemas, bancos, serviços em nuvem e arquivos físicos que tratam dados pessoais, com hospedagem e integrações.',
     colunas: [
-      ['id', 'Identificador'], ['nome', 'Nome'], ['tipo', 'Tipo'], ['finalidade', 'Finalidade'], ['responsavel', 'Responsável (nome)'],
+      ['id', 'Identificador'], ['nome', 'Nome'], ['tipo', 'Tipo', R.TIPO_SISTEMA], ['finalidade', 'Finalidade'], ['responsavel', 'Responsável (nome)'],
       ['fornecedor', 'Fornecedor (terceiro)'], ['categoriasDados', 'Categorias de dados'], ['formasCompartilhamento', 'Compartilhamento'],
-      ['integracoes', 'Sistemas integrados'], ['tipoHospedagem', 'ON_PREMISE ou NUVEM'], ['paisHospedagem', 'País'], ['regiaoHospedagem', 'Região/local'],
+      ['integracoes', 'Sistemas integrados'], ['tipoHospedagem', 'Hospedagem', R.HOSPEDAGEM], ['paisHospedagem', 'País'], ['regiaoHospedagem', 'Região/local'],
       ['tratamentos', 'Tratamentos do ROPA que usam o sistema'], ['ativo', 'Em uso']
     ],
     async gerar(db, org, ctx) {
@@ -204,10 +213,10 @@ const EXPORTADORES = {
     descricao: 'Fornecedores/operadores com contrato, aditivo LGPD, risco, respostas do questionário e plano de ação. Evidências em anexos/TERCEIRO/.',
     colunas: [
       ['id', 'Identificador'], ['razaoSocial', 'Razão social'], ['cnpj', 'CNPJ'], ['contatoNome', 'Contato'], ['contatoEmail', 'E-mail de contato'],
-      ['papel', 'Papel na LGPD'], ['descricaoServico', 'Serviço prestado'], ['contratoVigente', 'Contrato vigente'], ['contratoCritico', 'Contrato crítico'],
-      ['aditivoLgpdAssinado', 'Aditivo LGPD assinado'], ['dataAditivo', 'Data do aditivo (AAAA-MM-DD)'], ['risco', 'Risco (BAIXO/MEDIO/ALTO ou vazio)'],
+      ['papel', 'Papel na LGPD', R.PAPEL_TERCEIRO], ['descricaoServico', 'Serviço prestado'], ['contratoVigente', 'Contrato vigente'], ['contratoCritico', 'Contrato crítico'],
+      ['aditivoLgpdAssinado', 'Aditivo LGPD assinado'], ['dataAditivo', 'Data do aditivo', 'data'], ['risco', 'Risco (vazio se não avaliado)', R.RISCO_TERCEIRO],
       ['riscoManual', 'Risco definido manualmente'], ['riscoJustificativa', 'Justificativa do risco manual'],
-      ['respostasQuestionario', 'Respostas: PERGUNTA=RESPOSTA (ver dicionário do questionário no JSON)'],
+      ['respostasQuestionario', 'Respostas do questionário: pergunta — resposta (texto das perguntas no JSON)'],
       ['planoAcao', 'Ações: descrição — situação — prazo — responsável'], ['ativo', 'Ativo']
     ],
     async gerar(db, org, ctx) {
@@ -217,8 +226,8 @@ const EXPORTADORES = {
         papel: t.papel, descricaoServico: t.descricaoServico || '', contratoVigente: t.contratoVigente, contratoCritico: t.contratoCritico,
         aditivoLgpdAssinado: t.aditivoLgpdAssinado, dataAditivo: isoData(t.dataAditivo), risco: t.risco || '', riscoManual: t.riscoManual,
         riscoJustificativa: t.riscoJustificativa || '',
-        respostasQuestionario: lista([...(t.respostas || [])].sort((a, b) => a.perguntaId.localeCompare(b.perguntaId)).map(r => `${r.perguntaId}=${r.resposta}`)),
-        planoAcao: lista((t.acoes || []).map(a => `${a.descricao} — ${a.situacao} — ${iso(a.prazo).slice(0, 10) || 'sem prazo'} — ${ctx.nome(a.responsavelId) || 'sem responsável'}`)),
+        respostasQuestionario: lista([...(t.respostas || [])].sort((a, b) => a.perguntaId.localeCompare(b.perguntaId)).map(r => `${r.perguntaId} — ${R.rotulo(R.RESPOSTA_QUESTIONARIO, r.resposta)}`)),
+        planoAcao: lista((t.acoes || []).map(a => `${a.descricao} — ${R.rotulo(R.SITUACAO_ACAO, a.situacao)} — ${a.prazo ? fmtData(a.prazo) : 'sem prazo'} — ${ctx.nome(a.responsavelId) || 'sem responsável'}`)),
         ativo: t.ativo
       }));
       const { BLOCOS } = require('./questionarioTerceiro');
@@ -239,7 +248,7 @@ const EXPORTADORES = {
   treinamento: {
     arquivo: 'treinamento-progresso', titulo: 'Progresso e certificados de treinamento',
     descricao: 'Módulos concluídos por servidor (uma linha por módulo). Os certificados emitidos estão no JSON.',
-    colunas: [['usuario', 'Servidor (nome)'], ['usuarioId', 'Id do servidor (ver usuarios)'], ['trilhaId', 'Trilha'], ['moduloId', 'Módulo'], ['concluidoEm', 'Conclusão (ISO 8601)']],
+    colunas: [['usuario', 'Servidor (nome)'], ['usuarioId', 'Id do servidor (ver usuarios)'], ['trilhaId', 'Trilha'], ['moduloId', 'Módulo'], ['concluidoEm', 'Conclusão (data e hora de Brasília)', 'datahora']],
     async gerar(db, org, ctx) {
       const ps = await db.progressoTreinamento.findMany({ where: { organizacaoId: org }, orderBy: { concluidoEm: 'asc' } });
       const certs = await db.certificadoTreinamento.findMany({ where: { organizacaoId: org } });
@@ -253,7 +262,7 @@ const EXPORTADORES = {
   usuarios: {
     arquivo: 'usuarios', titulo: 'Usuários',
     descricao: 'Usuários da organização (para resolver os ids citados nos demais arquivos). Não inclui senha nem segredo de MFA.',
-    colunas: [['id', 'Identificador'], ['nome', 'Nome'], ['email', 'E-mail'], ['perfil', 'Perfil de acesso'], ['ativo', 'Ativo'], ['excluido', 'Excluído (mantido por rastreabilidade)']],
+    colunas: [['id', 'Identificador'], ['nome', 'Nome'], ['email', 'E-mail'], ['perfil', 'Perfil de acesso', R.PERFIL], ['ativo', 'Ativo'], ['excluido', 'Excluído (mantido por rastreabilidade)']],
     async gerar(db, org) {
       const us = await db.usuario.findMany({
         where: { organizacaoId: org }, select: { id: true, nome: true, email: true, perfil: true, ativo: true, deletedAt: true, criadoEm: true }, orderBy: { nome: 'asc' }
@@ -266,13 +275,13 @@ const EXPORTADORES = {
     arquivo: 'historico-alteracoes', titulo: 'Histórico de alterações',
     descricao: 'Trilha de quem alterou o quê em cada registro (diff campo a campo em JSON).',
     colunas: [
-      ['id', 'Identificador'], ['entidade', 'Tipo do registro'], ['registroId', 'Id do registro'], ['acao', 'CRIAR, EDITAR, EXCLUIR ou STATUS'],
-      ['usuario', 'Quem fez (nome; vazio = canal público/sistema)'], ['diff', 'Alterações {campo: {antes, depois}} em JSON'], ['criadoEm', 'Quando (ISO 8601)']
+      ['id', 'Identificador'], ['entidade', 'Tipo do registro', R.ENTIDADE], ['registroId', 'Id do registro'], ['acao', 'Operação', R.ACAO_HISTORICO],
+      ['usuario', 'Quem fez (nome; vazio = canal público, sistema ou administrador)'], ['alteracoes', 'Alterações: campo: antes → depois (no JSON, o diff completo)'], ['criadoEm', 'Quando (data e hora de Brasília)', 'datahora']
     ],
     async gerar(db, org, ctx) {
       const hs = await db.historicoRegistro.findMany({ where: { organizacaoId: org }, orderBy: { criadoEm: 'asc' } });
       return {
-        linhas: hs.map(h => ({ id: h.id, entidade: h.entidade, registroId: h.registroId, acao: h.acao, usuario: ctx.nome(h.usuarioId), diff: JSON.stringify(h.diff), criadoEm: iso(h.criadoEm) })),
+        linhas: hs.map(h => ({ id: h.id, entidade: h.entidade, registroId: h.registroId, acao: h.acao, usuario: ctx.nome(h.usuarioId), alteracoes: diffLegivel(h, ctx), criadoEm: iso(h.criadoEm) })),
         json: hs
       };
     }
@@ -282,10 +291,10 @@ const EXPORTADORES = {
     arquivo: 'indicadores-snapshots', titulo: 'Indicadores — fotos mensais',
     descricao: 'Fotos mensais do painel de indicadores (N/Total, %, meta e situação de cada indicador).',
     colunas: [
-      ['mesReferencia', 'Mês (AAAA-MM)'], ['origem', 'CRON (automática) ou MANUAL'], ['geradoEm', 'Geração (ISO 8601)'],
-      ['indicador', 'Indicador'], ['n', 'Quantidade que atende'], ['total', 'Total considerado'], ['percentual', 'Percentual'],
-      ['meta', 'Meta (%)'], ['status', 'OK, PENDENTE ou INATIVO'], ['incidentesReaisNoMes', 'Incidentes reais no mês (só INCIDENTES)'],
-      ['ultimoSimulado', 'Data do último simulado (só INCIDENTES)'], ['observacao', 'Observação']
+      ['mesReferencia', 'Mês (AAAA-MM)'], ['origem', 'Foto automática ou manual', R.ORIGEM_SNAPSHOT], ['geradoEm', 'Geração (data e hora de Brasília)', 'datahora'],
+      ['indicador', 'Indicador', R.INDICADOR], ['n', 'Quantidade que atende'], ['total', 'Total considerado'], ['percentual', 'Percentual'],
+      ['meta', 'Meta (%)'], ['status', 'Situação', R.STATUS_INDICADOR], ['incidentesReaisNoMes', 'Incidentes reais no mês (só no indicador de incidentes)'],
+      ['ultimoSimulado', 'Último simulado (só no indicador de incidentes)', 'datahora'], ['observacao', 'Observação']
     ],
     async gerar(db, org) {
       const ss = await db.snapshotIndicadores.findMany({ where: { organizacaoId: org }, orderBy: { mesReferencia: 'desc' } });
@@ -304,13 +313,43 @@ function linhaIndicador(i, snap = {}) {
   };
 }
 
-// CSV: UTF-8 com BOM (Excel), separador virgula, aspas duplas escapadas.
+// Historico em texto: "Campo: antes → depois" com rotulos (Etapa 7b)
+function diffLegivel(h, ctx) {
+  const v = (campo, x) => {
+    if (x === null || x === undefined || x === '') return '—';
+    if (['responsavelId', 'validadoPor', 'autorId', 'excluidoPorId'].includes(campo)) return ctx.nome(x) || 'usuário removido';
+    if (typeof x === 'boolean') return x ? 'Sim' : 'Não';
+    if (Array.isArray(x)) return x.map(y => v(campo, y)).join(', ') || '—';
+    if (typeof x === 'object') return JSON.stringify(x);
+    const r = campo === 'baseLegal' || campo === 'baseLegalSensivel' ? rotuloBaseLegal(x) : R.rotuloValorCampo(campo, x, h.entidade);
+    if (r) return r;
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(x)) return /T00:00:00\.000Z$/.test(x) ? fmtData(x) : fmtDataHora(x);
+    return String(x);
+  };
+  return Object.entries(h.diff || {}).map(([campo, d]) => {
+    const nome = R.CAMPOS[campo] || (campo.startsWith('questionario.') ? `Questionário — ${campo.slice(13)}` : campo);
+    return `${nome}: ${v(campo, d?.antes)} → ${v(campo, d?.depois)}`;
+  }).join('; ');
+}
+
+// Etapa 7b: valor da celula — data/hora em Brasilia, rotulo no lugar do
+// codigo, Sim/Nao no lugar de true/false.
+function valorCsv(v, tipo) {
+  if (v === null || v === undefined || v === '') return '';
+  if (tipo === 'datahora') return fmtDataHoraCsv(v);
+  if (tipo === 'data') return fmtData(v);
+  if (tipo && typeof tipo === 'object') return tipo[v] || v;
+  if (typeof v === 'boolean') return v ? 'Sim' : 'Não';
+  return v;
+}
+
+// CSV: UTF-8 com BOM (Excel), separador ";", cabecalho legivel (a
+// descricao da coluna; a chave do JSON esta no dicionario de dados).
+// Celulas neutralizadas contra formula (Etapa 7a).
 function paraCsv(colunas, linhas) {
-  // Etapa 7a: celula neutralizada contra formula (CSV injection)
-  const q = celulaCsv;
-  const cab = colunas.map(([c]) => c).join(',');
-  const corpo = linhas.map(l => colunas.map(([c]) => q(l[c])).join(','));
-  return '﻿' + [cab, ...corpo].join('\r\n');
+  const cab = colunas.map(([c, desc]) => desc || c);
+  const corpo = linhas.map(l => colunas.map(([c, , tipo]) => valorCsv(l[c], tipo)));
+  return documentoCsv(cab, corpo);
 }
 
 async function gerarExport(db, nome, organizacaoId, ctx) {
@@ -333,4 +372,4 @@ async function responderExport(res, db, nome, organizacaoId, formato) {
   return res.json(json);
 }
 
-module.exports = { EXPORTADORES, paraCsv, gerarExport, responderExport, contexto, linhaIndicador };
+module.exports = { EXPORTADORES, paraCsv, valorCsv, diffLegivel, gerarExport, responderExport, contexto, linhaIndicador };

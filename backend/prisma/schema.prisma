@@ -409,6 +409,10 @@ model DocumentoRepositorio {
   status         StatusDocRepo @default(RASCUNHO)
   autorId        String?
   tags           String[]
+  // Etapa 7b: exclusao logica (o documento e o historico ficam guardados)
+  excluidoEm     DateTime?
+  excluidoPorId  String?
+  motivoExclusao String?
   criadoEm       DateTime      @default(now())
   atualizadoEm   DateTime      @updatedAt
 

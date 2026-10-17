@@ -6,6 +6,7 @@ import DadosEncarregado from './DadosEncarregado';
 import PortalTransparencia from './PortalTransparencia';
 import CampoSenha from './CampoSenha';
 import { CamposNovaSenha, erroLocalSenha } from './RedefinirSenha';
+import Historico from './Historico';
 
 // Seccao de MFA/Seguranca. Carrega o status atual de /auth/me, mostra
 // setup (QR code) se nao estiver ativo e opcao de desativar se estiver.
@@ -230,6 +231,50 @@ function AlterarSenha({ token }) {
   );
 }
 
+// Etapa 7b: MFA obrigatorio da propria camara (Gestor/DPO), com historico.
+function MfaCamara({ token, usuario }) {
+  const [estado, setEstado] = useState(null); // { organizacaoId, mfaObrigatorio }
+  const [aviso, setAviso] = useAviso();
+  const [salvando, setSalvando] = useState(false);
+  const [versao, setVersao] = useState(0);
+  const h = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    axios.get(`${API}/organizacao/mfa-obrigatorio`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setEstado(r.data)).catch(() => setAviso({ ok: false, texto: 'Erro ao carregar a configuração' }));
+  }, [token, setAviso]);
+
+  const alterar = async (valor) => {
+    setSalvando(true);
+    try {
+      const r = await axios.put(`${API}/organizacao/mfa-obrigatorio`, { mfaObrigatorio: valor }, { headers: h });
+      setEstado(r.data);
+      setVersao(v => v + 1);
+      setAviso({ ok: true, texto: valor ? 'MFA obrigatório ligado' : 'MFA obrigatório desligado' });
+    } catch (err) {
+      setAviso({ ok: false, texto: err.response?.data?.erro || 'Erro ao salvar' });
+    }
+    setSalvando(false);
+  };
+
+  if (!estado) return null;
+  return (
+    <div className="card mb-16">
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Autenticação em 2 etapas obrigatória na câmara</h2>
+      <label className="flex-center gap-8" style={{ cursor: 'pointer' }}>
+        <input type="checkbox" checked={estado.mfaObrigatorio} disabled={salvando} onChange={e => alterar(e.target.checked)} style={{ width: 'auto', marginBottom: 0 }} />
+        Exigir o código do autenticador de todos os usuários desta câmara
+        <Aviso aviso={aviso} />
+      </label>
+      <p className="text-xs text-muted mt-8">
+        Ligado: quem ainda não tem autenticador configura no próximo login (inclusive você{usuario?.mfaAtivo ? ', que já tem' : ''}). Desligado: cada usuário decide.
+        A mudança fica registrada no histórico abaixo.
+      </p>
+      <Historico token={token} entidade="ORGANIZACAO" registroId={estado.organizacaoId} versao={versao} />
+    </div>
+  );
+}
+
 // "Salvo" some depois de alguns segundos
 function useAviso() {
   const [aviso, setAviso] = useState(null); // { ok, texto }
@@ -345,6 +390,7 @@ export default function Configuracoes({ token, usuario }) {
         onStatusChange={setMfaAtivoLocal}
       />
       <AlterarSenha token={token} />
+      {podeEditar && <MfaCamara token={token} usuario={usuario} />}
 
       <DadosCamara token={token} podeEditar={podeEditar} />
       <DadosEncarregado token={token} usuario={usuario} />

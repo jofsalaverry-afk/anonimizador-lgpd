@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import { fmtDiaSP, fmtHoraSP } from '../datas';
+import { cpfValido, MSG_CPF } from '../documentosId';
 
 // Os 9 direitos do Art. 18 da LGPD (Lei 13.709/2018). OUTRO abre um
 // campo livre para o titular descrever um direito especifico nao coberto
@@ -17,6 +18,7 @@ const TIPO_OPTIONS = [
   { value: 'INFORMACAO', label: 'Informação sobre compartilhamento com terceiros' },
   { value: 'INFORMACAO_NAO_CONSENTIR', label: 'Informação sobre a possibilidade de não consentir e as consequências' },
   { value: 'REVOGACAO', label: 'Revogação do consentimento' },
+  { value: 'OPOSICAO', label: 'Oposição a tratamento realizado sem consentimento (art. 18, § 2º)' },
   { value: 'OUTRO', label: 'Outro (descrever)' }
 ];
 
@@ -186,6 +188,7 @@ export default function SolicitarDireitos({ slug, organizacaoId: organizacaoIdPr
     if (form.tipoDireito === 'OUTRO' && !direitoCustom.trim()) {
       return setErro('Descreva qual direito você deseja exercer');
     }
+    if (!cpfValido(form.titularCpf)) return setErro(MSG_CPF);
     if (!org?.id) {
       return setErro('Organização não identificada');
     }

@@ -4,6 +4,14 @@ import { API } from '../config';
 import SeletorResponsavel from './SeletorResponsavel';
 import { TIPO_SISTEMA_LABEL } from './rotulos';
 import { OPCOES_ART7, OPCOES_ART11, CATEGORIAS_SENSIVEIS, CATEGORIAS_DADOS, CATEGORIAS_TITULARES, ROTULO_CAMPO_BASE_LEGAL, temDadoSensivel, textoRetencao, normalizarCategorias } from '../basesLegais';
+import { cnpjValido, MSG_CNPJ } from '../documentosId';
+import ROTULOS_HIST from '../rotulosHistorico.json';
+
+const HIPOTESES_ART33 = ROTULOS_HIST.valores.baseLegalTransferencia;
+const ehExterior = pais => {
+  const p = String(pais || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  return !!p && !['brasil', 'brazil', 'br'].includes(p);
+};
 
 // Dados sensiveis (art. 5, II) ficam num grupo proprio; "Dados de Saude"
 // (categoria antiga) continua aparecendo nos registros que ja a usam.
@@ -106,6 +114,15 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
       setErro('Preencha nome, finalidade e base legal (Passo 1)');
       setPasso(1);
       return;
+    }
+    // Etapa 7b: mesmas regras do servidor
+    if (form.retencaoDias !== '' && (!/^\d+$/.test(String(form.retencaoDias)))) {
+      setErro('Retenção inválida: informe um número inteiro de dias, zero ou maior');
+      return;
+    }
+    for (const c of form.compartilhamentos.filter(x => x.terceiroNome.trim())) {
+      if (c.terceiroCNPJ && !cnpjValido(c.terceiroCNPJ)) { setErro(`${MSG_CNPJ} (${c.terceiroNome})`); return; }
+      if (ehExterior(c.paisDestino) && !c.baseLegalTransferencia) { setErro(`Compartilhamento com ${c.terceiroNome} vai para o exterior: escolha a hipótese do art. 33`); return; }
     }
     setLoading(true);
     setErro('');
@@ -288,6 +305,15 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
                     <input value={c.paisDestino} onChange={e => setCompartilhamento(i, 'paisDestino', e.target.value)} />
                   </div>
                 </div>
+                {ehExterior(c.paisDestino) && (
+                  <div className="form-group">
+                    <label>Hipótese de transferência internacional (LGPD, art. 33) *</label>
+                    <select value={c.baseLegalTransferencia || ''} onChange={e => setCompartilhamento(i, 'baseLegalTransferencia', e.target.value)}>
+                      <option value="">Selecione o inciso...</option>
+                      {Object.entries(HIPOTESES_ART33).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -297,7 +323,7 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
           <div className="form-grid">
             <div className="form-group">
               <label>Retenção (dias)</label>
-              <input type="number" value={form.retencaoDias} onChange={e => setForm({ ...form, retencaoDias: e.target.value })} placeholder="Ex: 1825 (5 anos)" className="mb-4" />
+              <input type="number" min="0" step="1" value={form.retencaoDias} onChange={e => setForm({ ...form, retencaoDias: e.target.value })} placeholder="Ex: 1825 (5 anos)" className="mb-4" />
               <p className="text-xs text-muted mb-12">{form.retencaoDias ? textoRetencao(form.retencaoDias) : ' '}</p>
             </div>
             <div className="form-group">

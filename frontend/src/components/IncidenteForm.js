@@ -5,7 +5,7 @@ import SeletorResponsavel from './SeletorResponsavel';
 import Anexos from './Anexos';
 import Historico from './Historico';
 import Providencias from './Providencias';
-import { paraInputData, fmtData } from '../datas';
+import { paraInputData, fmtData, hojeInput } from '../datas';
 import { CATEGORIAS_DADOS, CATEGORIAS_SENSIVEIS, normalizarCategorias } from '../basesLegais';
 
 const SEVERIDADE_OPTIONS = [
@@ -107,6 +107,12 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
   };
 
   const salvar = async () => {
+    // Etapa 7b: datas e numeros (o servidor confere de novo)
+    const hoje = hojeInput();
+    if (form.dataOcorrencia > hoje) return setErro('A data de ocorrência não pode ser futura');
+    if (form.dataCiencia && form.dataCiencia > hoje) return setErro('A data de ciência não pode ser futura');
+    if (form.dataCiencia && form.dataOcorrencia && form.dataCiencia < form.dataOcorrencia) return setErro('A data de ciência não pode ser anterior à data da ocorrência');
+    if (form.qtdTitulares !== '' && (!/^\d+$/.test(String(form.qtdTitulares)))) return setErro('Titulares afetados: informe um número inteiro, zero ou maior');
     if (!form.titulo || !form.tipoIncidente || !form.dataOcorrencia) {
       return setErro('Preencha título, tipo e data de ocorrência');
     }
@@ -177,6 +183,7 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
             <label>Data da ocorrência</label>
             <input
               type="date"
+              max={hojeInput()}
               value={form.dataOcorrencia}
               onChange={e => setForm({ ...form, dataOcorrencia: e.target.value })}
             />
@@ -257,7 +264,7 @@ export default function IncidenteForm({ token, incidenteId, onVoltar }) {
             <div className="form-grid">
               <div className="form-group">
                 <label>Data em que a Câmara tomou ciência</label>
-                <input type="date" value={form.dataCiencia} onChange={e => setForm({ ...form, dataCiencia: e.target.value })} />
+                <input type="date" min={form.dataOcorrencia || undefined} max={hojeInput()} value={form.dataCiencia} onChange={e => setForm({ ...form, dataCiencia: e.target.value })} />
               </div>
               <div className="form-group">
                 <label>Pode acarretar risco ou dano relevante aos titulares?</label>

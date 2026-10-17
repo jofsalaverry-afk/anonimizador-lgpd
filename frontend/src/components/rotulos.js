@@ -1,3 +1,4 @@
+import ROTULOS_HIST from '../rotulosHistorico.json';
 // Rotulos compartilhados por inventario, terceiros e ROPA.
 
 export const TIPO_SISTEMA_LABEL = {
@@ -45,6 +46,14 @@ export const TIPO_DIREITO_LABEL = {
 };
 export const TIPO_INCIDENTE_LABEL = { VAZAMENTO: 'Vazamento', ACESSO_INDEVIDO: 'Acesso indevido', PERDA: 'Perda', ALTERACAO: 'Alteração', OUTRO: 'Outro' };
 export const TIPO_REGISTRO_LABEL = { REAL: 'Real', SIMULADO: 'Simulado' };
+// Etapa 7b: tipo de providencia do DSAR gravado pelo sistema (os demais sao texto livre)
+export const TIPO_PROVIDENCIA_DSAR_LABEL = { VERIFICACAO_IDENTIDADE: 'Verificação de identidade' };
+export const rotuloProvidenciaDsar = t => TIPO_PROVIDENCIA_DSAR_LABEL[t] || t;
+// Situacao do prazo (backend dsarService.calcularSLA)
+export const SLA_BADGE = {
+  verde: 'badge badge-success', amarelo: 'badge badge-warning', vermelho: 'badge badge-danger',
+  vencido: 'badge badge-danger', 'sem-prazo': 'badge badge-info', encerrado: 'badge badge-muted'
+};
 export const EVIDENCIA_LABEL = { DOCUMENTO: 'Documento', CAPTURA: 'Captura de tela', AUTO_DECLARACAO: 'Auto-declaração', LINK_SISTEMA: 'Link de sistema' };
 export const CATEGORIA_DOCUMENTO_LABEL = {
   POLITICA_PRIVACIDADE: 'Política de Privacidade', POLITICA_SEGURANCA: 'Política de Segurança', MODELO_DSAR: 'Modelo DSAR',
@@ -61,15 +70,8 @@ export const STATUS_LABEL = {
   ...SITUACAO_ACAO_LABEL
 };
 
-const VALOR_POR_CAMPO = {
-  risco: RISCO_LABEL, papel: PAPEL_TERCEIRO_LABEL, tipoHospedagem: HOSPEDAGEM_LABEL, perfil: PERFIL_LABEL,
-  severidade: NIVEL_LABEL, criticidade: NIVEL_LABEL, tipoDireito: TIPO_DIREITO_LABEL, tipoIncidente: TIPO_INCIDENTE_LABEL,
-  tipoRegistro: TIPO_REGISTRO_LABEL, evidencia: EVIDENCIA_LABEL, evidenciaRequerida: EVIDENCIA_LABEL,
-  status: STATUS_LABEL, situacao: SITUACAO_ACAO_LABEL,
-  riscoRelevante: { SIM: 'Sim', NAO: 'Não', EM_AVALIACAO: 'Em avaliação' },
-  identidadeMetodo: { CODIGO_EMAIL: 'Código enviado ao e-mail', DOCUMENTO: 'Documento apresentado', CODIGO: 'Código', OUTRO: 'Outro' },
-  respostaEnvioMeio: { PESSOALMENTE: 'Entregue pessoalmente', CORREIOS: 'Correios', TELEFONE: 'Telefone', EMAIL_INSTITUCIONAL: 'E-mail institucional (fora do sistema)', OUTRO: 'Outro meio' }
-};
+// Etapa 7b: valores por campo vem da fonte unica (rotulosHistorico.json)
+const VALOR_POR_CAMPO = ROTULOS_HIST.valores;
 
 // Rotulo de um valor de enum no campo de uma entidade do historico.
 // rotuloBase: funcao de basesLegais (recebida por parametro).
@@ -77,6 +79,6 @@ export function rotuloValor(campo, valor, entidade, rotuloBase) {
   if (typeof valor !== 'string') return null;
   if (campo === 'baseLegal' || campo === 'baseLegalSensivel') return rotuloBase(valor);
   if (campo.startsWith('questionario.')) return RESPOSTA_LABEL[valor] || null;
-  if (campo === 'tipo') return (entidade === 'SISTEMA' ? TIPO_SISTEMA_LABEL : CATEGORIA_DOCUMENTO_LABEL)[valor] || null;
+  if (campo === 'tipo') return (entidade === 'SISTEMA' ? ROTULOS_HIST.tipoPorEntidade.SISTEMA : ROTULOS_HIST.tipoPorEntidade.padrao)[valor] || null;
   return VALOR_POR_CAMPO[campo]?.[valor] || null;
 }

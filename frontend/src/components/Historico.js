@@ -4,45 +4,15 @@ import { API } from '../config';
 import { rotuloValor, PERFIL_LABEL } from './rotulos';
 import { rotuloBaseLegal, normalizarCategoria } from '../basesLegais';
 import { fmtData, fmtDataHora, CAMPOS_DATA_PURA } from '../datas';
+import ROTULOS_HIST from '../rotulosHistorico.json';
 
 const CAMPOS_CATEGORIA = new Set(['categoriasDados', 'categoriasTitulares', 'dadosAfetados']);
 
-const ACAO_LABEL = { CRIAR: 'Criou', EDITAR: 'Editou', EXCLUIR: 'Excluiu', STATUS: 'Mudou a situação' };
-
-// Nomes legiveis dos campos que aparecem nos diffs.
-const CAMPO_LABEL = {
-  nome: 'Nome', titulo: 'Título', finalidade: 'Finalidade', baseLegal: 'Base legal (LGPD, art. 7º)',
-  baseLegalSensivel: 'Base legal para dados sensíveis (LGPD, art. 11)', perfil: 'Perfil', situacao: 'Situação',
-  evidenciaRequerida: 'Evidência requerida', modelo: 'Modelo', versao: 'Versão', faqPortal: 'FAQ do portal',
-  dataCiencia: 'Data da ciência', riscoRelevante: 'Pode acarretar risco ou dano relevante', dataComunicacaoANPD: 'Comunicação à ANPD',
-  dataComunicacaoTitulares: 'Comunicação aos titulares', identidadeVerificadaEm: 'Identidade verificada em', identidadeMetodo: 'Método de verificação',
-  identidadeObservacao: 'Observação da verificação', respostaEnviadaEmailEm: 'Resposta enviada por e-mail em', respostaEnvioMeio: 'Meio de envio da resposta',
-  respostaEnvioData: 'Data do envio da resposta', respostaEnvioObservacao: 'Observação do envio', envioResposta: 'Envio da resposta',
-  alteradoPorAdmin: 'Alterado pelo administrador', mfa: 'Autenticação em 2 etapas (MFA)', motivo: 'Motivo',
-  confirmadoCom: 'Confirmado com', mfaObrigatorio: 'MFA obrigatório na câmara', enderecoSede: 'Endereço da sede', municipio: 'Município', uf: 'UF',
-  encarregadoNome: 'Nome do encarregado', encarregadoEmail: 'E-mail do encarregado', encarregadoTelefone: 'Telefone do encarregado',
-  categoriasDados: 'Categorias de dados', categoriasTitulares: 'Categorias de titulares',
-  retencaoDias: 'Retenção (dias)', formaDescarte: 'Forma de descarte', medidasSeguranca: 'Medidas de segurança',
-  compartilhamentos: 'Compartilhamentos', ativo: 'Ativo', responsavelId: 'Responsável',
-  status: 'Situação', descricao: 'Descrição', respostaTexto: 'Resposta', dataResposta: 'Data da resposta',
-  dataLimite: 'Prazo', dataRecebimento: 'Recebimento', protocolo: 'Protocolo', tipoDireito: 'Direito solicitado',
-  titularNome: 'Nome do titular', titularEmail: 'E-mail do titular', titularCpf: 'CPF do titular',
-  evidencia: 'Providência', verificacaoIdentidade: 'Verificação de identidade', anexo: 'Anexo',
-  tipoIncidente: 'Tipo', dataOcorrencia: 'Data da ocorrência', dataDescoberta: 'Data da descoberta',
-  dadosAfetados: 'Dados afetados', qtdTitulares: 'Titulares afetados', notificadoANPD: 'Comunicado à ANPD',
-  planoAcao: 'Medidas para evitar recorrência', autorId: 'Autor', observacao: 'Observação',
-  evidenciaUrl: 'Evidência (link)', validadoPor: 'Validado por', proximaRevisao: 'Próxima revisão / prazo',
-  setor: 'Setor', sistemas: 'Sistemas utilizados', outrosMeios: 'Outros meios (físico/papel)',
-  tipo: 'Tipo', fornecedor: 'Fornecedor', integracoes: 'Integrações', formasCompartilhamento: 'Compartilhamento',
-  tipoHospedagem: 'Hospedagem', paisHospedagem: 'País de hospedagem', regiaoHospedagem: 'Região de hospedagem',
-  razaoSocial: 'Razão social', cnpj: 'CNPJ', contatoNome: 'Contato', contatoEmail: 'E-mail de contato',
-  papel: 'Papel', descricaoServico: 'Serviço prestado', contratoVigente: 'Contrato vigente',
-  contratoCritico: 'Contrato crítico', aditivoLgpdAssinado: 'Aditivo LGPD assinado', dataAditivo: 'Data do aditivo',
-  risco: 'Risco', riscoManual: 'Risco definido manualmente', riscoJustificativa: 'Justificativa do risco',
-  severidade: 'Severidade', tipoRegistro: 'Real ou simulado', providencia: 'Providência',
-  descarte: 'Descarte registrado', dataDescarte: 'Data do descarte', quantidade: 'Quantidade', metodo: 'Método',
-  tratamento: 'Tratamento', prazo: 'Prazo', criticidade: 'Criticidade', texto: 'Texto do modelo', padrao: 'Modelo padrão'
-};
+// Etapa 7b: rotulos de acoes e campos vem da fonte unica (copia de
+// backend/src/data/rotulosHistorico.json; um teste do backend confere que
+// todo campo gravado no historico tem rotulo).
+const ACAO_LABEL = ROTULOS_HIST.acoes;
+const CAMPO_LABEL = ROTULOS_HIST.campos;
 
 // rotulosCampos vem do backend (ex.: texto da pergunta do questionario)
 function rotuloCampo(campo, rotulosCampos) {
@@ -55,7 +25,7 @@ function rotuloCampo(campo, rotulosCampos) {
 const humanizar = v => v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, ' ');
 const CODIGO_ENUM = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$|^[A-Z]{3,}$/;
 const CAMPOS_TEXTO_LIVRE = new Set(['protocolo', 'cnpj', 'nome', 'titulo', 'descricao', 'observacao', 'razaoSocial']);
-const CAMPOS_USUARIO = new Set(['responsavelId', 'validadoPor', 'autorId']);
+const CAMPOS_USUARIO = new Set(['responsavelId', 'validadoPor', 'autorId', 'excluidoPorId', 'criadoPorId']);
 const ISO_DATA = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
 function formatar(campo, valor, usuarios, entidade) {

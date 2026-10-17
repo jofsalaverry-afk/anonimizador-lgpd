@@ -22,8 +22,8 @@ function dicionarioDeDados(orgNome, geradoEm) {
     ``
   ];
   for (const ex of Object.values(EXPORTADORES)) {
-    partes.push(`## ${ex.arquivo}.csv / ${ex.arquivo}.json — ${ex.titulo}`, '', ex.descricao, '', '| Campo | Descrição |', '|---|---|');
-    for (const [campo, desc] of ex.colunas) partes.push(`| \`${campo}\` | ${desc} |`);
+    partes.push(`## ${ex.arquivo}.csv / ${ex.arquivo}.json — ${ex.titulo}`, '', ex.descricao, '', '| Coluna no CSV | Chave no JSON |', '|---|---|');
+    for (const [campo, desc] of ex.colunas) partes.push(`| ${desc} | \`${campo}\` |`);
     partes.push('');
   }
   partes.push(
@@ -32,10 +32,10 @@ function dicionarioDeDados(orgNome, geradoEm) {
     '| Campo | Descrição |', '|---|---|',
     '| `id` | Identificador do anexo |', '| `entidade` | Tipo do registro dono |', '| `registroId` | Id do registro dono (nos CSV/JSON do módulo) |',
     '| `nomeArquivo` | Nome original |', '| `mimeType` | Tipo do arquivo |', '| `tamanho` | Bytes |',
-    '| `hashSha256` | SHA-256 calculado no envio (confira com o arquivo) |', '| `enviadoPor` | Quem enviou (nome) |', '| `criadoEm` | Envio (ISO 8601) |',
+    '| `hashSha256` | SHA-256 calculado no envio (confira com o arquivo) |', '| `enviadoPor` | Quem enviou (nome) |', '| `criadoEm` | Envio (data e hora de Brasília) |',
     '| `caminho` | Caminho do arquivo dentro do ZIP |', '',
     `## documentos/indice-documentos.csv — Repositório de documentos`, '',
-    'Políticas, termos, aditivos e modelos publicados no repositório, em `documentos/<id>-<nome>`.', '',
+    'Políticas, termos, aditivos e modelos do repositório, em `documentos/<id>-<nome>`. Documentos excluídos (exclusão lógica) vêm com a data e o motivo da exclusão.', '',
     `## manifesto.json`, '',
     'Lista de todos os arquivos do pacote com tamanho e SHA-256, para conferência de integridade.', ''
   );
@@ -46,11 +46,11 @@ const GUIA_IMPORTACAO = `# Guia de importação
 
 ## Formato dos arquivos
 
-- **CSV**: UTF-8 com BOM, separador vírgula, quebra de linha CRLF, campos com vírgula/aspas/quebra de linha entre aspas duplas (aspas internas duplicadas). Abre direto no Excel/LibreOffice.
-- **JSON**: UTF-8, estrutura completa de cada módulo, com ids originais e listas aninhadas (ex.: providências dentro de cada incidente).
-- **Datas**: ISO 8601 em UTC (ex.: \`2026-10-16T14:30:00.000Z\`). Para horário de Brasília, subtraia 3 horas.
-- **Listas em CSV**: itens separados por \`; \` (ponto e vírgula + espaço).
-- **Booleanos**: \`true\` / \`false\`.
+- **CSV**: UTF-8 com BOM, separador ponto e vírgula (\`;\`), quebra de linha CRLF, campos com \`;\`/aspas/quebra de linha entre aspas duplas (aspas internas duplicadas). Cabeçalho com o nome legível da coluna (a chave correspondente do JSON está no dicionário de dados). Abre direto no Excel/LibreOffice em português.
+- **Valores no CSV**: rótulos legíveis (ex.: "Em análise", "Alta", "Sim"/"Não") no lugar dos códigos internos.
+- **Datas no CSV**: data e hora de Brasília (\`dd/mm/aaaa hh:mm\`); datas sem hora (ocorrência, prazo, descarte) como \`dd/mm/aaaa\`.
+- **JSON**: UTF-8, estrutura completa de cada módulo, com ids originais, códigos internos e listas aninhadas (ex.: providências dentro de cada incidente). Datas no JSON em ISO 8601 (UTC).
+- **Listas em CSV**: itens separados por \`; \` (ponto e vírgula + espaço), dentro da mesma célula.
 
 ## Ordem sugerida de importação
 
@@ -110,15 +110,16 @@ async function gerarPacote(db, organizacaoId, destino) {
     indiceAnexos.push({ ...m, enviadoPor: ctx.nome(m.enviadoPorId), criadoEm: new Date(m.criadoEm).toISOString(), caminho });
   }
   const { paraCsv } = require('./exportadores');
+  const R = require('./rotulos');
   await add('anexos/indice-anexos.csv', paraCsv(
-    [['id'], ['entidade'], ['registroId'], ['nomeArquivo'], ['mimeType'], ['tamanho'], ['hashSha256'], ['enviadoPor'], ['criadoEm'], ['caminho']],
+    [['id'], ['entidade', null, R.ENTIDADE], ['registroId'], ['nomeArquivo'], ['mimeType'], ['tamanho'], ['hashSha256'], ['enviadoPor'], ['criadoEm', null, 'datahora'], ['caminho']],
     indiceAnexos
   ));
 
   // Documentos do repositorio
   const docs = await db.documentoRepositorio.findMany({
     where: { organizacaoId },
-    select: { id: true, tipo: true, titulo: true, descricao: true, status: true, nomeArquivo: true, mimetype: true, tamanhoBytes: true, criadoEm: true }
+    select: { id: true, tipo: true, titulo: true, descricao: true, status: true, nomeArquivo: true, mimetype: true, tamanhoBytes: true, criadoEm: true, excluidoEm: true, motivoExclusao: true }
   });
   const indiceDocs = [];
   for (const d of docs) {
@@ -130,10 +131,10 @@ async function gerarPacote(db, organizacaoId, destino) {
         await add(caminho, Buffer.from(c.arquivo), { comprimir: !MIMES_JA_COMPRIMIDOS.test(d.mimetype) });
       }
     }
-    indiceDocs.push({ ...d, criadoEm: new Date(d.criadoEm).toISOString(), caminho });
+    indiceDocs.push({ ...d, criadoEm: new Date(d.criadoEm).toISOString(), excluidoEm: d.excluidoEm ? new Date(d.excluidoEm).toISOString() : '', caminho });
   }
   await add('documentos/indice-documentos.csv', paraCsv(
-    [['id'], ['tipo'], ['titulo'], ['descricao'], ['status'], ['nomeArquivo'], ['mimetype'], ['tamanhoBytes'], ['criadoEm'], ['caminho']],
+    [['id'], ['tipo', null, R.CATEGORIA_DOCUMENTO], ['titulo'], ['descricao'], ['status', null, R.STATUS], ['nomeArquivo'], ['mimetype'], ['tamanhoBytes'], ['criadoEm', null, 'datahora'], ['excluidoEm', null, 'datahora'], ['motivoExclusao'], ['caminho']],
     indiceDocs
   ));
 

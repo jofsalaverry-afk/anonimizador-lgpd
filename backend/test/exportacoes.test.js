@@ -72,12 +72,13 @@ test('exportacoes CSV e JSON de cada modulo, isoladas por organizacao', async ()
   assert.equal(contratos(indA).total, 1);
   assert.equal(contratos(indB).total, 0);
   const indCsv = await (await get(tA, '/indicadores/export?formato=csv')).text();
-  assert.ok(indCsv.includes(',CONTRATOS,0,1,0,100,PENDENTE,'));
+  assert.ok(indCsv.includes(';Contratos críticos com aditivo;0;1;0;100;Pendente;'), 'rotulos no CSV');
+  assert.ok(indCsv.split('\r\n')[0].includes(';'), 'separador ponto e virgula');
 
   const tercCsv = await (await get(tA, '/terceiros/export?formato=csv')).text();
-  assert.ok(tercCsv.includes('SEG1=SIM'), 'respostas do questionario no CSV');
+  assert.ok(tercCsv.includes('SEG1 — Sim'), 'respostas do questionario no CSV, com rotulo');
   const incCsv = await (await get(tA, '/repositorio/incidentes/export?formato=csv')).text();
-  assert.ok(incCsv.includes('2026-10-02 — Senha trocada (DPO A)'), 'providencias no CSV');
+  assert.ok(incCsv.includes('02/10/2026 — Senha trocada (DPO A)'), 'providencias no CSV');
 });
 
 test('exportacao de DSAR restrita (dados de titulares)', async () => {
@@ -111,7 +112,7 @@ test('pacote de portabilidade: modulos, anexos, dicionario, guia e manifesto', a
 
   // dicionario descreve os campos; manifesto confere com o conteudo
   const dic = zip['dicionario-de-dados.md'].toString('utf8');
-  assert.ok(dic.includes('## dsar-solicitacoes.csv') && dic.includes('| `dataLimite` | Prazo legal (ISO 8601) |'));
+  assert.ok(dic.includes('## dsar-solicitacoes.csv') && dic.includes('| Prazo legal (data e hora de Brasília) | `dataLimite` |'));
   const manifesto = JSON.parse(zip['manifesto.json'].toString('utf8'));
   for (const a of manifesto.arquivos) {
     assert.equal(crypto.createHash('sha256').update(zip[a.caminho]).digest('hex'), a.sha256, `hash de ${a.caminho}`);
