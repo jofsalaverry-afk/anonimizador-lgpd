@@ -538,16 +538,18 @@ async function main() {
   linhas.push({ modulo: 'Protocolo 7c', descricao: `protocolos únicos entre as duas câmaras (${prot.length})`, metodo: '-', rota: '-', status: '-', ok: prot.every(Boolean) && new Set(prot).size === prot.length && prot.every(p => /^DS-\d{4}-\d{3}$/.test(p)), nota: prot.join(' ') });
 
   // ---------- Limites de tentativas (por último: bloqueiam a conta/IP por 15 min) ----------
+  // conta inexistente diferente a cada rodada: a fumaca pode ser repetida sem esperar os 15 min
+  const CONTA_429 = 'nao-existe-' + crypto.randomBytes(4).toString('hex') + '@demo-staging.local';
   let st429 = null, n = 0;
   for (n = 1; n <= 12; n++) {
-    const r = await req('POST', '/auth/login', { body: { email: 'nao-existe-7a@demo-staging.local', senha: 'senha-errada-7a' } });
+    const r = await req('POST', '/auth/login', { body: { email: CONTA_429, senha: 'senha-errada-7a' } });
     if (r.status === 429) { st429 = r; break; }
   }
   linhas.push({ modulo: 'Limites 7b', descricao: `login: 429 na 11ª falha da MESMA conta (veio na tentativa ${n})`, metodo: 'POST', rota: '/auth/login', status: st429?.status || '-', ok: !!st429 && n === 11, nota: st429 ? (n === 11 ? '' : `na tentativa ${n}`) : 'nunca deu 429' });
   await passo('Limites 7b', 'colega no mesmo IP (outra conta) não fica bloqueado', 'POST', '/auth/login', { body: { email: 'colega-7b@demo-staging.local', senha: 'senha-errada-7b' } }, 401);
   let ad429 = null, m = 0;
   for (m = 1; m <= 12; m++) {
-    const r = await req('POST', '/admin/login', { body: { email: 'nao-existe-7a@demo-staging.local', senha: 'senha-errada-7a' } });
+    const r = await req('POST', '/admin/login', { body: { email: CONTA_429, senha: 'senha-errada-7a' } });
     if (r.status === 429) { ad429 = r; break; }
   }
   linhas.push({ modulo: 'Limites 7a', descricao: `login do Admin: 429 na 11ª falha da mesma conta (veio na tentativa ${m})`, metodo: 'POST', rota: '/admin/login', status: ad429?.status || '-', ok: !!ad429 && m === 11, nota: ad429 ? (m === 11 ? '' : `na tentativa ${m}`) : 'nunca deu 429' });
