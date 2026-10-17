@@ -230,7 +230,7 @@ async function main() {
   await passo('DSAR', 'exportar CSV', 'GET', '/dsar/export?formato=csv', { token: G, binario: true });
 
   // ---------- Checklist ----------
-  const at = await passo('Checklist', 'criar atividade própria', 'POST', '/conformidade/atividades', { token: G, body: { titulo: 'Revisar contratos', prazo: '2026-12-15', responsavelId: me.json?.id } }, 201);
+  const at = ctx.atividade = await passo('Checklist', 'criar atividade própria', 'POST', '/conformidade/atividades', { token: G, body: { titulo: 'Revisar contratos', prazo: '2026-12-15', responsavelId: me.json?.id } }, 201);
   await passo('Checklist', 'responder atividade', 'POST', `/conformidade/checklist/${at?.json?.id}/responder`, { token: G, body: { status: 'CONFORME', observacao: 'ok' } });
   await passo('Checklist', 'catálogo (20 itens) + atividade AP-nnn', 'GET', '/conformidade/checklist', { token: G }, 200, r => {
     const globais = r.json.filter(i => !i.organizacaoId);
@@ -375,6 +375,92 @@ async function main() {
   await passo('MFA 6d', 'Admin zera o MFA do AUDITOR (com motivo)', 'POST', `/admin/usuarios/${(lista?.json || []).find(u => u.email === cred.AUDITOR.email)?.id}/mfa/zerar`, { token: ctx.admin, body: { motivo: 'fumaça: zerar pelo admin' } }, 200,
     r => r.json.mfaAtivo === false || 'não zerou');
   await passo('MFA 6d', 'AUDITOR entra de novo sem código', 'POST', '/auth/login', { body: cred.AUDITOR }, 200, r => (!!r.json.token && !r.json.mfaPendente) || 'pediu código');
+
+  // ---------- Etapa 7a ----------
+  // Usuario novo por rodada (desativado no fim). Senhas so em memoria.
+  const novo = { email: `novo7a-${crypto.randomBytes(4).toString('hex')}@demo-staging.local`, senha: 'Ini-' + crypto.randomBytes(9).toString('base64url') };
+  const nova1 = 'Pes-' + crypto.randomBytes(9).toString('base64url');
+  const nova2 = 'Pes-' + crypto.randomBytes(9).toString('base64url');
+  await passo('Senha 7a', 'senha inicial com 9 caracteres é recusada (400)', 'POST', '/usuarios', { token: G, body: { nome: 'Pessoa Nova 7a', email: novo.email, senha: '123456789', perfil: 'OPERADOR' } }, 400, r => /10 caracteres/.test(r.json.erro) || 'mensagem sem o mínimo');
+  const cri = await passo('Senha 7a', 'Gestor cria usuário (senha inicial ≥ 10)', 'POST', '/usuarios', { token: G, body: { nome: 'Pessoa Nova 7a', email: novo.email, senha: novo.senha, perfil: 'OPERADOR' } }, 201);
+  const p1 = await passo('Senha 7a', '1º acesso: login não abre sessão, pede troca', 'POST', '/auth/login', { body: novo }, 200, r => (r.json.trocaSenhaObrigatoria === true && !r.json.token) || 'abriu sessão');
+  await passo('Senha 7a', 'trocaToken não abre módulo (401)', 'GET', '/ropa/tratamentos', { token: p1?.json?.trocaToken }, 401);
+  await passo('Senha 7a', '1º acesso: cria a senha pessoal', 'POST', '/auth/senha/primeiro-acesso', { body: { trocaToken: p1?.json?.trocaToken, novaSenha: nova1 } });
+  const p2 = await passo('Senha 7a', 'entra com a senha pessoal', 'POST', '/auth/login', { body: { email: novo.email, senha: nova1 } }, 200, r => !!r.json.token || 'sem sessão');
+  await passo('Senha 7a', 'senha inicial não entra mais (401)', 'POST', '/auth/login', { body: novo }, 401);
+  const sNovo = p2?.json?.token;
+  await passo('Senha 7a', 'trocar senha com a atual errada (400)', 'PUT', '/auth/senha', { token: sNovo, body: { senhaAtual: 'errada-errada-1', novaSenha: nova2 } }, 400);
+  const tr = await passo('Senha 7a', 'trocar senha com a atual certa → sessão nova', 'PUT', '/auth/senha', { token: sNovo, body: { senhaAtual: nova1, novaSenha: nova2 } }, 200, r => !!r.json.token || 'sem sessão nova');
+  await passo('Senha 7a', 'sessão anterior à troca foi encerrada (401)', 'GET', '/ropa/tratamentos', { token: sNovo }, 401);
+  await passo('Senha 7a', 'histórico registra as trocas sem a senha', 'GET', `/historico?entidade=USUARIO&registroId=${cri?.json?.id}`, { token: G }, 200, r => {
+    const txt = JSON.stringify(r.json);
+    if (![novo.senha, nova1, nova2].every(x => !txt.includes(x))) return 'senha no histórico';
+    return (/primeiro acesso/.test(txt) && /alterada pelo próprio usuário/.test(txt)) || 'sem registro da troca';
+  });
+  await passo('Sessão 7a', 'logout', 'POST', '/auth/logout', { token: tr?.json?.token, body: {} });
+  await passo('Sessão 7a', 'token depois do logout não vale (401)', 'GET', '/ropa/tratamentos', { token: tr?.json?.token }, 401);
+  const p3 = await req('POST', '/auth/login', { body: { email: novo.email, senha: nova2 } });
+  await passo('Sessão 7a', 'Gestor desativa o usuário', 'PATCH', `/usuarios/${cri?.json?.id}/ativo`, { token: G, body: { ativo: false } });
+  await passo('Sessão 7a', 'sessão do desativado cai na hora (401)', 'GET', '/ropa/tratamentos', { token: p3.json?.token }, 401);
+  await passo('E-mail 7a', '"esqueci minha senha" sem SMTP no poc: 503, nunca "enviado"', 'POST', '/auth/senha/esqueci', { body: { email: cred.GESTOR.email } }, 503, r => !/enviad/i.test(r.json.erro) || 'disse enviado');
+  await passo('E-mail 7a', 'canal público sem SMTP: 503 com contato, nunca "enviado"', 'POST', '/dsar/publico/solicitar-otp', {
+    body: { organizacaoId: org.id, titularNome: 'Titular Fumaça', titularEmail: 'titular-fumaca@demo-staging.local', tipoDireito: 'ACESSO', descricao: 'Pedido de teste da fumaça' }
+  }, 503, r => (r.json.envioIndisponivel === true && !/enviad/i.test(r.json.erro) && /encarregad|protocolo/.test(r.json.erro)) || 'mensagem inadequada');
+
+  // JWT com alg "none" (sem assinatura) e CORS
+  const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const semAssinatura = `${b64({ alg: 'none', typ: 'JWT' })}.${b64({ id: gestorU?.id, organizacaoId: org.id, perfil: 'GESTOR', sv: 0 })}.`;
+  await passo('Endurecimento 7a', 'JWT sem assinatura (alg none) é recusado (401)', 'GET', '/ropa/tratamentos', { token: semAssinatura }, 401);
+  for (const [origem, deve] of [['https://anonimizadorldpd.com', true], ['http://localhost:5173', false]]) {
+    try {
+      const r = await fetch(`${API}/auth/me`, { method: 'OPTIONS', headers: { Origin: origem, 'Access-Control-Request-Method': 'GET' } });
+      const ok = (r.headers.get('access-control-allow-origin') === origem) === deve;
+      linhas.push({ modulo: 'Endurecimento 7a', descricao: `CORS ${deve ? 'aceita' : 'recusa'} ${origem}${deve ? '' : ' (poc roda com NODE_ENV=production)'}`, metodo: 'OPTIONS', rota: '/auth/me', status: r.status, ok, nota: ok ? '' : 'cabeçalho inesperado' });
+    } catch (e) { linhas.push({ modulo: 'Endurecimento 7a', descricao: `CORS ${origem}`, metodo: 'OPTIONS', rota: '/auth/me', status: 'ERRO', ok: false, nota: e.message }); }
+  }
+  await passo('Endurecimento 7a', 'evidência "javascript:" é recusada (400)', 'POST', `/conformidade/checklist/${ctx.atividade?.json?.id}/responder`, { token: G, body: { status: 'CONFORME', evidenciaUrl: 'javascript:alert(1)' } }, 400);
+  await passo('Endurecimento 7a', 'evidência https é aceita', 'POST', `/conformidade/checklist/${ctx.atividade?.json?.id}/responder`, { token: G, body: { status: 'CONFORME', evidenciaUrl: 'https://anonimizadorldpd.com/evidencia' } });
+  const formula = await passo('Endurecimento 7a', 'tratamento com nome iniciando por "="', 'POST', '/ropa/tratamentos', { token: G, body: { nome: '=1+1 fumaça 7a', finalidade: '@soma', baseLegal: 'OBRIGACAO_LEGAL' } }, 201);
+  await passo('Endurecimento 7a', 'CSV da ROPA neutraliza a fórmula', 'GET', '/ropa/export?formato=csv', { token: G, binario: true }, 200, r => {
+    const t = r.buf.toString('utf8');
+    return (t.includes(`"'=1+1 fumaça 7a"`) && t.includes(`"'@soma"`)) || 'fórmula sem apóstrofo';
+  });
+  if (formula?.json?.id) await req('DELETE', `/ropa/tratamentos/${formula.json.id}`, { token: G });
+  const fdA = new FormData();
+  fdA.append('arquivo', new Blob([Buffer.from('conteudo de teste')], { type: 'text/plain' }), 'fatura\u202Egpj.txt');
+  fdA.append('entidade', 'CHECKLIST_ITEM');
+  fdA.append('registroId', ctx.atividade?.json?.id || '');
+  await passo('Endurecimento 7a', 'nome de anexo sem caractere de direção (U+202E)', 'POST', '/anexos', { token: G, form: fdA }, 201, r => (r.json.nomeArquivo === 'faturagpj.txt') || `nome gravado: ${JSON.stringify(r.json.nomeArquivo)}`);
+
+  // Anonimizador sem a chave da IA (poc nao tem a chave)
+  const fdR = new FormData();
+  fdR.append('arquivo', new Blob([Buffer.from('%PDF-1.4\nisto nao e um pdf')], { type: 'application/pdf' }), 'quebrado.pdf');
+  await passo('Anonimizador 7a', 'PDF inválido: 400 amigável, sem pilha técnica', 'POST', '/documents/anonymize', { token: G, form: fdR }, 400, r => (/não é um PDF válido/.test(r.json.erro) && !('stack' in r.json)) || 'mensagem/pilha');
+  const pdfOk = await new Promise(res => {
+    const PDFDocument = require('pdfkit');
+    const d = new PDFDocument(); const partes = [];
+    d.on('data', b => partes.push(b)); d.on('end', () => res(Buffer.concat(partes)));
+    d.fontSize(12).text('Declaro, Fulano de Tal, CPF 123.456.789-09, RG 12.345.678-9, telefone (51) 99999-8888, e-mail fulano@gmail.com.'); d.end();
+  });
+  const fdP = new FormData();
+  fdP.append('arquivo', new Blob([pdfOk], { type: 'application/pdf' }), 'declaracao.pdf');
+  await passo('Anonimizador 7a', 'sem IA: aviso diz o que tarja e não promete RG', 'POST', '/documents/anonymize', { token: G, form: fdP }, 200,
+    r => (r.json.modoBasico === true && /apenas CPF, e-mail pessoal \(não institucional\) e telefone/.test(r.json.avisoIA) && /RG, endereço/.test(r.json.avisoIA) && /manualmente/.test(r.json.avisoIA)) || 'aviso inadequado');
+  await passo('Anonimizador 7a', 'sem IA: texto colado recebe mensagem clara (503)', 'POST', '/documents/anonymize', { token: G, body: { texto: 'Fulano, CPF 123.456.789-09' } }, 503, r => /depende da inteligência artificial/.test(r.json.erro) || 'mensagem');
+
+  // ---------- Limites de tentativas (por último: bloqueiam o IP por 15 min) ----------
+  let st429 = null, n = 0;
+  for (n = 1; n <= 12; n++) {
+    const r = await req('POST', '/auth/login', { body: { email: 'nao-existe-7a@demo-staging.local', senha: 'senha-errada-7a' } });
+    if (r.status === 429) { st429 = r; break; }
+  }
+  linhas.push({ modulo: 'Limites 7a', descricao: `login de usuário: 429 ao passar de 10 erros em /auth na janela de 15 min (veio na tentativa ${n}; os erros esperados dos passos anteriores contam)`, metodo: 'POST', rota: '/auth/login', status: st429?.status || '-', ok: !!st429 && n <= 11, nota: st429 ? '' : 'nunca deu 429' });
+  let ad429 = null, m = 0;
+  for (m = 1; m <= 12; m++) {
+    const r = await req('POST', '/admin/login', { body: { email: 'nao-existe-7a@demo-staging.local', senha: 'senha-errada-7a' } });
+    if (r.status === 429) { ad429 = r; break; }
+  }
+  linhas.push({ modulo: 'Limites 7a', descricao: `login do Admin: 429 depois de 10 erros (veio na tentativa ${m})`, metodo: 'POST', rota: '/admin/login', status: ad429?.status || '-', ok: !!ad429 && m === 11, nota: ad429 ? (m === 11 ? '' : `na tentativa ${m}`) : 'nunca deu 429' });
 }
 
 main()

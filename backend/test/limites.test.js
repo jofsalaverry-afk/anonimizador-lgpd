@@ -53,3 +53,24 @@ test('canal publico do titular: 5 por 15 min, a 6a recebe 429', async () => {
   assert.ok(st.slice(0, 5).every(s => s !== 429), JSON.stringify(st));
   assert.equal(st[5], 429);
 });
+
+test('painel autenticado: limite por usuario, nao por IP (servidores da mesma camara nao se bloqueiam)', async () => {
+  const jwt = require('jsonwebtoken');
+  const { chaveUsuarioOuIp, LIMITE_PAINEL_POR_MINUTO } = require('../src/middlewares/seguranca');
+  const tok = id => jwt.sign({ id, organizacaoId: 'o1', perfil: 'OPERADOR' }, process.env.JWT_SECRET);
+  assert.equal(chaveUsuarioOuIp({ headers: { authorization: `Bearer ${tok('u1')}` }, ip: '203.0.113.9' }), 'u:u1');
+  assert.equal(chaveUsuarioOuIp({ headers: {}, ip: '203.0.113.9' }), '203.0.113.9', 'sem sessão: IP');
+  assert.ok(LIMITE_PAINEL_POR_MINUTO >= 300);
+  // 70 chamadas de dois usuarios pelo mesmo IP: nenhuma 429 (antes da correcao seria 60/min por IP)
+  const ip = '198.51.100.40';
+  const st = [];
+  for (let i = 0; i < 70; i++) {
+    const r = await fetch(`${base}/ropa/tratamentos`, { headers: { ...doIp(ip), Authorization: `Bearer ${tok(i % 2 ? 'ua' : 'ub')}` } });
+    st.push(r.status);
+  }
+  assert.ok(!st.includes(429), 'recebeu 429 dentro do uso normal');
+  // o limite existe: o mesmo usuario passando do teto recebe 429
+  let ultimo;
+  for (let i = 0; i < LIMITE_PAINEL_POR_MINUTO + 1; i++) ultimo = (await fetch(`${base}/ropa/tratamentos`, { headers: { ...doIp(ip), Authorization: `Bearer ${tok('uc')}` } })).status;
+  assert.equal(ultimo, 429);
+});

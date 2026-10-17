@@ -22,6 +22,21 @@ const VALIDATE_OFF = { xForwardedForHeader: false };
 // Railway), entao um X-Forwarded-For forjado pelo cliente nao muda a chave.
 const chaveIp = (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || '');
 
+// Rotas autenticadas do painel: a chave e o USUARIO da sessao, nao o IP —
+// varios servidores de uma camara costumam sair pelo mesmo IP e dividiriam
+// um contador so. O token so e lido (sem verificar) para escolher a chave: a
+// autenticacao de verdade acontece depois, na rota. Sem sessao, vale o IP.
+const jwt = require('jsonwebtoken');
+function chaveUsuarioOuIp(req) {
+  const h = req.headers?.authorization || '';
+  if (h.startsWith('Bearer ')) {
+    const d = jwt.decode(h.slice(7));
+    if (d && typeof d === 'object' && (d.id || d.userId)) return `u:${d.isAdmin ? 'adm:' : ''}${d.id || d.userId}`;
+  }
+  return chaveIp(req);
+}
+const LIMITE_PAINEL_POR_MINUTO = 300;
+
 // Resposta padrao de rate limit — mensagem legivel para o titular/usuario
 // com o tempo de espera em minutos.
 function mensagemExcesso(minutos) {
@@ -187,6 +202,8 @@ module.exports = {
   limiterAuth,
   limiterAdminLogin,
   chaveIp,
+  chaveUsuarioOuIp,
+  LIMITE_PAINEL_POR_MINUTO,
   limiterDocuments,
   limiterDsarPublico,
   tentativasSuspeitas,

@@ -67,29 +67,30 @@ app.use((req, res, next) => {
   next();
 });
 
-const { chaveIp, limiterAdminLogin } = require('./middlewares/seguranca');
+const { chaveIp, chaveUsuarioOuIp, LIMITE_PAINEL_POR_MINUTO, limiterAdminLogin } = require('./middlewares/seguranca');
 
-// Limite moderado para rotas admin autenticadas: 60 req/min (nao-sensivel,
-// so para evitar flood de painel interno). Mantido inline pois e especifico.
+// Limite moderado para rotas admin autenticadas (nao-sensivel, so para
+// evitar flood de painel interno). Etapa 7a: por usuario (ver chaveUsuarioOuIp)
+// — antes a chave estava quebrada e o limite nunca valia.
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: LIMITE_PAINEL_POR_MINUTO,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: chaveIp,
+  keyGenerator: chaveUsuarioOuIp,
   validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
 
-// Limite moderado p/ rotas de CRUD autenticadas (ROPA, repositorio, etc.):
-// 60 req/min. Menor que o anterior (20/min em ../documents) pois sao
-// operacoes de painel, nao de processamento pesado.
+// Limite moderado p/ rotas de CRUD autenticadas (ROPA, repositorio, etc.).
+// Etapa 7a: por usuario e com folga (uma tela do painel dispara varias
+// chamadas); 60/min por IP derrubaria uma camara inteira atras de um IP so.
 const crudLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: LIMITE_PAINEL_POR_MINUTO,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: chaveIp,
+  keyGenerator: chaveUsuarioOuIp,
   validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
