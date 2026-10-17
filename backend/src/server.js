@@ -18,7 +18,12 @@ const { origensCors } = require('./services/origensCors');
 const app = express();
 // Railway expoe o app atras de proxy; precisamos confiar no X-Forwarded-For
 // para o rate limiter identificar o IP correto do cliente.
-app.set('trust proxy', 1);
+// Etapa 7a (medido no ambiente poc em 17/10/2026): o Railway entrega
+// X-Forwarded-For = "<IP do cliente>, <IP do no de borda>" vindo de um
+// endereco interno, e descarta X-Forwarded-For/X-Real-IP enviados pelo
+// cliente. Com 1 salto, req.ip era o no de borda (clientes diferentes
+// dividiam o contador); com 2 saltos, req.ip e o cliente.
+app.set('trust proxy', 2);
 
 // Helmet — headers de seguranca padrao da industria.
 // - CSP restritivo (API JSON, nao serve HTML, nao precisa liberar nada)

@@ -10,26 +10,27 @@ let srv, base;
 before(async () => { await new Promise(r => { srv = app.listen(0, '127.0.0.1', r); }); base = `http://127.0.0.1:${srv.address().port}`; });
 after(async () => { await new Promise(r => srv.close(r)); });
 
-// O proxy do Railway acrescenta o IP real no FIM do X-Forwarded-For.
-const doIp = (ip, forjado) => ({ 'Content-Type': 'application/json', 'X-Forwarded-For': forjado ? `${forjado}, ${ip}` : ip });
-const post = (caminho, ip, body, forjado) => fetch(`${base}${caminho}`, { method: 'POST', headers: doIp(ip, forjado), body: JSON.stringify(body) });
+// Como o Railway entrega (medido no poc): X-Forwarded-For = "<cliente>, <no de borda>".
+// O no de borda muda entre requisicoes; o contador tem de ser o do cliente.
+const doIp = (ip, borda = '35.0.0.1') => ({ 'Content-Type': 'application/json', 'X-Forwarded-For': `${ip}, ${borda}` });
+const post = (caminho, ip, body, borda) => fetch(`${base}${caminho}`, { method: 'POST', headers: doIp(ip, borda), body: JSON.stringify(body) });
 
 test('chave do limite e o IP do cliente (nao o objeto req)', () => {
   assert.equal(chaveIp({ ip: '203.0.113.7' }), '203.0.113.7');
   assert.equal(chaveIp({ ip: '2001:db8:1:2:3:4:5:6' }), chaveIp({ ip: '2001:db8:1:2:ffff::1' }), 'IPv6 agrupado por /64');
 });
 
-test('login de usuario: 10 falhas e a 11a recebe 429; X-Forwarded-For forjado nao escapa', async () => {
+test('login de usuario: 10 falhas e a 11a recebe 429, mesmo passando por nos de borda diferentes', async () => {
   const ip = '198.51.100.10';
   const st = [];
   for (let i = 0; i < 11; i++) {
-    // o cliente forja um IP diferente a cada tentativa; o proxy acrescenta o real
-    st.push((await post('/auth/login', ip, { email: `x${i}@teste.local`, senha: 'errada-123' }, `10.0.0.${i}`)).status);
+    // cada tentativa chega por um no de borda diferente do Railway
+    st.push((await post('/auth/login', ip, { email: `x${i}@teste.local`, senha: 'errada-123' }, `35.0.0.${i + 1}`)).status);
   }
   assert.deepEqual(st.slice(0, 10), Array(10).fill(401));
   assert.equal(st[10], 429);
-  // outro cliente (outro IP real) nao e afetado
-  assert.equal((await post('/auth/login', '198.51.100.11', { email: 'y@teste.local', senha: 'errada-123' })).status, 401);
+  // outro cliente pelo MESMO no de borda nao e afetado
+  assert.equal((await post('/auth/login', '198.51.100.11', { email: 'y@teste.local', senha: 'errada-123' }, '35.0.0.1')).status, 401);
 });
 
 test('codigo MFA errado tambem conta no limite de /auth', async () => {

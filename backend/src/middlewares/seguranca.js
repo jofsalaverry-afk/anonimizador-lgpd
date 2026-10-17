@@ -18,8 +18,8 @@ const VALIDATE_OFF = { xForwardedForHeader: false };
 // Etapa 7a: chave do limite = IP REAL do cliente. O express-rate-limit chama
 // keyGenerator(req, res); passar o ipKeyGenerator direto entregava o objeto
 // req no lugar do IP e o contador nunca somava (nenhum limite funcionava).
-// req.ip ja respeita o "trust proxy" do server.js (1 salto: proxy do
-// Railway), entao um X-Forwarded-For forjado pelo cliente nao muda a chave.
+// req.ip ja respeita o "trust proxy" do server.js (2 saltos: borda do
+// Railway + proxy interno), entao a chave e o IP do cliente.
 const chaveIp = (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || '');
 
 // Rotas autenticadas do painel: a chave e o USUARIO da sessao, nao o IP —
