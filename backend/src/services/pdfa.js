@@ -72,10 +72,14 @@ function statusPdfa() {
 }
 
 // Arquivo PostScript que injeta o OutputIntent sRGB exigido pelo PDF/A.
+// Etapa 7b: titulo em UTF-16BE hexadecimal (<FEFF...>). Em texto literal o
+// Ghostscript le PDFDocEncoding: acentos viravam lixo e o "í" (byte 0xAD)
+// derrubava a conversao.
+const textoPdf = s => '<FEFF' + Buffer.from(String(s), 'utf16le').swap16().toString('hex').toUpperCase() + '>';
 function pdfaDefPs(iccPath, titulo) {
   const esc = s => String(s).replace(/[\\()]/g, m => '\\' + m);
   return `%!
-[ /Title (${esc(titulo)}) /DOCINFO pdfmark
+[ /Title ${textoPdf(titulo)} /DOCINFO pdfmark
 /ICCProfile (${esc(iccPath.replace(/\\/g, '/'))}) def
 [/_objdef {icc_PDFA} /type /stream /OBJ pdfmark
 [{icc_PDFA} << /N 3 >> /PUT pdfmark

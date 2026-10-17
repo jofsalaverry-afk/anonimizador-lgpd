@@ -484,7 +484,7 @@ async function main() {
     r => r.json.some(d => d.id === doc7?.json?.id && d.motivoExclusao === 'Fumaça: versão substituída') || 'não está nos excluídos');
   await passo('Repositório 7b', 'histórico do documento: enviado e excluído, por quem e quando', 'GET', `/historico?entidade=DOCUMENTO&registroId=${doc7?.json?.id}`, { token: G }, 200,
     r => (r.json.itens.map(i => i.acao).sort().join(',') === 'CRIAR,EXCLUIR' && r.json.itens.every(i => i.usuarioId && i.criadoEm)) || 'histórico incompleto');
-  await passo('Checklist 7b', 'Auditor vê evidências e histórico do checklist', 'GET', `/historico?entidade=CHECKLIST_ITEM&registroId=${ctx.atividade?.json?.id}`, { token: ctx.t.AUDITOR }, 200);
+  await passo('Checklist 7b', 'Auditor vê evidências e histórico do checklist', 'GET', `/historico?entidade=CHECKLIST_ITEM&registroId=${ctx.atividade?.json?.id}`, { token: (await req('POST', '/auth/login', { body: cred.AUDITOR })).json?.token }, 200); // sessao nova: a do inicio foi encerrada ao zerar o MFA (6d)
   // Validacoes
   await passo('Validações 7b', 'retenção negativa recusada (400)', 'POST', '/ropa/tratamentos', { token: G, body: { nome: 'Ret 7b', finalidade: 'x', baseLegal: 'OBRIGACAO_LEGAL', retencaoDias: -1 } }, 400);
   await passo('Validações 7b', 'país estrangeiro sem hipótese do art. 33 recusado (400)', 'POST', '/ropa/tratamentos', { token: G, body: { nome: 'Ext 7b', finalidade: 'x', baseLegal: 'OBRIGACAO_LEGAL', compartilhamentos: [{ terceiroNome: 'Nuvem EUA', finalidadeCompartilhamento: 'Hospedagem', paisDestino: 'Estados Unidos' }] } }, 400);

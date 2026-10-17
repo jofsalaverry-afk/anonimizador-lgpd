@@ -145,7 +145,9 @@ test('PDF/A: relatorio gerado, conversao com argumentos de PDF/A-2b e OutputInte
   }
   assert.match(visto.def, /\/S \/GTS_PDFA1/);
   assert.match(visto.def, /\/OutputConditionIdentifier \(sRGB IEC61966-2\.1\)/);
-  assert.match(visto.def, /\/Title \(Registro das Operações de Tratamento \\\(ROPA\\\)\)/);
+  // Etapa 7b: titulo em UTF-16BE hexadecimal (acentos sem PDFDocEncoding)
+  const hex = '<FEFF' + Buffer.from('Registro das Operações de Tratamento (ROPA)', 'utf16le').swap16().toString('hex').toUpperCase() + '>';
+  assert.ok(visto.def.includes(`/Title ${hex} /DOCINFO`));
 });
 
 test('PDF/A sem Ghostscript: erro claro (503) e o resto segue funcionando', async (t) => {

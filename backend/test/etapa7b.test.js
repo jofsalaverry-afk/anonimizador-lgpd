@@ -285,3 +285,10 @@ test('10: frontend sem Google Fonts (fontes hospedadas no proprio site)', (t) =>
   }
   assert.ok(fs.readFileSync(path.join(front, 'src/index.js'), 'utf8').includes('@fontsource'));
 });
+
+test('3: titulo do PDF/A com acento vai em UTF-16BE (o "í" derrubava o Ghostscript)', () => {
+  const { pdfaDefPs } = require('../src/services/pdfa');
+  const def = pdfaDefPs('/x/srgb.icc', 'Política de Privacidade');
+  assert.ok(def.includes('/Title <FEFF0050006F006C00ED'), 'í = 00ED em UTF-16BE');
+  assert.ok(!/\/Title \(/.test(def), 'sem texto literal em PDFDocEncoding');
+});
