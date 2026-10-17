@@ -8,6 +8,9 @@
 
 const crypto = require('crypto');
 
+// campos com indice unico conferidos no create
+const UNICOS = { solicitacaoTitular: ['protocolo'] };
+
 // relacoes N:1 -> [modelo, campoFK]
 const RELACOES = {
   usuario: { organizacao: ['organizacao', 'organizacaoId'] },
@@ -98,7 +101,7 @@ function casa(row, where) {
     const v = row[k];
     if (cond !== null && typeof cond === 'object' && !(cond instanceof Date) && !Array.isArray(cond)) {
       // chave composta (ex.: organizacaoId_itemId) ou operadores
-      const ops = ['in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'has', 'equals'];
+      const ops = ['in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'has', 'equals', 'startsWith'];
       if (!Object.keys(cond).some(o => ops.includes(o))) {
         if (!casa(row, cond)) return false;
         continue;
@@ -112,6 +115,7 @@ function casa(row, where) {
       if ('gt' in cond && !(v != null && v > cond.gt)) return false;
       if ('gte' in cond && !(v != null && v >= cond.gte)) return false;
       if ('has' in cond && !(Array.isArray(v) && v.includes(cond.has))) return false;
+      if ('startsWith' in cond && !(typeof v === 'string' && v.startsWith(cond.startsWith))) return false;
       continue;
     }
     if (!valorIgual(v, cond)) return false;
@@ -181,6 +185,14 @@ function criarBanco() {
         const agora = new Date();
         const row = { ...defaultsDe(modelo), id: novoId(), criadoEm: agora, atualizadoEm: agora };
         aplicarDados(modelo, row, data);
+        // indices unicos que os testes exercitam (o banco real recusa com P2002)
+        for (const campo of UNICOS[modelo] || []) {
+          if (row[campo] != null && rows().some(x => x[campo] === row[campo])) {
+            const e = new Error(`Unique constraint failed on the fields: (\`${campo}\`)`);
+            e.code = 'P2002'; e.meta = { modelName: modelo, target: [campo] };
+            throw e;
+          }
+        }
         rows().push(row);
         return projetar(modelo, row, { select, include });
       },

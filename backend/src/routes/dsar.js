@@ -3,7 +3,8 @@ const crypto = require('crypto');
 const { body } = require('express-validator');
 const { authUsuario } = require('../middlewares/authUsuario');
 const {
-  gerarProtocolo,
+  comProtocoloUnico,
+  ProtocoloIndisponivelError,
   enriquecerSolicitacao,
   identidadeDe,
   prazoAPartirDe,
@@ -129,10 +130,11 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
 
     // Etapa 7b: mesma regra do canal publico — o prazo de 15 dias so comeca
     // quando a identidade do titular for verificada.
-    const protocolo = await gerarProtocolo(req.usuario.organizacaoId);
     const dataRecebimento = new Date();
 
-    const sol = await prisma.$transaction(async (tx) => {
+    // Etapa 7c: protocolo unico no sistema; em conflito, a transacao inteira
+    // e refeita com o numero seguinte
+    const sol = await comProtocoloUnico(req.usuario.organizacaoId, protocolo => prisma.$transaction(async (tx) => {
       const criada = await tx.solicitacaoTitular.create({
         data: {
           organizacaoId: req.usuario.organizacaoId,
@@ -149,7 +151,7 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
         acao: 'CRIAR', usuarioId: req.usuario.id, antes: null, depois: paraHistorico(criada)
       });
       return criada;
-    });
+    }));
 
     // Envia confirmacao por email ao titular (fire-and-forget)
     const org = await prisma.organizacao.findUnique({
@@ -166,6 +168,7 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
 
     res.status(201).json(enriquecerSolicitacao(sol));
   } catch (err) {
+    if (err instanceof ProtocoloIndisponivelError) return res.status(503).json({ erro: 'Muitos pedidos registrados ao mesmo tempo. Aguarde alguns segundos e tente de novo.' });
     console.error('[POST /dsar/solicitacoes]', err);
     res.status(500).json({ erro: 'Erro ao criar solicitação' });
   }
@@ -702,7 +705,14 @@ router.post('/publico/confirmar-otp', validadoresConfirmarOtp, async (req, res) 
     const otp = await validarOtpDSAR({ email: titularEmail, codigo: String(codigo).trim() });
     if (!otp) return res.status(400).json({ erro: 'Código inválido ou expirado' });
 
-    const sol = await criarSolicitacaoApartirDeOtp(otp);
+    let sol;
+    try {
+      sol = await criarSolicitacaoApartirDeOtp(otp);
+    } catch (e) {
+      // o codigo nao foi consumido: o titular pode confirmar de novo
+      if (e instanceof ProtocoloIndisponivelError) return res.status(503).json({ erro: 'Não foi possível registrar o seu pedido agora. Aguarde alguns segundos e confirme o código de novo.' });
+      throw e;
+    }
 
     // Historico sem usuario (canal publico). Falha aqui nao pode
     // derrubar a resposta ao titular — a solicitacao ja foi criada.

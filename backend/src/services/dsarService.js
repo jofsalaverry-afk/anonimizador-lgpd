@@ -7,35 +7,53 @@ const { dataPura, hojeSP, isoDiaSP } = require('./datas');
 
 // ==================== Protocolo ====================
 
-// Gera protocolo sequencial: SIGLA-ANO-SEQ (ex: CMP-2026-001)
-async function gerarProtocolo(organizacaoId) {
-  const org = await prisma.organizacao.findUnique({
-    where: { id: organizacaoId },
-    select: { nome: true }
-  });
-  const palavras = (org?.nome || 'ORG')
+// Sigla da camara para o protocolo: SIGLA-ANO-SEQ (ex: CMP-2026-001)
+function siglaDe(nome) {
+  const palavras = (nome || 'ORG')
     .replace(/^(Camara|Câmara)\s+(Municipal\s+)?(de\s+|do\s+|da\s+)?/i, '')
     .split(/\s+/)
     .filter(Boolean);
+  if (palavras.length === 0) return 'ORG';
+  if (palavras.length === 1) return palavras[0].slice(0, 3).toUpperCase();
+  return palavras.slice(0, 3).map(p => p[0]).join('').toUpperCase();
+}
 
-  let sigla;
-  if (palavras.length === 0) sigla = 'ORG';
-  else if (palavras.length === 1) sigla = palavras[0].slice(0, 3).toUpperCase();
-  else sigla = palavras.slice(0, 3).map(p => p[0]).join('').toUpperCase();
+// Etapa 7c: o protocolo e UNICO NO SISTEMA (indice unico no banco), mas a
+// sequencia era contada so na camara: duas camaras com a mesma sigla
+// geravam o mesmo protocolo e o pedido dava erro 500. Agora o proximo
+// numero e o maior ja usado com o mesmo prefixo (sigla + ano), em todas as
+// camaras. "minimo" garante avanco quando o banco acabou de recusar um numero.
+async function gerarProtocolo(organizacaoId, { db = prisma, minimo = 1 } = {}) {
+  const org = await db.organizacao.findUnique({ where: { id: organizacaoId }, select: { nome: true } });
+  const prefixo = `${siglaDe(org?.nome)}-${new Date().getFullYear()}-`;
+  const existentes = await db.solicitacaoTitular.findMany({ where: { protocolo: { startsWith: prefixo } }, select: { protocolo: true } });
+  const maior = existentes.reduce((m, s) => {
+    const n = Number(s.protocolo.slice(prefixo.length));
+    return Number.isInteger(n) && n > m ? n : m;
+  }, 0);
+  return `${prefixo}${String(Math.max(maior + 1, minimo)).padStart(3, '0')}`;
+}
 
-  const ano = new Date().getFullYear();
-  const inicioAno = new Date(`${ano}-01-01T00:00:00.000Z`);
-  const fimAno = new Date(`${ano + 1}-01-01T00:00:00.000Z`);
+class ProtocoloIndisponivelError extends Error {}
+const ehConflitoDeProtocolo = e => e?.code === 'P2002' && [].concat(e.meta?.target || []).join(',').includes('protocolo');
 
-  const count = await prisma.solicitacaoTitular.count({
-    where: {
-      organizacaoId,
-      criadoEm: { gte: inicioAno, lt: fimAno }
+// Cria o registro com um protocolo novo. Se outro pedido levou o mesmo
+// numero no mesmo instante (indice unico recusa), tenta o seguinte — no
+// maximo TENTATIVAS vezes. criar(protocolo) deve fazer todo o trabalho
+// (inclusive a transacao), para poder ser repetido do zero.
+const TENTATIVAS_PROTOCOLO = 5;
+async function comProtocoloUnico(organizacaoId, criar, { db = prisma } = {}) {
+  let minimo = 1;
+  for (let i = 0; i < TENTATIVAS_PROTOCOLO; i++) {
+    const protocolo = await gerarProtocolo(organizacaoId, { db, minimo });
+    try {
+      return await criar(protocolo);
+    } catch (e) {
+      if (!ehConflitoDeProtocolo(e)) throw e;
+      minimo = Number(protocolo.split('-').pop()) + 1;
     }
-  });
-
-  const seq = String(count + 1).padStart(3, '0');
-  return `${sigla}-${ano}-${seq}`;
+  }
+  throw new ProtocoloIndisponivelError('Não foi possível gerar um protocolo único');
 }
 
 // ==================== SLA ====================
@@ -154,10 +172,9 @@ async function consumirOtp(otpId) {
 
 // Cria a solicitacao oficial a partir de um OTP validado
 async function criarSolicitacaoApartirDeOtp(otp) {
-  const protocolo = await gerarProtocolo(otp.organizacaoId);
   const dataRecebimento = new Date();
 
-  const solicitacao = await prisma.solicitacaoTitular.create({
+  const solicitacao = await comProtocoloUnico(otp.organizacaoId, protocolo => prisma.solicitacaoTitular.create({
     data: {
       organizacaoId: otp.organizacaoId,
       protocolo,
@@ -172,7 +189,7 @@ async function criarSolicitacaoApartirDeOtp(otp) {
       identidadeVerificadaEm: dataRecebimento,
       identidadeMetodo: 'CODIGO_EMAIL'
     }
-  });
+  }));
 
   await consumirOtp(otp.id);
   return solicitacao;
@@ -211,6 +228,9 @@ async function getSolicitacoesPorPrazo(organizacaoId) {
 
 module.exports = {
   gerarProtocolo,
+  siglaDe,
+  comProtocoloUnico,
+  ProtocoloIndisponivelError,
   calcularSLA,
   identidadeDe,
   prazoAPartirDe,

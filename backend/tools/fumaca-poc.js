@@ -509,6 +509,34 @@ async function main() {
   await passo('Indicadores 7b', 'ROPA mostra pendentes por falta de setor ou sistema, com link', 'GET', '/indicadores', { token: G }, 200,
     r => { const i = (r.json.indicadores || []).find(x => x.chave === 'ROPA'); return (typeof i?.pendentesSetorSistema === 'number' && i.linkSetorSistema?.filtro === 'sem-setor-sistema') || 'sem o contador'; });
 
+  // ---------- Etapa 7c: duas camaras com a mesma sigla (protocolo DSAR unico) ----------
+  // "Camara Demo Staging" e "Câmara Municipal de Dados Sul" tem a sigla DS.
+  const NOME_DS = 'Câmara Municipal de Dados Sul';
+  let orgDS = (await req('GET', '/admin/camaras', { token: ctx.admin })).json.find(o => o.nome === NOME_DS);
+  if (!orgDS || !cred.DS) {
+    cred.DS = { email: `gestor-ds-${crypto.randomBytes(3).toString('hex')}@demo-staging.local`, senha: 'Demo-' + crypto.randomBytes(9).toString('base64url') };
+    const inicial = 'Ini-' + crypto.randomBytes(9).toString('base64url');
+    const c = await passo('Protocolo 7c', 'criar 2ª câmara com a mesma sigla (DS)', 'POST', '/admin/camaras', {
+      token: ctx.admin, body: { nome: NOME_DS, cnpj: '12.345.678/0099-07', nomeGestor: 'Gestora Dados Sul', email: cred.DS.email, senha: inicial }
+    }, 201);
+    orgDS = c?.json;
+    await req('PATCH', `/admin/camaras/${orgDS?.id}/modulos`, { token: ctx.admin, body: { modulosAtivos: TODOS_MODULOS } });
+    const l = await req('POST', '/auth/login', { body: { email: cred.DS.email, senha: inicial } });
+    await req('POST', '/auth/senha/primeiro-acesso', { body: { trocaToken: l.json?.trocaToken, novaSenha: cred.DS.senha } });
+    fs.writeFileSync(ARQ_CRED, JSON.stringify(cred, null, 2));
+  }
+  const tDS = (await req('POST', '/auth/login', { body: cred.DS })).json?.token;
+  const pedido = (token, n) => ({ token, body: { titularNome: `Titular sigla ${n}`, titularEmail: `sigla${n}@demo-staging.local`, tipoDireito: 'ACESSO', descricao: 'Pedido para conferir o protocolo' } });
+  const prot = [];
+  for (const [token, rot] of [[G, 'câmara 1'], [tDS, 'câmara 2'], [G, 'câmara 1'], [tDS, 'câmara 2']]) {
+    const r = await passo('Protocolo 7c', `pedido na ${rot} (mesma sigla DS): 201, nunca 500`, 'POST', '/dsar/solicitacoes', pedido(token, prot.length + 1), 201);
+    prot.push(r?.json?.protocolo);
+  }
+  const simult = await Promise.all([1, 2, 3].map(k => req('POST', '/dsar/solicitacoes', pedido(k % 2 ? G : tDS, 10 + k))));
+  linhas.push({ modulo: 'Protocolo 7c', descricao: '3 pedidos simultâneos nas duas câmaras: todos 201', metodo: 'POST', rota: '/dsar/solicitacoes', status: simult.map(r => r.status).join('/'), ok: simult.every(r => r.status === 201), nota: '' });
+  simult.forEach(r => prot.push(r.json?.protocolo));
+  linhas.push({ modulo: 'Protocolo 7c', descricao: `protocolos únicos entre as duas câmaras (${prot.length})`, metodo: '-', rota: '-', status: '-', ok: prot.every(Boolean) && new Set(prot).size === prot.length && prot.every(p => /^DS-\d{4}-\d{3}$/.test(p)), nota: prot.join(' ') });
+
   // ---------- Limites de tentativas (por último: bloqueiam a conta/IP por 15 min) ----------
   let st429 = null, n = 0;
   for (n = 1; n <= 12; n++) {
