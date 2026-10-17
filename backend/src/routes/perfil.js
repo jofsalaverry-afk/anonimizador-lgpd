@@ -1,8 +1,7 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
 const auth = authUsuario;

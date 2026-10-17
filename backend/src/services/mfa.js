@@ -12,13 +12,22 @@ function codigoValido(secret, codigo) {
   return speakeasy.totp.verify({ secret, encoding: 'base32', token: String(codigo), window: 1 });
 }
 
-// Sessao vale se o usuario existe, nao foi excluido e a versao do token
-// (sv; tokens antigos sem sv contam como 0) nao e menor que a atual.
+// Sessao vale se o usuario existe, esta ativo, nao foi excluido e a versao
+// do token (sv; tokens antigos sem sv contam como 0) nao e menor que a atual.
 async function sessaoValida(db, decoded) {
   if (!decoded?.id) return false;
-  const u = await db.usuario.findUnique({ where: { id: decoded.id }, select: { sessaoVersao: true, deletedAt: true } });
-  if (!u || u.deletedAt) return false;
+  const u = await db.usuario.findUnique({ where: { id: decoded.id }, select: { sessaoVersao: true, deletedAt: true, ativo: true } });
+  if (!u || u.deletedAt || u.ativo === false) return false;
   return (decoded.sv || 0) >= (u.sessaoVersao || 0);
+}
+
+// Etapa 7a: encerra as sessoes abertas (sessaoVersao + 1) — logout,
+// desativar usuario, desativar camara, trocar/redefinir senha.
+async function encerrarSessoes(db, usuarioIds) {
+  for (const id of usuarioIds) {
+    const u = await db.usuario.findUnique({ where: { id }, select: { sessaoVersao: true } });
+    if (u) await db.usuario.update({ where: { id }, data: { sessaoVersao: (u.sessaoVersao || 0) + 1 } });
+  }
 }
 
 function lerMotivo(motivo) {
@@ -49,4 +58,4 @@ async function zerarMfa(db, { alvo, usuarioId = null, adminEmail = null, motivo 
   });
 }
 
-module.exports = { codigoValido, sessaoValida, lerMotivo, zerarMfa, RE_CODIGO };
+module.exports = { codigoValido, sessaoValida, encerrarSessoes, lerMotivo, zerarMfa, RE_CODIGO };

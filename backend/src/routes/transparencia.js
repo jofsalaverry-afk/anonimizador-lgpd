@@ -1,10 +1,9 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { FAQ_PADRAO } = require('../services/faqPadrao');
 const { rotuloBaseLegal, normalizarCategorias } = require('../services/basesLegais');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 const DIREITOS = [
   'Confirmação da existência de tratamento',

@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 // Input de senha com botao de mostrar/ocultar (icone de olho).
 // Usado nas telas de login (Login.js e Admin.js).
-export default function CampoSenha({ value, onChange, placeholder, required }) {
+export default function CampoSenha({ value, onChange, placeholder, required, autoComplete = 'current-password' }) {
   const [visivel, setVisivel] = useState(false);
 
   return (
@@ -13,7 +13,7 @@ export default function CampoSenha({ value, onChange, placeholder, required }) {
         onChange={onChange}
         placeholder={placeholder}
         required={required}
-        autoComplete="current-password"
+        autoComplete={autoComplete}
       />
       <button
         type="button"

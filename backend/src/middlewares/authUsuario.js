@@ -1,8 +1,7 @@
 const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
 const { sessaoValida } = require('../services/mfa');
 
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Auth padrao das rotas de modulo (usuario de organizacao).
 // Rejeita os tokens intermediarios emitidos pelo /auth/login:
@@ -16,7 +15,7 @@ async function authUsuario(req, res, next) {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    decoded = jwt.verify(token, process.env.JWT_SECRET);
+    decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] }); // Etapa 7a: algoritmo fixo
   } catch (err) {
     return res.status(401).json({ erro: 'Token inválido' });
   }

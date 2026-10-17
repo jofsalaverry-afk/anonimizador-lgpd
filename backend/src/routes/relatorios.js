@@ -1,11 +1,10 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { RELATORIOS, gerarRelatorioPdf } = require('../services/relatoriosPdf');
 const { converterParaPdfA, statusPdfa, PdfaIndisponivelError } = require('../services/pdfa');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 router.use(authUsuario);
 

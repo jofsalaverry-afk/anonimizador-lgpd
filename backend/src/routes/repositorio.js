@@ -1,6 +1,5 @@
 const express = require('express');
 const multer = require('multer');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido } = require('../services/entidades');
@@ -50,7 +49,7 @@ function resumoProvidencia(p) {
 }
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Upload de arquivos do repositorio: PDF/DOCX, max 20MB. Multer mantem
 // o buffer em memoria porque o arquivo sera salvo em bytea no banco.

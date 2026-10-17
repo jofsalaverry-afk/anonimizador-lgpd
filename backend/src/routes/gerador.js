@@ -1,11 +1,10 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { requireModulo, ehGestorOuDpo } = require('../middlewares/requireModulo');
 const { listarModelos, previa, gerar, ErroGerador } = require('../services/geradorDocumentos');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Gerador de minutas (modulo repositorio). Gera e salva so Gestor/DPO.
 router.use(authUsuario, requireModulo(prisma, 'repositorio'));

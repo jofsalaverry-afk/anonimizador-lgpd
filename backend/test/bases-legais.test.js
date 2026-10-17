@@ -118,7 +118,7 @@ test('DIR2 com o texto novo', () => {
 
 test('criar camara exige o nome da PESSOA do primeiro usuario e o usa no Gestor', async () => {
   const admin = jwt.sign({ id: 'adm', email: 'admin@teste.local', isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '5m' });
-  const corpo = { nome: 'Câmara Nova', cnpj: '33333333000191', email: 'gestor-nova@teste.local', senha: '12345678' };
+  const corpo = { nome: 'Câmara Nova', cnpj: '33333333000191', email: 'gestor-nova@teste.local', senha: 'senha-de-teste-10' };
   assert.equal((await chamar(admin, 'POST', '/admin/camaras', corpo)).status, 400, 'sem nomeGestor');
   const r = await chamar(admin, 'POST', '/admin/camaras', { ...corpo, nomeGestor: 'Maria Gestora' });
   assert.equal(r.status, 201);

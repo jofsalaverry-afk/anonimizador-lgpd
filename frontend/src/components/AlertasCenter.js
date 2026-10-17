@@ -37,6 +37,7 @@ function AlertasCenter({ token }) {
       const res = await fetch(`${API}/conformidade/alertas`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.status === 401) { window.dispatchEvent(new Event('complidata:sessao-encerrada')); return; }
       if (!res.ok) return;
       const data = await res.json();
       setAlertas(data.alertas || []);

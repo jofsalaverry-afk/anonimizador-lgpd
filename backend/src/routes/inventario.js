@@ -1,5 +1,4 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { requireModulo, podeEscrever, ehGestorOuDpo } = require('../middlewares/requireModulo');
 const { registrarHistorico } = require('../services/historico');
@@ -8,7 +7,7 @@ const { responderExport } = require('../services/exportadores');
 const { normalizarCategorias } = require('../services/basesLegais');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 const TIPOS = ['APLICACAO', 'BANCO_DADOS', 'NUVEM', 'FISICO', 'OUTRO'];
 const HOSPEDAGENS = ['ON_PREMISE', 'NUVEM'];

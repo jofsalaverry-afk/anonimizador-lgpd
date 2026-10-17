@@ -1,13 +1,13 @@
 const express = require('express');
 const crypto = require('crypto');
 const multer = require('multer');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { verificarRegistro } = require('../services/entidades');
 const { registrarHistorico } = require('../services/historico');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
+const { limparNomeArquivo } = require('../services/textoSeguro');
 
 const LIMITE_BYTES = 20 * 1024 * 1024;
 
@@ -45,10 +45,9 @@ function receberArquivo(req, res, next) {
   });
 }
 
-function nomeSeguro(nome) {
-  const limpo = String(nome || 'arquivo').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim();
-  return (limpo || 'arquivo').slice(0, 200);
-}
+// Etapa 7a: tambem tira caracteres de controle C1 e de direcao de texto
+// (ex.: U+202E disfarca "fatura\u202Egpj.pdf" como ".jpg").
+const nomeSeguro = limparNomeArquivo;
 
 const SELECT_SEM_CONTEUDO = {
   id: true, entidade: true, registroId: true, nomeArquivo: true, mimeType: true,

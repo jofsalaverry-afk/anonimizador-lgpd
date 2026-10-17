@@ -104,8 +104,8 @@ test('trecho HTML para o portal: sem script, com os dois links, nome escapado', 
 
 test('Gestor/DPO gerenciam usuarios so da propria organizacao', async () => {
   const tA = tokenDe(s.gestorA);
-  assert.equal((await chamar(tokenDe(s.auditorA), 'POST', '/usuarios', { nome: 'X', email: 'x@teste.local', senha: '12345678', perfil: 'OPERADOR' })).status, 403);
-  assert.equal((await chamar(tA, 'POST', '/usuarios', { nome: 'X', email: 'x@teste.local', senha: '12345678', perfil: 'ADMIN' })).status, 400, 'não existe perfil admin');
+  assert.equal((await chamar(tokenDe(s.auditorA), 'POST', '/usuarios', { nome: 'X', email: 'x@teste.local', senha: 'senha-de-teste-10', perfil: 'OPERADOR' })).status, 403);
+  assert.equal((await chamar(tA, 'POST', '/usuarios', { nome: 'X', email: 'x@teste.local', senha: 'senha-de-teste-10', perfil: 'ADMIN' })).status, 400, 'não existe perfil admin');
   assert.equal((await chamar(tA, 'POST', '/usuarios', { nome: 'X', email: 'x@teste.local', senha: 'curta', perfil: 'OPERADOR' })).status, 400);
 
   const r = await chamar(tA, 'POST', '/usuarios', {
@@ -145,10 +145,10 @@ test('Gestor/DPO gerenciam usuarios so da propria organizacao', async () => {
 test('Admin: criar usuario valida perfil e senha', async () => {
   const admin = jwt.sign({ id: 'adm', email: 'admin@teste.local', isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '5m' });
   const url = `/admin/camaras/${s.orgB.id}/usuarios`;
-  assert.equal((await chamar(admin, 'POST', url, { email: 'a@teste.local', senha: '12345678', perfil: 'SUPERUSUARIO' })).status, 400);
+  assert.equal((await chamar(admin, 'POST', url, { email: 'a@teste.local', senha: 'senha-de-teste-10', perfil: 'SUPERUSUARIO' })).status, 400);
   assert.equal((await chamar(admin, 'POST', url, { email: 'a@teste.local', senha: '123', perfil: 'OPERADOR' })).status, 400);
-  const ok = await chamar(admin, 'POST', url, { email: 'a@teste.local', nome: 'Aline', senha: '12345678', perfil: 'ENCARREGADO_LGPD' });
+  const ok = await chamar(admin, 'POST', url, { email: 'a@teste.local', nome: 'Aline', senha: 'senha-de-teste-10', perfil: 'ENCARREGADO_LGPD' });
   assert.equal(ok.status, 201);
   assert.equal((await ok.json()).perfil, 'ENCARREGADO_LGPD');
-  assert.equal((await chamar(tokenDe(s.gestorB), 'POST', url, { email: 'b@teste.local', senha: '12345678' })).status, 403, 'usuario comum não usa rota de admin');
+  assert.equal((await chamar(tokenDe(s.gestorB), 'POST', url, { email: 'b@teste.local', senha: 'senha-de-teste-10' })).status, 403, 'usuario comum não usa rota de admin');
 });

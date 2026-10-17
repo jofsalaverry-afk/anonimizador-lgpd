@@ -1,6 +1,5 @@
 const express = require('express');
 const crypto = require('crypto');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido } = require('../services/entidades');
@@ -9,6 +8,7 @@ const { responderExport } = require('../services/exportadores');
 const { prazoComunicacao } = require('../services/incidentes');
 const { dataPura, fmtData } = require('../services/datas');
 const { codigosExibicao } = require('../services/checklistCodigos');
+const { erroLinkEvidencia } = require('../services/textoSeguro');
 
 // Itens visiveis para a organizacao: catalogo global (organizacaoId null)
 // + atividades proprias dela. Atividade de outra org nunca aparece.
@@ -17,7 +17,7 @@ const CRITICIDADES = ['ALTA', 'MEDIA', 'BAIXA'];
 const CATEGORIA_PROPRIA = 'Atividades próprias';
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // ---------- Middlewares ----------
 
@@ -82,6 +82,9 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
     if (!STATUS_VALIDOS.includes(status)) {
       return res.status(400).json({ erro: 'status inválido' });
     }
+    // Etapa 7a: evidencia so com http/https (ou referencia em texto)
+    const erroLink = erroLinkEvidencia(evidenciaUrl);
+    if (erroLink) return res.status(400).json({ erro: erroLink });
 
     const item = await prisma.itemChecklist.findFirst({
       where: { id: req.params.itemId, ...itensDaOrg(req.usuario.organizacaoId) }

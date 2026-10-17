@@ -1,5 +1,4 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { registrarHistorico } = require('../services/historico');
 const { responsavelValido, idsDaOrganizacao } = require('../services/entidades');
@@ -19,7 +18,7 @@ const { responderExport } = require('../services/exportadores');
 const { dataPura, hojeSP } = require('../services/datas');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // ---------- Middlewares ----------
 
@@ -448,22 +447,23 @@ router.get('/export', async (req, res) => {
       // Colunas novas entram no fim para nao deslocar planilhas existentes
       // baseLegal sai com o rotulo (art. 7); baseLegalSensivel (art. 11) entra no fim
       const header = 'nome,finalidade,baseLegal,categoriasDados,categoriasTitulares,retencaoDias,formaDescarte,medidasSeguranca,ativo,criadoEm,compartilhamentos,responsavel,setor,sistemas,outrosMeios,baseLegalSensivel';
-      const q = v => `"${String(v || '').replace(/"/g, '""')}"`;
+      // Etapa 7a: todas as celulas de texto passam por q() (neutraliza formula)
+      const q = v => `"${String(v ?? '').replace(/^([=+\-@\t\r])/, "'$1").replace(/"/g, '""')}"`;
       const rows = tratamentos.map(t => {
         const comp = t.compartilhamentos.map(c => `${c.terceiroNome}(${c.paisDestino})`).join('; ');
         return [
-          `"${(t.nome || '').replace(/"/g, '""')}"`,
-          `"${(t.finalidade || '').replace(/"/g, '""')}"`,
+          q(t.nome),
+          q(t.finalidade),
           q(rotuloBaseLegal(t.baseLegal)),
-          `"${normalizarCategorias(t.categoriasDados).join('; ')}"`,
-          `"${normalizarCategorias(t.categoriasTitulares).join('; ')}"`,
+          q(normalizarCategorias(t.categoriasDados).join('; ')),
+          q(normalizarCategorias(t.categoriasTitulares).join('; ')),
           t.retencaoDias || '',
-          `"${(t.formaDescarte || '').replace(/"/g, '""')}"`,
-          `"${(t.medidasSeguranca || '').replace(/"/g, '""')}"`,
+          q(t.formaDescarte),
+          q(t.medidasSeguranca),
           t.ativo,
           t.criadoEm.toISOString(),
-          `"${comp}"`,
-          `"${(t.responsavelNome || '').replace(/"/g, '""')}"`,
+          q(comp),
+          q(t.responsavelNome),
           q(t.setor?.nome),
           q((t.sistemas || []).map(v => v.sistema?.nome).filter(Boolean).join('; ')),
           q(t.outrosMeios),

@@ -2,8 +2,7 @@
 // Extraida das rotas para permitir reuso em cron jobs e services externos.
 
 const crypto = require('crypto');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // ==================== Protocolo ====================
 

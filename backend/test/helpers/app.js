@@ -1,6 +1,10 @@
 // Monta um express com os mesmos routers do server.js, mas sem
 // listen/cron/rate limit, usando o Prisma falso em memoria.
 process.env.JWT_SECRET = process.env.JWT_SECRET_TESTE || 'segredo-de-teste-local';
+// Etapa 7a: testes nunca chamam servicos externos (IA, OCR), mesmo que a
+// maquina tenha as chaves no ambiente.
+delete process.env.ANTHROPIC_API_KEY;
+for (const k of Object.keys(process.env)) if (/^AZURE/i.test(k)) delete process.env[k];
 
 const { instalar } = require('./fakePrisma');
 const db = instalar();

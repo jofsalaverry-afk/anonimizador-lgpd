@@ -1,11 +1,10 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { gerarCodigo, gerarCertificadoPdf } = require('../services/certificado');
 const { isoDiaSP } = require('../services/datas');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // ---------- Middlewares ----------
 
@@ -275,7 +274,7 @@ router.get('/relatorio', async (req, res) => {
     else if (req.query.situacao) linhas = linhas.filter(l => l.situacao === req.query.situacao);
 
     if (req.query.formato === 'csv') {
-      const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const q = v => `"${String(v ?? '').replace(/^([=+\-@\t\r])/, "'$1").replace(/"/g, '""')}"`; // Etapa 7a: neutraliza formula
       const cab = 'usuario,perfil,trilha,modulosConcluidos,totalModulos,situacao,concluidoEm,certificado';
       const rows = linhas.map(l => [
         q(l.usuarioNome), l.perfil, q(l.trilhaTitulo), l.modulosConcluidos, l.totalModulos,

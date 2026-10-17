@@ -1,13 +1,13 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const bcrypt = require('bcrypt');
 const { ehGestorOuDpo } = require('../middlewares/requireModulo');
 const { registrarHistorico } = require('../services/historico');
-const { lerMotivo, zerarMfa } = require('../services/mfa');
+const { lerMotivo, zerarMfa, encerrarSessoes } = require('../services/mfa');
+const { erroNovaSenha } = require('../services/senha');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 router.use(authUsuario);
 
@@ -69,13 +69,13 @@ router.post('/', async (req, res) => {
     const e = typeof email === 'string' ? email.trim().toLowerCase() : '';
     if (n.length < 2 || n.length > 200) return res.status(400).json({ erro: 'Nome deve ter entre 2 e 200 caracteres' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return res.status(400).json({ erro: 'E-mail inválido' });
-    if (typeof senha !== 'string' || senha.length < 8 || senha.length > 200) return res.status(400).json({ erro: 'Senha inicial deve ter ao menos 8 caracteres' });
+    if (erroNovaSenha(senha)) return res.status(400).json({ erro: erroNovaSenha(senha) });
     if (!PERFIS.includes(perfil)) return res.status(400).json({ erro: 'Perfil inválido' });
     const senhaHash = await bcrypt.hash(senha, 10);
     const orgId = req.usuario.organizacaoId;
     const criado = await prisma.$transaction(async (tx) => {
       const u = await tx.usuario.create({
-        data: { nome: n.normalize('NFC'), email: e, senhaHash, perfil, organizacaoId: orgId },
+        data: { nome: n.normalize('NFC'), email: e, senhaHash, perfil, organizacaoId: orgId, senhaTrocaObrigatoria: true },
         select: SELECT_GESTAO
       });
       await registrarHistorico(tx, {
@@ -181,6 +181,8 @@ router.patch('/:id/ativo', async (req, res) => {
     if (!alvo) return res.status(404).json({ erro: 'Usuário não encontrado' });
     const atualizado = await prisma.$transaction(async (tx) => {
       const u = await tx.usuario.update({ where: { id: alvo.id }, data: { ativo }, select: SELECT_GESTAO });
+      // Etapa 7a: desativar encerra as sessoes abertas na hora
+      if (!ativo) await encerrarSessoes(tx, [alvo.id]);
       await registrarHistorico(tx, {
         organizacaoId: orgId, entidade: 'USUARIO', registroId: alvo.id, acao: ativo ? 'EDITAR' : 'EXCLUIR', usuarioId: req.usuario.id,
         diff: { ativo: { antes: alvo.ativo, depois: ativo } }

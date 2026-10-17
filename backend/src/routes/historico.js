@@ -1,11 +1,10 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { verificarRegistro } = require('../services/entidades');
 const { PERGUNTAS } = require('../services/questionarioTerceiro');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Campos do diff cujo valor e um id de usuario — a tela mostra o nome.
 const CAMPOS_USUARIO = ['responsavelId', 'validadoPor', 'autorId'];

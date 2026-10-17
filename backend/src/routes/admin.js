@@ -2,7 +2,6 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const { PrismaClient } = require('@prisma/client');
 const { body } = require('express-validator');
 const { auditarLogin } = require('../middlewares/auditoria');
 const { validar, validarEmail } = require('../middlewares/seguranca');
@@ -10,10 +9,11 @@ const { getTrilhasComOverrides, TRILHAS_BASE } = require('./treinamento');
 const { slugUnico, slugValido } = require('../services/slug');
 const { registrarHistorico } = require('../services/historico');
 const { garantirModelosDsar } = require('../services/cargaInicial');
-const { lerMotivo, zerarMfa } = require('../services/mfa');
+const { lerMotivo, zerarMfa, encerrarSessoes } = require('../services/mfa');
+const { erroNovaSenha } = require('../services/senha');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Multer para upload de arquivos do repositorio pelo painel admin.
 // Mesmos limites da rota do modulo: 20MB, PDF/DOCX.
@@ -49,7 +49,7 @@ const validadoresCriarCamara = [
   body('nomeGestor').trim().isLength({ min: 2, max: 200 }).withMessage('Informe o nome da pessoa do primeiro usuário (Gestor)'),
   body('cnpj').trim().matches(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$|^\d{14}$/).withMessage('CNPJ inválido'),
   validarEmail('email'),
-  body('senha').isLength({ min: 8, max: 200 }).withMessage('Senha deve ter ao menos 8 caracteres'),
+  body('senha').isLength({ min: 10, max: 200 }).withMessage('A senha inicial deve ter pelo menos 10 caracteres'),
   body('plano').optional().isIn(['basico', 'intermediario', 'avancado']).withMessage('Plano inválido'),
   validar
 ];
@@ -58,7 +58,7 @@ const adminAuth = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     if (!decoded.isAdmin) return res.status(403).json({ erro: 'Acesso negado' });
     req.admin = decoded;
     next();
@@ -125,7 +125,7 @@ router.post('/camaras', adminAuth, validadoresCriarCamara, async (req, res) => {
         data: { nome: nomeNormalizado, cnpj, plano: plano || 'basico', slug }
       });
       const usuario = await tx.usuario.create({
-        data: { email, senhaHash, nome: nomeGestor.normalize('NFC'), perfil: 'GESTOR', organizacaoId: org.id }
+        data: { email, senhaHash, nome: nomeGestor.normalize('NFC'), perfil: 'GESTOR', organizacaoId: org.id, senhaTrocaObrigatoria: true }
       });
       return { org, usuario };
     });
@@ -146,6 +146,11 @@ router.patch('/camaras/:id/toggle', adminAuth, async (req, res) => {
     const org = await prisma.organizacao.findUnique({ where: { id: req.params.id } });
     if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
     const atualizada = await prisma.organizacao.update({ where: { id: req.params.id }, data: { ativo: !org.ativo } });
+    // Etapa 7a: camara desativada -> sessoes de todos os usuarios dela encerradas
+    if (!atualizada.ativo) {
+      const us = await prisma.usuario.findMany({ where: { organizacaoId: atualizada.id }, select: { id: true } });
+      await encerrarSessoes(prisma, us.map(u => u.id));
+    }
     res.json({ id: atualizada.id, ativo: atualizada.ativo });
   } catch (err) {
     res.status(500).json({ erro: 'Erro interno' });
@@ -237,7 +242,7 @@ router.post('/camaras/:id/usuarios', adminAuth, async (req, res) => {
     const PERFIS_VALIDOS = ['ENCARREGADO_LGPD', 'GESTOR', 'OPERADOR', 'AUDITOR', 'TREINANDO'];
     if (perfil !== undefined && !PERFIS_VALIDOS.includes(perfil)) return res.status(400).json({ erro: 'Perfil inválido' });
     if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return res.status(400).json({ erro: 'E-mail inválido' });
-    if (typeof senha !== 'string' || senha.length < 8 || senha.length > 200) return res.status(400).json({ erro: 'Senha deve ter ao menos 8 caracteres' });
+    if (erroNovaSenha(senha)) return res.status(400).json({ erro: erroNovaSenha(senha) });
     const org = await prisma.organizacao.findUnique({ where: { id: req.params.id } });
     if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
     const senhaHash = await bcrypt.hash(senha, 10);
@@ -246,7 +251,8 @@ router.post('/camaras/:id/usuarios', adminAuth, async (req, res) => {
         email: email.trim().toLowerCase(), senhaHash,
         nome: (nome || org.nome).normalize('NFC'),
         perfil: perfil || 'OPERADOR',
-        organizacaoId: org.id
+        organizacaoId: org.id,
+        senhaTrocaObrigatoria: true
       },
       select: { id: true, email: true, nome: true, perfil: true }
     });
@@ -262,6 +268,7 @@ router.patch('/usuarios/:id/toggle', adminAuth, async (req, res) => {
     const usuario = await prisma.usuario.findUnique({ where: { id: req.params.id } });
     if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuário não encontrado' });
     const atualizado = await prisma.usuario.update({ where: { id: req.params.id }, data: { ativo: !usuario.ativo } });
+    if (!atualizado.ativo) await encerrarSessoes(prisma, [atualizado.id]);
     res.json({ id: atualizado.id, ativo: atualizado.ativo });
   } catch (err) {
     res.status(500).json({ erro: 'Erro interno' });
@@ -338,7 +345,7 @@ router.delete('/usuarios/:id', adminAuth, async (req, res) => {
     if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuário não encontrado' });
     await prisma.usuario.update({
       where: { id: req.params.id },
-      data: { deletedAt: new Date(), ativo: false }
+      data: { deletedAt: new Date(), ativo: false, sessaoVersao: (usuario.sessaoVersao || 0) + 1 }
     });
     res.json({ ok: true });
   } catch (err) {

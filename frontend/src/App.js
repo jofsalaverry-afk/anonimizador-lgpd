@@ -8,6 +8,17 @@ import SolicitarDireitos from './components/SolicitarDireitos';
 import PesquisaResultadosPublicos from './components/PesquisaResultadosPublicos';
 import VerificarCertificado from './components/VerificarCertificado';
 import TransparenciaPublica from './components/TransparenciaPublica';
+import RedefinirSenha from './components/RedefinirSenha';
+
+// Etapa 7a: chamadas sem sessao (login, MFA do login, senha) podem dar 401
+// sem significar sessao encerrada.
+const SEM_SESSAO = /\/auth\/(login|mfa\/verificar|senha\/(primeiro-acesso|esqueci|redefinir))$/;
+
+function limparSessaoLocal() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('usuario');
+  localStorage.removeItem('camara');
+}
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -16,6 +27,7 @@ function App() {
   const [usuario, setUsuario] = useState(null);
   const [loadingMe, setLoadingMe] = useState(!!localStorage.getItem('token'));
   const [rota, setRota] = useState(window.location.hash);
+  const [avisoLogin, setAvisoLogin] = useState('');
 
   useEffect(() => {
     const onHash = () => setRota(window.location.hash);
@@ -23,20 +35,36 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  // Etapa 6d: sessao encerrada no servidor (ex.: MFA zerado por Gestor/DPO
-  // ou Admin) — qualquer resposta "Sessao encerrada" leva de volta ao login.
+  // Etapa 7a: QUALQUER 401 numa chamada feita com a sessao do usuario
+  // (expirada, encerrada no servidor, usuario ou camara desativados) leva de
+  // volta ao login. O painel Admin usa outro token e nao entra aqui.
   useEffect(() => {
+    const encerrar = () => {
+      if (!localStorage.getItem('token')) return;
+      limparSessaoLocal();
+      setToken(null);
+      setUsuario(null);
+      setAvisoLogin('Sua sessão foi encerrada. Entre novamente.');
+    };
     const id = axios.interceptors.response.use(r => r, err => {
-      if (err.response?.status === 401 && /^Sessão encerrada/.test(err.response?.data?.erro || '')) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('usuario');
-        localStorage.removeItem('camara');
-        setToken(null);
-        setUsuario(null);
+      const cfg = err.config || {};
+      const auth = cfg.headers?.Authorization || cfg.headers?.authorization || '';
+      const sessaoAtual = localStorage.getItem('token');
+      if (err.response?.status === 401 && sessaoAtual && auth === `Bearer ${sessaoAtual}` && !SEM_SESSAO.test((cfg.url || '').split('?')[0])) {
+        encerrar();
       }
       return Promise.reject(err);
     });
-    return () => axios.interceptors.response.eject(id);
+    // chamadas com fetch (ex.: central de alertas) avisam por evento
+    window.addEventListener('complidata:sessao-encerrada', encerrar);
+    // troca de senha devolve sessao nova
+    const novoToken = (e) => { if (e.detail) { localStorage.setItem('token', e.detail); setToken(e.detail); } };
+    window.addEventListener('complidata:token-novo', novoToken);
+    return () => {
+      axios.interceptors.response.eject(id);
+      window.removeEventListener('complidata:sessao-encerrada', encerrar);
+      window.removeEventListener('complidata:token-novo', novoToken);
+    };
   }, []);
 
   // Ao inicializar (ou apos login), busca dados frescos do usuario
@@ -77,15 +105,19 @@ function App() {
     localStorage.setItem('token', novoToken);
     localStorage.removeItem('usuario');  // limpa chave legada
     localStorage.removeItem('camara');
+    setAvisoLogin('');
     setToken(novoToken);
   };
 
+  // Etapa 7a: "Sair" encerra a sessao tambem no servidor (o token deixa de
+  // valer mesmo que alguem tenha copiado). Sai localmente mesmo se a rede falhar.
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('usuario');
-    localStorage.removeItem('camara');
+    const atual = localStorage.getItem('token');
+    limparSessaoLocal();
     setToken(null);
     setUsuario(null);
+    setAvisoLogin('');
+    if (atual) axios.post(`${API}/auth/logout`, {}, { headers: { Authorization: `Bearer ${atual}` } }).catch(() => {});
   };
 
   if (rota === '#admin') return <Admin />;
@@ -120,7 +152,11 @@ function App() {
     const orgId = rota.split('/')[1] || '';
     return <SolicitarDireitos organizacaoId={orgId} />;
   }
-  if (!token) return <Login onLogin={handleLogin} />;
+  // Link do e-mail "esqueci minha senha": #redefinir-senha/:token
+  if (rota.startsWith('#redefinir-senha/')) {
+    return <RedefinirSenha token={rota.slice('#redefinir-senha/'.length)} />;
+  }
+  if (!token) return <Login onLogin={handleLogin} aviso={avisoLogin} />;
 
   // Enquanto busca /auth/me, mostra loading — evita renderizar Dashboard
   // com modulosAtivos stale de localStorage antigo.

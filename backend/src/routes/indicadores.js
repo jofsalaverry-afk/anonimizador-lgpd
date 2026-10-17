@@ -1,5 +1,4 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const { ehGestorOuDpo } = require('../middlewares/requireModulo');
 const { registrarHistorico } = require('../services/historico');
@@ -7,7 +6,7 @@ const { calcularIndicadores, gerarSnapshot, carregarMetas, INDICADORES_COM_META,
 const { responderExport, paraCsv, EXPORTADORES, linhaIndicador } = require('../services/exportadores');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Painel transversal: qualquer usuario da organizacao ve os indicadores;
 // metas e foto manual so Gestor/DPO.

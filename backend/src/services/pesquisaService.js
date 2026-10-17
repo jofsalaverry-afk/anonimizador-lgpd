@@ -6,8 +6,7 @@
 // 3. Comentários NUNCA são expostos por endpoint público (nem snippets,
 //    nem nuvem de palavras, nem agregação textual).
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Gate mínimo para retorno de métricas públicas — proteção contra
 // reidentificação de comentaristas em câmaras com pouco volume.

@@ -260,6 +260,11 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
     // Servico temporariamente indisponivel (hoje, billing da Anthropic
     // esgotado). Mensagem na UI e generica; o request_id, se vier, fica
     // so no console para o suporte cruzar pelo horario do log.
+    // Etapa 7a: texto/Word sem a chave da IA — mensagem do backend diz o que fazer
+    if (status === 503 && data.semIA) {
+      setErro(data.erro);
+      return;
+    }
     if (status === 503) {
       if (data.request_id) {
         console.error('[Anonimizador 503]', { request_id: data.request_id });
@@ -402,7 +407,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
               <div>
                 <strong>Modo básico ativado</strong>
                 <div className="text-sm" style={{ marginTop: 4 }}>
-                  {resultado.avisoIA || 'Processado em modo básico (IA indisponível).'}
+                  {resultado.avisoIA || 'Processado em modo básico: foram tarjados apenas CPF, e-mail pessoal e telefone. Revise nomes, endereços e demais dados pessoais manualmente.'}
                 </div>
               </div>
             </div>

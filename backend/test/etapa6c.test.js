@@ -86,9 +86,13 @@ test('23: prazo de comunicacao = 3 dias uteis da ciencia (so REAL com risco SIM)
 
 test('23: API grava ciencia/risco/comunicacoes, devolve o prazo e gera alerta 1 dia util antes', async () => {
   const t = tokenDe(s.gestorA);
-  // ciencia ha 2 dias uteis: hoje e a vespera ou o dia do prazo
+  // Dia util: ciencia ha 2 dias uteis -> hoje e a vespera do prazo.
+  // Fim de semana/feriado nunca e vespera (a vespera e sempre dia util):
+  // ciencia ha 10 dias uteis -> prazo vencido (alerta "venceu em").
+  const hojeUtil = datas.ehDiaUtil(datas.hojeSP());
+  const etapa = hojeUtil ? 'VESPERA' : 'VENCIDO';
   let ciencia = datas.hojeSP();
-  for (let n = 0; n < 2;) { ciencia = new Date(ciencia.getTime() - 86400000); if (datas.ehDiaUtil(ciencia)) n++; }
+  for (let n = 0; n < (hojeUtil ? 2 : 10);) { ciencia = new Date(ciencia.getTime() - 86400000); if (datas.ehDiaUtil(ciencia)) n++; }
   const r = await chamar(t, 'POST', '/repositorio/incidentes', {
     titulo: 'Vazamento real', dataOcorrencia: datas.iso(ciencia), dataCiencia: datas.iso(ciencia), riscoRelevante: 'SIM',
     tipoIncidente: 'VAZAMENTO', descricao: 'x', tipoRegistro: 'REAL'
@@ -96,13 +100,13 @@ test('23: API grava ciencia/risco/comunicacoes, devolve o prazo e gera alerta 1 
   const inc = await json(r);
   assert.equal(inc.riscoRelevante, 'SIM');
   assert.equal(inc.prazoComunicacao.prazo, datas.iso(datas.somarDiasUteis(ciencia, 3)));
-  assert.equal(inc.prazoComunicacao.situacao, 'VESPERA');
+  assert.equal(inc.prazoComunicacao.situacao, etapa);
   assert.equal((await chamar(t, 'POST', '/repositorio/incidentes', { titulo: 'x', dataOcorrencia: '2026-10-16', tipoIncidente: 'PERDA', descricao: 'x', riscoRelevante: 'TALVEZ' })).status, 400);
 
   const al = await json(await chamar(t, 'GET', '/conformidade/alertas'));
   const a = al.alertas.find(x => x.tipo === 'INCIDENTE_COMUNICACAO');
-  assert.ok(a && a.mensagem.includes('vence no próximo dia útil'), 'alerta de vespera');
-  assert.equal(a.referenciaId, `${inc.id}:VESPERA`);
+  assert.ok(a && a.mensagem.includes(hojeUtil ? 'vence no próximo dia útil' : 'venceu em'), 'alerta da etapa');
+  assert.equal(a.referenciaId, `${inc.id}:${etapa}`);
 
   // comunicado: alerta deixa de valer e notificadoANPD acompanha
   const c = await json(await chamar(t, 'PUT', `/repositorio/incidentes/${inc.id}`, { dataComunicacaoANPD: datas.iso(datas.hojeSP()), dataComunicacaoTitulares: datas.iso(datas.hojeSP()) }));

@@ -12,16 +12,15 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { ipKeyGenerator } = require('express-rate-limit');
+const { chaveIp } = require('../middlewares/seguranca');
 const { body, param } = require('express-validator');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const {
   validar,
   sanitizarTexto
 } = require('../middlewares/seguranca');
 const { auditarRequisicaoAnonima } = require('../middlewares/auditoria');
-const { enviar } = require('../services/emailService');
+const { enviar, esc } = require('../services/emailService');
 const {
   validarSetor,
   calcularMetricas,
@@ -29,7 +28,7 @@ const {
 } = require('../services/pesquisaService');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 const VALIDATE_OFF = { xForwardedForHeader: false };
 
@@ -42,7 +41,7 @@ const limiterPesquisaPublicoPorIp = rateLimit({
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveIp,
   validate: VALIDATE_OFF,
   message: { erro: 'Você já enviou pesquisas recentes. Tente novamente em 24h.' }
 });
@@ -342,12 +341,12 @@ router.post('/publico/:slug',
               `Comentário:\n${comentario}\n\n` +
               `Acesse o painel para mais detalhes.`;
             const html = `<p><strong>Nova pesquisa de satisfação com nota baixa recebida.</strong></p>
-<p><strong>Organização:</strong> ${org.nome}<br>
-<strong>Avaliação:</strong> ${avaliacao}/5<br>
-<strong>Setor:</strong> ${setor}<br>
+<p><strong>Organização:</strong> ${esc(org.nome)}<br>
+<strong>Avaliação:</strong> ${esc(avaliacao)}/5<br>
+<strong>Setor:</strong> ${esc(setor)}<br>
 <strong>Recebida em:</strong> ${pesquisa.criadoEm.toISOString()}</p>
 <p><strong>Comentário:</strong></p>
-<p>${String(comentario).replace(/\n/g, '<br>')}</p>
+<p>${esc(comentario).replace(/\n/g, '<br>')}</p>
 <p>Acesse o painel para mais detalhes.</p>`;
             await enviar({ to: destinatarios.join(','), subject, text, html });
           } catch (e) {

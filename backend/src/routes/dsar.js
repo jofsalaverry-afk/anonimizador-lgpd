@@ -1,7 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
 const { body } = require('express-validator');
-const { PrismaClient } = require('@prisma/client');
 const { authUsuario } = require('../middlewares/authUsuario');
 const {
   gerarProtocolo,
@@ -13,13 +12,15 @@ const {
 const {
   enviarOTP,
   enviarConfirmacaoSolicitacao,
-  enviarRespostaTitular
+  enviarRespostaTitular,
+  emailConfigurado
 } = require('../services/emailService');
 const { validar, validarEmail, validarCpf, validarCuid, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
 const { registrarHistorico } = require('../services/historico');
 const { preencherModelo } = require('../services/modeloResposta');
 const { dataPura, fmtData, fmtDataHora, fmtDiaSP, hojeSP } = require('../services/datas');
 const R = require('../services/rotulos');
+const { erroLinkEvidencia } = require('../services/textoSeguro');
 const { responderExport } = require('../services/exportadores');
 
 const router = express.Router();
@@ -31,7 +32,7 @@ function paraHistorico(s) {
   const { evidencias, _count, ...resto } = s;
   return resto;
 }
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 const TIPOS_DIREITO = ['CONFIRMACAO', 'ACESSO', 'CORRECAO', 'ANONIMIZACAO', 'PORTABILIDADE', 'ELIMINACAO', 'INFORMACAO', 'INFORMACAO_NAO_CONSENTIR', 'REVOGACAO', 'OPOSICAO', 'PETICAO', 'OUTRO'];
 // Verificacao manual de identidade (CODIGO_EMAIL e gravado so pelo canal publico)
@@ -212,6 +213,8 @@ router.post('/solicitacoes/:id/evidencias', authMiddleware, requireModulo, async
     if (!tipo || !descricao) {
       return res.status(400).json({ erro: 'tipo e descricao são obrigatórios' });
     }
+    const erroLink = erroLinkEvidencia(arquivoUrl);
+    if (erroLink) return res.status(400).json({ erro: erroLink });
 
     // Hash SHA-256 do conteudo para integridade
     const conteudoHash = descricao + (arquivoUrl || '') + new Date().toISOString();
@@ -612,10 +615,26 @@ router.post('/publico/solicitar-otp', validadoresSolicitarOtp, async (req, res) 
 
     const org = await prisma.organizacao.findUnique({
       where: { id: organizacaoId },
-      select: { id: true, nome: true, ativo: true, modulosAtivos: true }
+      select: { id: true, nome: true, ativo: true, modulosAtivos: true, encarregadoNome: true, encarregadoEmail: true, encarregadoTelefone: true }
     });
     if (!org || !org.ativo) return res.status(404).json({ erro: 'Organização não encontrada' });
     if (!org.modulosAtivos.includes('dsar')) return res.status(403).json({ erro: 'Este serviço não está disponível para esta organização' });
+
+    // Etapa 7a: sem e-mail o titular nao recebe o codigo. Responde erro claro
+    // (nunca "enviado") com o contato do encarregado, para nao ficar preso.
+    const contatoEncarregado = () => {
+      const partes = [org.encarregadoNome, org.encarregadoEmail, org.encarregadoTelefone].filter(Boolean);
+      return partes.length
+        ? ` Você também pode fazer o pedido diretamente ao encarregado: ${partes.join(' — ')}.`
+        : ' Você pode fazer o pedido diretamente à Câmara, pelo protocolo ou pela ouvidoria.';
+    };
+    if (!emailConfigurado()) {
+      return res.status(503).json({
+        erro: `No momento não é possível enviar o código de verificação por e-mail, então o pedido não pode ser concluído por este formulário.${contatoEncarregado()}`,
+        envioIndisponivel: true,
+        encarregado: { nome: org.encarregadoNome || null, email: org.encarregadoEmail || null, telefone: org.encarregadoTelefone || null }
+      });
+    }
 
     const otp = await criarOtpDSAR({
       organizacaoId, email: titularEmail, titularNome, titularCpf, tipoDireito, descricao
@@ -632,7 +651,9 @@ router.post('/publico/solicitar-otp', validadoresSolicitarOtp, async (req, res) 
     } catch (e) {
       console.error('[dsar] falha ao enviar OTP:', e.message);
       return res.status(502).json({
-        erro: 'Não foi possível enviar o código por email. Tente novamente em instantes ou contate o suporte.'
+        erro: `Não foi possível enviar o código por e-mail. Tente novamente em alguns minutos.${contatoEncarregado()}`,
+        envioIndisponivel: true,
+        encarregado: { nome: org.encarregadoNome || null, email: org.encarregadoEmail || null, telefone: org.encarregadoTelefone || null }
       });
     }
 

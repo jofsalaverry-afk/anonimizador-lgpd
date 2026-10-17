@@ -4,6 +4,8 @@ import { API } from '../config';
 import Setores from './Setores';
 import DadosEncarregado from './DadosEncarregado';
 import PortalTransparencia from './PortalTransparencia';
+import CampoSenha from './CampoSenha';
+import { CamposNovaSenha, erroLocalSenha } from './RedefinirSenha';
 
 // Seccao de MFA/Seguranca. Carrega o status atual de /auth/me, mostra
 // setup (QR code) se nao estiver ativo e opcao de desativar se estiver.
@@ -187,6 +189,47 @@ function SegurancaMFA({ token, usuario, onStatusChange }) {
 
 const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'];
 
+// Etapa 7a: o proprio usuario troca a senha (exige a senha atual). As outras
+// sessoes abertas sao encerradas; esta continua com a sessao nova.
+function AlterarSenha({ token }) {
+  const [atual, setAtual] = useState('');
+  const [nova, setNova] = useState('');
+  const [confirma, setConfirma] = useState('');
+  const [aviso, setAviso] = useAviso();
+  const [salvando, setSalvando] = useState(false);
+
+  const salvar = async (e) => {
+    e.preventDefault();
+    const local = erroLocalSenha(nova, confirma);
+    if (local) return setAviso({ ok: false, texto: local });
+    setSalvando(true);
+    try {
+      const res = await axios.put(`${API}/auth/senha`, { senhaAtual: atual, novaSenha: nova }, { headers: { Authorization: `Bearer ${token}` } });
+      setAtual(''); setNova(''); setConfirma('');
+      setAviso({ ok: true, texto: res.data.mensagem || 'Senha alterada' });
+      if (res.data.token) window.dispatchEvent(new CustomEvent('complidata:token-novo', { detail: res.data.token }));
+    } catch (err) {
+      setAviso({ ok: false, texto: err.response?.data?.erro || 'Não foi possível alterar a senha' });
+    }
+    setSalvando(false);
+  };
+
+  return (
+    <div className="card mb-16">
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Alterar minha senha</h2>
+      <form onSubmit={salvar} style={{ maxWidth: 420 }}>
+        <label>Senha atual</label>
+        <CampoSenha value={atual} onChange={e => setAtual(e.target.value)} required />
+        <CamposNovaSenha nova={nova} setNova={setNova} confirma={confirma} setConfirma={setConfirma} />
+        <div style={{ marginTop: 12 }}>
+          <button className="btn-primary" type="submit" disabled={salvando} style={{ width: 'auto' }}>{salvando ? 'Salvando...' : 'Alterar senha'}</button>
+          <Aviso aviso={aviso} />
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // "Salvo" some depois de alguns segundos
 function useAviso() {
   const [aviso, setAviso] = useState(null); // { ok, texto }
@@ -301,6 +344,7 @@ export default function Configuracoes({ token, usuario }) {
         usuario={{ ...usuario, mfaAtivo: mfaAtivoLocal }}
         onStatusChange={setMfaAtivoLocal}
       />
+      <AlterarSenha token={token} />
 
       <DadosCamara token={token} podeEditar={podeEditar} />
       <DadosEncarregado token={token} usuario={usuario} />

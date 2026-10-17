@@ -10,6 +10,7 @@
 // e o dicionario-de-dados.md e montado a partir das colunas.
 
 const { pendenciasMapeamento } = require('./indicadores');
+const { celulaCsv } = require('./textoSeguro');
 const { rotuloBaseLegal, normalizarCategorias } = require('./basesLegais');
 
 const { prazoComunicacao } = require('./incidentes');
@@ -305,10 +306,8 @@ function linhaIndicador(i, snap = {}) {
 
 // CSV: UTF-8 com BOM (Excel), separador virgula, aspas duplas escapadas.
 function paraCsv(colunas, linhas) {
-  const q = v => {
-    const s = v === null || v === undefined ? '' : String(v);
-    return /[",\n\r;]/.test(s) || s !== s.trim() ? `"${s.replace(/"/g, '""')}"` : s;
-  };
+  // Etapa 7a: celula neutralizada contra formula (CSV injection)
+  const q = celulaCsv;
   const cab = colunas.map(([c]) => c).join(',');
   const corpo = linhas.map(l => colunas.map(([c]) => q(l[c])).join(','));
   return '﻿' + [cab, ...corpo].join('\r\n');

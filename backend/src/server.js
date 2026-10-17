@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { PrismaClient } = require('@prisma/client');
 const { auditoriaMiddleware } = require('./middlewares/auditoria');
 const {
   limiterAuth,
@@ -11,7 +10,11 @@ const {
   tentativasSuspeitas
 } = require('./middlewares/seguranca');
 
-const prisma = new PrismaClient();
+const { prisma } = require('./db');
+// Etapa 7a: em producao, sem PUBLIC_APP_URL o require abaixo lanca erro e
+// o servidor nao sobe (em vez de usar um endereco padrao silencioso).
+const { APP_URL } = require('./services/appUrl');
+const { origensCors } = require('./services/origensCors');
 const app = express();
 // Railway expoe o app atras de proxy; precisamos confiar no X-Forwarded-For
 // para o rate limiter identificar o IP correto do cliente.
@@ -45,16 +48,8 @@ app.use(helmet({
 // OPTIONS) antes de qualquer outro middleware. Em Express 5 o path-to-regexp
 // v8 removeu suporte a regex paths em route handlers, entao usamos middleware
 // generico em vez de app.options('*', ...).
-const ORIGENS_PERMITIDAS_CORS = [
-  'https://anonimizadorldpd.com',
-  'https://www.anonimizadorldpd.com',
-  'https://anonimizadorlgpd.com',
-  'https://www.anonimizadorlgpd.com',
-  'https://melodious-emotion-production-c6a6.up.railway.app',
-  'https://loquacious-taiyaki-921c36.netlify.app',
-  'http://localhost:3000',
-  'http://localhost:5173'
-];
+// Etapa 7a: lista em services/origensCors.js (sem localhost em producao).
+const ORIGENS_PERMITIDAS_CORS = origensCors(process.env, APP_URL);
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && ORIGENS_PERMITIDAS_CORS.includes(origin)) {
@@ -72,7 +67,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const { ipKeyGenerator } = require('express-rate-limit');
+const { chaveIp, limiterAdminLogin } = require('./middlewares/seguranca');
 
 // Limite moderado para rotas admin autenticadas: 60 req/min (nao-sensivel,
 // so para evitar flood de painel interno). Mantido inline pois e especifico.
@@ -81,7 +76,7 @@ const adminLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveIp,
   validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
@@ -94,7 +89,7 @@ const crudLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveIp,
   validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
@@ -139,7 +134,7 @@ const treinamentoRoutes = require('./routes/treinamento');
 // - /documents/* → 20/hora/usuario (uso de IA, custo por token)
 // - /admin, /ropa, /repositorio, /conformidade, /treinamento → 60/min (CRUD painel)
 app.use('/auth', limiterAuth);
-app.use('/admin/login', limiterAuth);
+app.use('/admin/login', limiterAdminLogin);
 app.use('/admin', adminLimiter);
 app.use('/dsar/publico', limiterDsarPublico);
 app.use('/documents', limiterDocuments);
@@ -184,7 +179,7 @@ const limiterCertificado = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveIp,
   validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas consultas. Aguarde alguns minutos.' }
 });
@@ -208,7 +203,7 @@ const limiterTransparencia = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveIp,
   validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas requisições. Aguarde um momento.' }
 });
@@ -232,8 +227,10 @@ const { getStatus, getMetrics } = require('./routes/observability');
 app.get('/api/status', adminAuth, getStatus);
 app.get('/api/metrics', adminAuth, getMetrics);
 
+// Etapa 7a: so abre a porta quando executado direto (node src/server.js);
+// os testes importam o app montado com os mesmos limitadores.
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+if (require.main === module) app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
   // Inicializa cron jobs apos o servidor subir
   try {
@@ -244,4 +241,4 @@ app.listen(PORT, () => {
   }
 });
 
-module.exports = { prisma };
+module.exports = { app, prisma };

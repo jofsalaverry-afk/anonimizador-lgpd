@@ -15,6 +15,13 @@ const { validationResult, body, param } = require('express-validator');
 // mesmo quando a gente ja seta "trust proxy" no server.js.
 const VALIDATE_OFF = { xForwardedForHeader: false };
 
+// Etapa 7a: chave do limite = IP REAL do cliente. O express-rate-limit chama
+// keyGenerator(req, res); passar o ipKeyGenerator direto entregava o objeto
+// req no lugar do IP e o contador nunca somava (nenhum limite funcionava).
+// req.ip ja respeita o "trust proxy" do server.js (1 salto: proxy do
+// Railway), entao um X-Forwarded-For forjado pelo cliente nao muda a chave.
+const chaveIp = (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || '');
+
 // Resposta padrao de rate limit — mensagem legivel para o titular/usuario
 // com o tempo de espera em minutos.
 function mensagemExcesso(minutos) {
@@ -30,7 +37,19 @@ const limiterAuth = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveIp,
+  validate: VALIDATE_OFF,
+  message: mensagemExcesso(15)
+});
+
+// /admin/login — mesma regra do /auth, contador separado.
+const limiterAdminLogin = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: chaveIp,
   validate: VALIDATE_OFF,
   message: mensagemExcesso(15)
 });
@@ -45,7 +64,7 @@ const limiterDocuments = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   validate: VALIDATE_OFF,
-  keyGenerator: (req, res) => {
+  keyGenerator: (req) => {
     // Extrai sub/id do JWT sem verificar assinatura — so para bucketar o
     // limite por usuario. A verificacao real acontece no authMiddleware.
     try {
@@ -59,7 +78,7 @@ const limiterDocuments = rateLimit({
       }
     } catch (e) { /* cai no IP */ }
     // Fallback para IP — delega ao helper do pacote pra bucketing IPv6 correto.
-    return ipKeyGenerator(req, res);
+    return chaveIp(req);
   },
   message: mensagemExcesso(60)
 });
@@ -71,7 +90,7 @@ const limiterDsarPublico = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveIp,
   validate: VALIDATE_OFF,
   message: mensagemExcesso(15)
 });
@@ -166,6 +185,8 @@ const validarEnum = (campo, valores) =>
 module.exports = {
   mensagemExcesso,
   limiterAuth,
+  limiterAdminLogin,
+  chaveIp,
   limiterDocuments,
   limiterDsarPublico,
   tentativasSuspeitas,

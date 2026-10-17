@@ -60,8 +60,7 @@ async function executarSeed(prisma, env = process.env) {
 module.exports = { executarSeed, executarCargas };
 
 if (require.main === module) {
-  const { PrismaClient } = require('@prisma/client');
-  const prisma = new PrismaClient();
+  const { prisma } = require('./db');
   executarCargas(prisma)
     .then(() => executarSeed(prisma))
     .catch(e => { console.error('[seed] ERRO:', e.message); process.exitCode = 1; })

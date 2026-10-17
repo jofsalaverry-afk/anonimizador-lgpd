@@ -74,7 +74,7 @@ export default function UsuariosOrganizacao({ token, usuario }) {
           <div className="form-grid mb-8">
             <div className="form-group"><label>Nome</label><input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} /></div>
             <div className="form-group"><label>E-mail</label><input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
-            <div className="form-group"><label>Senha inicial (mín. 8)</label><CampoSenha value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} /></div>
+            <div className="form-group"><label>Senha inicial (mín. 10 — a pessoa cria a própria senha no primeiro acesso)</label><CampoSenha value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} /></div>
             <div className="form-group">
               <label>Perfil</label>
               <select value={form.perfil} onChange={e => setForm({ ...form, perfil: e.target.value })}>

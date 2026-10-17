@@ -199,6 +199,10 @@ model Usuario {
   // Etapa 6d: sobe 1 a cada "zerar MFA"; sessoes emitidas com versao
   // menor deixam de valer (encerra as sessoes abertas).
   sessaoVersao   Int       @default(0)
+  // Etapa 7a: senha criada pelo Gestor/Admin vale so para entrar e trocar
+  // (troca obrigatoria no 1o acesso). Usuarios antigos ficam com false.
+  senhaTrocaObrigatoria Boolean @default(false)
+  senhaAlteradaEm       DateTime?
   criadoEm       DateTime  @default(now())
   ultimoAcesso   DateTime?
   deletedAt      DateTime?
@@ -866,6 +870,19 @@ enum MetodoVerificacaoIdentidade {
 
 // Etapa 6c: cada tentativa de questionario de um modulo de treinamento.
 // Sem relacoes (registro de auditoria): ids gravados como texto.
+// Etapa 7a: "esqueci minha senha". Guarda so o hash SHA-256 do token do
+// link; uso unico; vale 30 minutos. Sem relacao (registro de auditoria).
+model TokenRecuperacaoSenha {
+  id         String    @id @default(cuid())
+  usuarioId  String
+  tokenHash  String    @unique
+  expiraEm   DateTime
+  usadoEm    DateTime?
+  criadoEm   DateTime  @default(now())
+
+  @@index([usuarioId])
+}
+
 model TentativaQuizTreinamento {
   id            String   @id @default(cuid())
   usuarioId     String

@@ -1,9 +1,8 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { cargaHorariaTexto } = require('../services/certificado');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // GET /certificado/verificar/:codigo — publico, sem login. Confirma se o
 // certificado existe e devolve SO nome, trilha, data, carga horaria e a

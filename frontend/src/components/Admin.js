@@ -428,7 +428,7 @@ export default function Admin() {
             <label>E-mail do primeiro usuário (Gestor)</label>
             <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="contato@camara.gov.br" required />
             <label>Senha inicial</label>
-            <input type="text" value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} placeholder="senha inicial" required />
+            <input type="text" value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} placeholder="senha inicial (mín. 10) — o Gestor troca no 1º acesso" required />
             <label>Plano</label>
             <select value={form.plano} onChange={e => setForm({ ...form, plano: e.target.value })}>
               <option value="basico">Básico</option>
@@ -570,7 +570,7 @@ export default function Admin() {
                           onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], nome: e.target.value } }))} />
                         <input placeholder="E-mail" type="email" value={novoUsuario[o.id].email || ''} style={{ width: 200, marginBottom: 0 }}
                           onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], email: e.target.value } }))} />
-                        <input placeholder="Senha inicial (mín. 8)" type="password" autoComplete="new-password" value={novoUsuario[o.id].senha || ''} style={{ width: 170, marginBottom: 0 }}
+                        <input placeholder="Senha inicial (mín. 10)" type="password" autoComplete="new-password" value={novoUsuario[o.id].senha || ''} style={{ width: 170, marginBottom: 0 }}
                           onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], senha: e.target.value } }))} />
                         <select value={novoUsuario[o.id].perfil || 'OPERADOR'} style={{ width: 'auto', marginBottom: 0 }}
                           onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], perfil: e.target.value } }))}>
