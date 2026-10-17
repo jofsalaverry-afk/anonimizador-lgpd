@@ -37,6 +37,7 @@
     "prisma": "^5.22.0",
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "validator": "13.15.35"
   }
 }

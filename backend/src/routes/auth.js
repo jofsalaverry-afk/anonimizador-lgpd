@@ -21,6 +21,7 @@ function historicoMfa(db, usuario, diff, porUsuarioId = usuario.id) {
 }
 
 const router = express.Router();
+const { buscarPorEmail } = require('../services/email');
 // Etapa 7a: algoritmo do JWT fixo na verificacao
 const JWT_VERIFY = { algorithms: ['HS256'] };
 const { prisma } = require('../db');
@@ -95,8 +96,7 @@ async function authOuSetupMfa(req, res, next) {
 router.post('/login', validadoresLogin, async (req, res) => {
   try {
     const { email, senha } = req.body;
-    const usuario = await prisma.usuario.findUnique({
-      where: { email },
+    const usuario = await buscarPorEmail(prisma.usuario, email, {
       include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } } }
     });
     if (!usuario || usuario.deletedAt) {
@@ -238,7 +238,7 @@ router.post('/senha/esqueci', async (req, res) => {
     }
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const usuario = email && /^[^\s@]+@[^\s@]+$/.test(email)
-      ? await prisma.usuario.findUnique({ where: { email }, include: { organizacao: { select: { ativo: true } } } })
+      ? await buscarPorEmail(prisma.usuario, email, { include: { organizacao: { select: { ativo: true } } } })
       : null;
     if (usuario && !usuario.deletedAt && usuario.ativo && usuario.organizacao?.ativo) {
       const token = gerarToken();

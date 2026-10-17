@@ -195,8 +195,12 @@ function validar(req, res, next) {
 }
 
 // Validators reutilizaveis (cadeia pronta pra aplicar em rotas)
+// So tira espacos e poe em minusculas. O normalizeEmail() do validator
+// removia pontos e "+sufixo" de enderecos Gmail, mas so em algumas rotas
+// (login, criar camara): quem foi cadastrado pelo Gestor com ponto ou "+"
+// no e-mail nao conseguia entrar. Ver services/email.js (buscarPorEmail).
 const validarEmail = (campo = 'email') =>
-  body(campo).isEmail().withMessage('E-mail inválido').normalizeEmail();
+  body(campo).trim().isEmail().withMessage('E-mail inválido').customSanitizer(v => String(v).trim().toLowerCase());
 
 const validarCpf = (campo = 'titularCpf', { opcional = false } = {}) => {
   let chain = body(campo).trim();

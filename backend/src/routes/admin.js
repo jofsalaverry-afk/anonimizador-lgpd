@@ -11,6 +11,7 @@ const { registrarHistorico } = require('../services/historico');
 const { garantirModelosDsar } = require('../services/cargaInicial');
 const { lerMotivo, zerarMfa, encerrarSessoes } = require('../services/mfa');
 const { erroNovaSenha } = require('../services/senha');
+const { buscarPorEmail } = require('../services/email');
 
 const router = express.Router();
 const { prisma } = require('../db');
@@ -71,7 +72,7 @@ const adminAuth = (req, res, next) => {
 router.post('/login', validadoresAdminLogin, async (req, res) => {
   try {
     const { email, senha } = req.body;
-    const admin = await prisma.admin.findUnique({ where: { email } });
+    const admin = await buscarPorEmail(prisma.admin, email);
     if (!admin) {
       auditarLogin(prisma, { req, sucesso: false, userType: 'admin', motivo: 'email_nao_encontrado' });
       return res.status(401).json({ erro: 'Credenciais inválidas' });
