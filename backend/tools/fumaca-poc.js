@@ -307,7 +307,7 @@ async function main() {
 
   // ---------- Usuarios (gestao pela organizacao) ----------
   const lista = await passo('Usuários', 'listar (Gestor)', 'GET', '/usuarios/gestao', { token: G });
-  const operador = (lista?.json || []).find(u => u.perfil === 'OPERADOR' || u.email === cred.OPERADOR.email);
+  const operador = (lista?.json || []).find(u => u.email === cred.OPERADOR.email);
   const treinando = (lista?.json || []).find(u => u.email === cred.TREINANDO.email);
   await passo('Usuários', 'trocar perfil OPERADOR→AUDITOR', 'PATCH', `/usuarios/${operador?.id}/perfil`, { token: G, body: { perfil: 'AUDITOR' } });
   await passo('Usuários', 'voltar perfil para OPERADOR', 'PATCH', `/usuarios/${operador?.id}/perfil`, { token: G, body: { perfil: 'OPERADOR' } });
