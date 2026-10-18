@@ -42,6 +42,8 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   const [showVerifForm, setShowVerifForm] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState('');
+  // Erro do envio da resposta: aparece junto do botao "Enviar resposta"
+  const [erroResposta, setErroResposta] = useState('');
   const [versaoHistorico, setVersaoHistorico] = useState(0);
 
   const headers = { Authorization: `Bearer ${token}` };
@@ -63,10 +65,10 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
   }, [solicitacaoId]);
 
   const responder = async () => {
-    setErro('');
-    if (!resposta.trim()) return setErro('Escreva a resposta antes de enviar');
+    setErroResposta('');
+    if (!resposta.trim()) return setErroResposta('Escreva a resposta antes de enviar');
     const rascunho = erroTextoResposta(resposta);
-    if (rascunho) return setErro(rascunho);
+    if (rascunho) return setErroResposta(rascunho);
     setRespondendo(true);
     try {
       await axios.post(`${API}/dsar/solicitacoes/${solicitacaoId}/responder`, { respostaTexto: resposta }, { headers });
@@ -74,7 +76,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
       setResposta('');
       carregar();
     } catch (err) {
-      setErro(err.response?.data?.erro || 'Erro ao responder');
+      setErroResposta(err.response?.data?.erro || 'Erro ao responder');
     }
     setRespondendo(false);
   };
@@ -220,9 +222,9 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
             </span>
           ) : <span className="badge badge-warning">Não verificada</span>}
           {ident.observacao && <span className="text-xs text-muted">{ident.observacao}</span>}
-          {!['ENCERRADA', 'CANCELADA'].includes(sol.status) && (
-            <button onClick={() => setShowVerifForm(!showVerifForm)} className="btn-ghost btn-sm acao-escrita">
-              {showVerifForm ? 'Cancelar' : 'Registrar verificação de identidade'}
+          {!['ENCERRADA', 'CANCELADA'].includes(sol.status) && !showVerifForm && (
+            <button onClick={() => setShowVerifForm(true)} className="btn-ghost btn-sm acao-escrita">
+              Registrar verificação de identidade
             </button>
           )}
         </div>
@@ -231,7 +233,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
           <>
             <hr className="card-divider" />
             <div className="detail-label">Resposta</div>
-            <div className="detail-value">{sol.respostaTexto}</div>
+            <div className="detail-value" style={{ whiteSpace: 'pre-wrap' }}>{sol.respostaTexto}</div>
             {sol.dataResposta && (
               <div className="text-muted text-xs">Respondida em {fmtDataHora(sol.dataResposta)}</div>
             )}
@@ -275,9 +277,11 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
         {!encerrada && (
           <div className="btn-row mt-20">
             {sol.status === 'AGUARDANDO_VERIFICACAO' ? (
-              <button onClick={() => setShowVerifForm(!showVerifForm)} className="btn-primary btn-sm">
-                {showVerifForm ? 'Cancelar' : 'Registrar verificação de identidade'}
-              </button>
+              !showVerifForm && (
+                <button onClick={() => setShowVerifForm(true)} className="btn-primary btn-sm">
+                  Registrar verificação de identidade
+                </button>
+              )
             ) : (
               <>
                 {sol.status === 'RECEBIDA' && (
@@ -320,6 +324,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
             <button onClick={verificarIdentidade} disabled={verificando} className="btn-primary btn-sm">
               {verificando ? 'Verificando...' : 'Confirmar verificação'}
             </button>
+            <button onClick={() => setShowVerifForm(false)} className="btn-secondary btn-sm">Cancelar</button>
           </div>
         </div>
       )}
@@ -338,6 +343,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
           <p className="text-xs text-muted mb-8">Antes de enviar, retire a marca "MINUTA" e complete todos os campos entre colchetes [ ]: a resposta não é enviada com eles.</p>
           <label>Texto da resposta</label>
           <textarea value={resposta} onChange={e => setResposta(e.target.value)} rows={5} placeholder="Digite a resposta ao titular..." />
+          {erroResposta && <div className="alert-error mt-8" role="alert">{erroResposta}</div>}
           <div className="btn-row mt-16">
             <button onClick={responder} disabled={respondendo} className="btn-primary btn-sm">
               {respondendo ? 'Enviando...' : 'Enviar resposta'}
