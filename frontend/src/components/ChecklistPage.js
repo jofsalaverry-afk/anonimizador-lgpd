@@ -156,7 +156,7 @@ function ChecklistPage({ token }) {
 
       {erro && <div className="alert-error mb-16">{erro}</div>}
 
-      {atividadeForm && (
+      {atividadeForm && !atividadeForm.id && (
         <AtividadeForm
           token={token}
           atividade={atividadeForm}
@@ -258,6 +258,14 @@ function ChecklistPage({ token }) {
                     {item.prazo && <> · Prazo: {fmtData(item.prazo)}</>}
                     {' '}<button className="btn-ghost btn-sm acao-escrita" onClick={() => setAtividadeForm(item)}>Editar atividade</button>
                   </div>
+                )}
+                {atividadeForm?.id === item.id && (
+                  <AtividadeForm
+                    token={token}
+                    atividade={atividadeForm}
+                    onCancelar={() => setAtividadeForm(null)}
+                    onSalvo={() => { setAtividadeForm(null); setVersaoHistorico(v => v + 1); carregar(); }}
+                  />
                 )}
                 <div className="badge-row mb-8">
                   {item.fundamentoLegal && (

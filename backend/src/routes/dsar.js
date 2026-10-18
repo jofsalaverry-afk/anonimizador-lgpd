@@ -309,14 +309,15 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
     // tela pede o registro do envio por outro meio.
     const org = await prisma.organizacao.findUnique({
       where: { id: req.usuario.organizacaoId },
-      select: { nome: true }
+      select: { nome: true, encarregadoNome: true, encarregadoEmail: true, encarregadoTelefone: true }
     });
     let enviadoEm = null;
     try {
       const r = await Promise.race([
         enviarRespostaTitular({
           to: sol.titularEmail, titularNome: sol.titularNome, protocolo: sol.protocolo,
-          respostaTexto, orgNome: org?.nome || 'Organização'
+          respostaTexto, orgNome: org?.nome || 'Organização',
+          encarregado: { nome: org?.encarregadoNome, email: org?.encarregadoEmail, telefone: org?.encarregadoTelefone }
         }),
         new Promise((_, rej) => setTimeout(() => rej(new Error('tempo esgotado')), 15000))
       ]);

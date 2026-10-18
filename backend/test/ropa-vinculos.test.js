@@ -97,3 +97,24 @@ test('exportacao do ROPA traz setor, sistemas e outros meios', async () => {
   assert.equal(t.setor.nome, 'Gabinete');
   assert.deepEqual(t.sistemas.map(v => v.sistema.nome), ['E-mail institucional']);
 });
+
+test('editar tratamento sem sistemas e marcar um sistema: a leitura devolve o vinculo', async () => {
+  const tA = tokenDe(s.gestorA);
+  // como o "Cadastro de estagiarios (em mapeamento)" da camara demo: criado sem sistemas
+  const t = await (await chamar(tA, 'POST', '/ropa/tratamentos', { ...BASE, nome: 'Cadastro de estagiários', responsavelId: s.dpoA.id })).json();
+  assert.deepEqual(t.sistemas, []);
+  // payload igual ao do RopaForm ao salvar a edicao
+  const ed = await chamar(tA, 'PUT', `/ropa/tratamentos/${t.id}`, {
+    nome: 'Cadastro de estagiários', finalidade: BASE.finalidade, baseLegal: BASE.baseLegal, baseLegalSensivel: null,
+    categoriasDados: ['Nome'], categoriasTitulares: ['Outros'], compartilhamentos: [],
+    retencaoDias: 1825, formaDescarte: '', medidasSeguranca: '', responsavelId: s.dpoA.id,
+    setorId: setorA.id, outrosMeios: 'Pastas em papel', sistemaIds: [sisA.id]
+  });
+  assert.equal(ed.status, 200);
+  assert.deepEqual((await ed.json()).sistemas.map(v => v.sistemaId), [sisA.id]);
+  // a ficha (RopaDetail) le da lista
+  const lista = await (await chamar(tA, 'GET', '/ropa/tratamentos')).json();
+  const lido = lista.find(x => x.id === t.id);
+  assert.deepEqual(lido.sistemas.map(v => v.sistema.nome), ['Sistema de Protocolo']);
+  assert.equal(lido.outrosMeios, 'Pastas em papel');
+});

@@ -198,25 +198,38 @@ ${linhasHtml}
   return { text, html };
 }
 
-function tplRespostaTitular({ titularNome, protocolo, respostaTexto, orgNome }) {
+// Linha so com traco ("—", "–", "--") vira linha em branco: o Gmail trata o
+// que vem depois dela como assinatura e esconde (sumia o rodape do
+// encarregado, art. 41 LGPD).
+const semSeparadorAssinatura = t => String(t).replace(/^[ \t]*(—|–|-{2,})[ \t]*$/gm, '');
+const AVISO_ANPD = 'Caso não esteja satisfeito com a resposta, você tem direito de peticionar diretamente à ANPD (Autoridade Nacional de Proteção de Dados).';
+// Os modelos DSAR ja trazem o aviso da ANPD: o automatico so entra se o texto nao o tiver
+const citaAnpd = t => /\bANPD\b|Autoridade Nacional de Prote/i.test(t);
+
+function tplRespostaTitular({ titularNome, protocolo, respostaTexto, orgNome, encarregado }) {
+  let corpo = semSeparadorAssinatura(respostaTexto);
+  // Texto sem a identificacao do encarregado (ex.: escrito sem modelo): acrescenta
+  const enc = encarregado || {};
+  if (enc.nome && !corpo.includes(enc.nome)) {
+    const contato = [enc.email && `E-mail: ${enc.email}`, enc.telefone && `Telefone: ${enc.telefone}`].filter(Boolean).join(' · ');
+    corpo += `\n\nEncarregado pelo tratamento de dados pessoais: ${enc.nome}${contato ? `\n${contato}` : ''}`;
+  }
+  const aviso = citaAnpd(corpo) ? '' : AVISO_ANPD;
   const text = `Olá, ${titularNome}.
 
 Sua solicitação ${protocolo} foi respondida.
 
 Resposta:
-${respostaTexto}
-
-Caso não esteja satisfeito com a resposta, você tem direito de peticionar diretamente à ANPD (Autoridade Nacional de Proteção de Dados).
-
---
+${corpo}
+${aviso ? `\n${aviso}\n` : ''}
 ${orgNome}`;
 
   const html = `<!DOCTYPE html><html><body style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 32px auto; padding: 32px; background: #f8fafc; color: #1e293b;">
 <h2 style="color: #16a34a; margin: 0 0 16px;">Sua solicitação foi respondida</h2>
 <p>Olá, <strong>${esc(titularNome)}</strong>.</p>
 <p>Sua solicitação de protocolo <strong>${esc(protocolo)}</strong> foi respondida oficialmente.</p>
-<div style="background: white; border-left: 4px solid #16a34a; border-radius: 8px; padding: 20px; margin: 16px 0; white-space: pre-wrap; line-height: 1.6;">${esc(respostaTexto)}</div>
-<p style="color: #64748b; font-size: 13px;">Caso não esteja satisfeito com a resposta, você tem direito de peticionar diretamente à ANPD (Autoridade Nacional de Proteção de Dados).</p>
+<div style="background: white; border-left: 4px solid #16a34a; border-radius: 8px; padding: 20px; margin: 16px 0; white-space: pre-wrap; line-height: 1.6;">${esc(corpo)}</div>
+${aviso ? `<p style="color: #64748b; font-size: 13px;">${aviso}</p>` : ''}
 <p style="color: #94a3b8; font-size: 12px; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 16px;">${esc(orgNome)}</p>
 </body></html>`;
 
@@ -260,8 +273,8 @@ async function enviarAlertaPrazoDPO({ to, solicitacoes, orgNome }) {
   return enviar({ to, subject: `Alerta de prazo LGPD: ${solicitacoes.length} solicitação(ões)`, text, html });
 }
 
-async function enviarRespostaTitular({ to, titularNome, protocolo, respostaTexto, orgNome }) {
-  const { text, html } = tplRespostaTitular({ titularNome, protocolo, respostaTexto, orgNome });
+async function enviarRespostaTitular({ to, titularNome, protocolo, respostaTexto, orgNome, encarregado }) {
+  const { text, html } = tplRespostaTitular({ titularNome, protocolo, respostaTexto, orgNome, encarregado });
   return enviar({ to, subject: `Resposta à sua solicitação ${protocolo}`, text, html });
 }
 
@@ -281,5 +294,6 @@ module.exports = {
   enviarOTP,
   enviarConfirmacaoSolicitacao,
   enviarAlertaPrazoDPO,
-  enviarRespostaTitular
+  enviarRespostaTitular,
+  tplRespostaTitular
 };
