@@ -93,7 +93,7 @@ async function catalogo(db, aplicar, log = console.log) {
           c.novo, c.codigo, c.antigo);
         if (n !== 1) throw new Error(`${c.passo} ${c.codigo} ${c.campo}: esperada 1 linha, afetadas ${n}`);
       }
-    });
+    }, { timeout: 120000, maxWait: 20000 });
   } catch (e) {
     log('ERRO:', e.message, '— a transação foi desfeita, NADA foi gravado.');
     process.exitCode = 1;
