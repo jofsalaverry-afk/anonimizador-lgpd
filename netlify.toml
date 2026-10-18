@@ -3,6 +3,10 @@
   command = "npm run build"
   publish = "build"
 
+[build.environment]
+  DISABLE_ESLINT_PLUGIN = "true"
+  NODE_VERSION = "20"
+
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
