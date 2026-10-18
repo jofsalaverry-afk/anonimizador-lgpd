@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
 import { BotoesExportar, BotaoPdfA } from './download';
-import { ROTULO_BASE_LEGAL as BASE_LEGAL_LABEL, ROTULO_CAMPO_BASE_LEGAL, normalizarCategorias } from '../basesLegais';
+import { ROTULO_BASE_LEGAL as BASE_LEGAL_LABEL, ROTULO_CAMPO_BASE_LEGAL, normalizarCategorias, rotuloCurtoBaseLegal } from '../basesLegais';
 
 export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial }) {
   const [tratamentos, setTratamentos] = useState([]);
@@ -118,7 +118,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
               <tr>
                 <th>Nome</th>
                 <th>Finalidade</th>
-                <th>Base legal (LGPD, art. 7º ou art. 11)</th>
+                <th title={ROTULO_CAMPO_BASE_LEGAL}>Base legal</th>
                 <th>Titulares</th>
                 <th>Status</th>
                 <th>Ações</th>
@@ -133,8 +133,8 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
                   </td>
                   <td className="table-cell-truncate">{t.finalidade}</td>
                   <td>
-                    <span className="badge badge-purple badge-citacao" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}</span>
-                    {t.baseLegalSensivel && <div className="mt-4"><span className="badge badge-purple badge-citacao" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegalSensivel]}</span></div>}
+                    <span className="badge badge-purple badge-citacao" title={BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}>{rotuloCurtoBaseLegal(t.baseLegal)}</span>
+                    {t.baseLegalSensivel && <div className="mt-4"><span className="badge badge-purple badge-citacao" title={BASE_LEGAL_LABEL[t.baseLegalSensivel]}>{rotuloCurtoBaseLegal(t.baseLegalSensivel)}</span></div>}
                   </td>
                   <td className="text-muted">{normalizarCategorias(t.categoriasTitulares).join(', ') || '-'}</td>
                   <td>
@@ -143,7 +143,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
                     </span>
                   </td>
                   <td>
-                    <div className="btn-row">
+                    <div className="btn-row" style={{ flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
                       <button onClick={() => onVer(t.id)} className="btn-secondary btn-sm">Ver</button>
                       <button onClick={() => onEditar(t.id)} className="btn-ghost btn-sm acao-escrita">Editar</button>
                       {t.ativo && <button onClick={() => desativar(t.id)} className="btn-danger btn-sm">Desativar</button>}

@@ -16,6 +16,8 @@ const SENSIVEIS = new Set([...dados.categoriasSensiveis, ...dados.categoriasSens
 
 export const ROTULO_CAMPO_BASE_LEGAL = 'Base legal (LGPD, art. 7º ou art. 11)';
 export const rotuloBaseLegal = codigo => (codigo ? ROTULO_BASE_LEGAL[codigo] || codigo : '');
+// So a citacao ("Art. 7º, II"), para tabelas; o texto completo vai no title
+export const rotuloCurtoBaseLegal = codigo => rotuloBaseLegal(codigo).split(' — ')[0];
 export const temDadoSensivel = categorias => (categorias || []).some(c => SENSIVEIS.has(c) || SENSIVEIS.has(normalizarCategoria(c)));
 
 // 1825 -> "1825 dias (5 anos)"; 180 -> "180 dias (6 meses)"; 45 -> "45 dias".

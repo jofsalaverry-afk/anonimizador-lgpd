@@ -50,6 +50,9 @@ router.get('/', async (req, res) => {
         if (m && PERGUNTAS[m[1]]) rotulosCampos[campo] = `${PERGUNTAS[m[1]].texto} (${m[1]})`;
       }
     }
+    // "planoAcao" do terceiro e o plano de acao do fornecedor; o rotulo
+    // padrao ("Medidas para evitar recorrência") e o do incidente
+    if (entidade === 'TERCEIRO') rotulosCampos.planoAcao = 'Plano de ação';
 
     res.json({
       itens,

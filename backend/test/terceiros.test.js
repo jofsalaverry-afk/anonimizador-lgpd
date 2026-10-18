@@ -120,6 +120,9 @@ test('plano de acao: responsavel da org, situacao e historico', async () => {
   assert.equal(hist.length, 2);
   assert.match(hist[0].diff.planoAcao.depois, /Assinar aditivo LGPD — Pendente · prazo 30\/11\/2026 · DPO A/);
   assert.match(hist[1].diff.planoAcao.depois, /Concluída/);
+  // na tela do historico o campo se chama "Plano de ação" (nao o rotulo do incidente)
+  const tela = await (await chamar(tA, 'GET', `/historico?entidade=TERCEIRO&registroId=${t.id}`)).json();
+  assert.equal(tela.rotulosCampos.planoAcao, 'Plano de ação');
 
   const lista = await (await chamar(tA, 'GET', '/terceiros')).json();
   assert.equal(lista.find(x => x.id === t.id).acoesPendentes, 0);

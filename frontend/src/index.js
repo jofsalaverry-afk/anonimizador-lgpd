@@ -8,12 +8,14 @@ import '@fontsource-variable/instrument-sans/wght-italic.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
 import './index.css';
 import App from './App';
+import AvisoNovaVersao from './components/AvisoNovaVersao';
 import reportWebVitals from './reportWebVitals';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
     <App />
+    <AvisoNovaVersao />
   </React.StrictMode>
 );
 

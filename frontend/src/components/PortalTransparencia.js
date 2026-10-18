@@ -59,7 +59,7 @@ export default function PortalTransparencia({ token, usuario }) {
           <div className="grid-2" style={{ gap: 12, alignItems: 'stretch' }}>
             <div>
               <div className="detail-label mb-4">Código</div>
-              <textarea readOnly rows={9} value={trecho.html} style={{ fontFamily: 'monospace', fontSize: 12, height: '100%' }} onFocus={e => e.target.select()} />
+              <textarea readOnly rows={9} value={trecho.html} style={{ fontFamily: 'monospace', fontSize: 12 }} onFocus={e => e.target.select()} />
             </div>
             <div>
               <div className="detail-label mb-4">Prévia (como aparece no portal)</div>
