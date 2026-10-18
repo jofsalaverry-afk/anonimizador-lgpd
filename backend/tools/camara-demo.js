@@ -253,7 +253,7 @@ async function principal() {
   }
   // um registro ainda em mapeamento (mostra o indicador de pendencias por setor/sistema)
   await api('POST', '/ropa/tratamentos', { token: G, body: {
-    nome: 'Cadastro de estagiários (em mapeamento)', finalidade: 'Gerir o programa de estágio da Câmara', baseLegal: 'EXECUCAO_CONTRATO',
+    nome: 'Cadastro de estagiários', finalidade: 'Gerir o programa de estágio da Câmara', baseLegal: 'EXECUCAO_CONTRATO',
     categoriasDados: ['Nome', 'CPF', 'E-mail'], categoriasTitulares: ['Outros'], retencaoDias: 1825, responsavelId: ids.OPERADOR
   } }, 201);
   await anexar(G, 'TRATAMENTO', trats[0], 'parecer-juridico-folha.pdf', 'Parecer jurídico — base legal da folha de pagamento', [
