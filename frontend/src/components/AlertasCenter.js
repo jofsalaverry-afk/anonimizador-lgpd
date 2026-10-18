@@ -5,14 +5,18 @@ const TIPO_ICON = {
   DSAR_PRAZO: '⏰',
   CHECKLIST_REVISAO: '📋',
   INCIDENTE_ABERTO: '⚠️',
-  ROPA_DESATUALIZADO: '📁'
+  ROPA_DESATUALIZADO: '📁',
+  RETENCAO_VENCIDA: '🗑️',
+  INCIDENTE_COMUNICACAO: '📣'
 };
 
 const TIPO_LABEL = {
   DSAR_PRAZO: 'Prazo DSAR',
   CHECKLIST_REVISAO: 'Revisão de checklist',
   INCIDENTE_ABERTO: 'Incidente em aberto',
-  ROPA_DESATUALIZADO: 'ROPA desatualizado'
+  ROPA_DESATUALIZADO: 'ROPA desatualizado',
+  RETENCAO_VENCIDA: 'Retenção vencida',
+  INCIDENTE_COMUNICACAO: 'Comunicação de incidente (ANPD)'
 };
 
 const CRIT_BADGE = {
@@ -33,6 +37,7 @@ function AlertasCenter({ token }) {
       const res = await fetch(`${API}/conformidade/alertas`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.status === 401) { window.dispatchEvent(new Event('complidata:sessao-encerrada')); return; }
       if (!res.ok) return;
       const data = await res.json();
       setAlertas(data.alertas || []);
@@ -67,6 +72,7 @@ function AlertasCenter({ token }) {
 
   const formatarData = (iso) =>
     new Date(iso).toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',

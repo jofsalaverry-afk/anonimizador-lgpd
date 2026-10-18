@@ -3,13 +3,28 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
-const { PrismaClient } = require('@prisma/client');
 const { body } = require('express-validator');
 const { auditarLogin } = require('../middlewares/auditoria');
 const { validar, validarEmail } = require('../middlewares/seguranca');
+const { authUsuario } = require('../middlewares/authUsuario');
+const { registrarHistorico } = require('../services/historico');
+const { codigoValido, sessaoValida, encerrarSessoes, RE_CODIGO } = require('../services/mfa');
+const { erroNovaSenha, hashToken, gerarToken, gravarNovaSenha, MINUTOS_LINK } = require('../services/senha');
+const { enviarRecuperacaoSenha, emailConfigurado } = require('../services/emailService');
+const { urlRedefinirSenha } = require('../services/appUrl');
+
+// Historico do MFA no registro do proprio usuario (nunca o segredo)
+function historicoMfa(db, usuario, diff, porUsuarioId = usuario.id) {
+  return registrarHistorico(db, {
+    organizacaoId: usuario.organizacaoId, entidade: 'USUARIO', registroId: usuario.id, acao: 'EDITAR', usuarioId: porUsuarioId, diff
+  });
+}
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { buscarPorEmail } = require('../services/email');
+// Etapa 7a: algoritmo do JWT fixo na verificacao
+const JWT_VERIFY = { algorithms: ['HS256'] };
+const { prisma } = require('../db');
 
 const validadoresLogin = [
   validarEmail('email'),
@@ -33,7 +48,8 @@ function emitirSessao(usuario) {
     perfil: usuario.perfil,
     organizacaoId: usuario.organizacaoId,
     orgNome: usuario.organizacao.nome,
-    modulosAtivos: usuario.organizacao.modulosAtivos
+    modulosAtivos: usuario.organizacao.modulosAtivos,
+    sv: usuario.sessaoVersao || 0
   }, process.env.JWT_SECRET, { expiresIn: '8h' });
   return {
     token,
@@ -51,14 +67,25 @@ function emitirSessao(usuario) {
   };
 }
 
-// Middleware de auth padrao das rotas abaixo (exceto as de login publico).
-// Nao importa do dsar/documents pra evitar dependencia cruzada.
-function authRequired(req, res, next) {
+// Sessao completa (rejeita mfaPending e mfaSetup).
+const authRequired = authUsuario;
+
+// Aceita sessao completa OU o setupToken emitido no login quando a
+// organizacao exige MFA e o usuario ainda nao configurou. Usado so em
+// /mfa/configurar e /mfa/ativar.
+async function authOuSetupMfa(req, res, next) {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, JWT_VERIFY);
     if (decoded.mfaPending) return res.status(401).json({ erro: 'Sessão incompleta (MFA pendente)' });
+    if (decoded.mfaSetup) {
+      if (!decoded.userId) return res.status(401).json({ erro: 'Token inválido' });
+      req.usuario = { id: decoded.userId };
+      req.mfaSetup = true;
+      return next();
+    }
+    if (!(await sessaoValida(prisma, decoded))) return res.status(401).json({ erro: 'Sessão encerrada. Entre novamente.' });
     req.usuario = decoded;
     next();
   } catch (err) {
@@ -69,9 +96,8 @@ function authRequired(req, res, next) {
 router.post('/login', validadoresLogin, async (req, res) => {
   try {
     const { email, senha } = req.body;
-    const usuario = await prisma.usuario.findUnique({
-      where: { email },
-      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true } } }
+    const usuario = await buscarPorEmail(prisma.usuario, email, {
+      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } } }
     });
     if (!usuario || usuario.deletedAt) {
       auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', motivo: 'email_nao_encontrado' });
@@ -91,6 +117,14 @@ router.post('/login', validadoresLogin, async (req, res) => {
       return res.status(401).json({ erro: 'Email ou senha inválidos' });
     }
 
+    // Etapa 7a: senha criada pelo Gestor/Admin vale so para entrar e trocar.
+    // Nao emite sessao: devolve um trocaToken (15 min) que so serve em
+    // POST /auth/senha/primeiro-acesso.
+    if (usuario.senhaTrocaObrigatoria) {
+      const trocaToken = jwt.sign({ senhaTroca: true, userId: usuario.id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+      return res.json({ trocaSenhaObrigatoria: true, trocaToken, mensagem: 'Primeiro acesso: crie a sua senha pessoal para continuar.' });
+    }
+
     // Se o usuario ja ativou MFA, nao emite o token de sessao ainda —
     // emite um tempToken de 5 minutos marcado com mfaPending que so
     // serve para POST /auth/mfa/verificar. A sessao real sai de la.
@@ -107,6 +141,23 @@ router.post('/login', validadoresLogin, async (req, res) => {
       });
     }
 
+    // Organizacao exige MFA e o usuario nao tem: nao emite sessao. O
+    // setupToken (15 min) so serve para /mfa/configurar e /mfa/ativar;
+    // a sessao real sai do /mfa/ativar.
+    if (usuario.organizacao.mfaObrigatorio) {
+      auditarLogin(prisma, { req, sucesso: false, userType: 'usuario', userId: usuario.id, motivo: 'mfa_setup_obrigatorio' });
+      const setupToken = jwt.sign(
+        { mfaSetup: true, userId: usuario.id },
+        process.env.JWT_SECRET,
+        { expiresIn: '15m' }
+      );
+      return res.json({
+        mfaSetupObrigatorio: true,
+        setupToken,
+        mensagem: 'Sua organização exige autenticação em 2 etapas. Configure o autenticador para continuar.'
+      });
+    }
+
     await prisma.usuario.update({ where: { id: usuario.id }, data: { ultimoAcesso: new Date() } });
     auditarLogin(prisma, { req, sucesso: true, userType: 'usuario', userId: usuario.id });
     // Sinaliza para perfis privilegiados que MFA e obrigatorio e deveria
@@ -120,24 +171,136 @@ router.post('/login', validadoresLogin, async (req, res) => {
   }
 });
 
+// POST /auth/logout — encerra a sessao no servidor (Etapa 7a): sobe a
+// versao da sessao, entao este token (e os de outros aparelhos) deixa de valer.
+router.post('/logout', authRequired, async (req, res) => {
+  try {
+    await encerrarSessoes(prisma, [req.usuario.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[POST /auth/logout]', err);
+    res.status(500).json({ erro: 'Erro ao sair' });
+  }
+});
+
+// ==================== Senha (Etapa 7a) ====================
+
+// POST /auth/senha/primeiro-acesso { trocaToken, novaSenha } — troca obrigatoria.
+// Depois o usuario entra normalmente com a senha nova (MFA, se houver).
+router.post('/senha/primeiro-acesso', async (req, res) => {
+  try {
+    const { trocaToken, novaSenha } = req.body || {};
+    let p;
+    try { p = jwt.verify(String(trocaToken || ''), process.env.JWT_SECRET, JWT_VERIFY); } catch { return res.status(401).json({ erro: 'Prazo para criar a senha expirou. Entre de novo com a senha inicial.' }); }
+    if (!p.senhaTroca || !p.userId) return res.status(401).json({ erro: 'Token inválido' });
+    const usuario = await prisma.usuario.findUnique({ where: { id: p.userId } });
+    if (!usuario || usuario.deletedAt || !usuario.ativo || !usuario.senhaTrocaObrigatoria) return res.status(400).json({ erro: 'Troca de senha não pendente' });
+    const e = erroNovaSenha(novaSenha);
+    if (e) return res.status(400).json({ erro: e });
+    if (await bcrypt.compare(novaSenha, usuario.senhaHash)) return res.status(400).json({ erro: 'A nova senha deve ser diferente da senha inicial' });
+    await prisma.$transaction(tx => gravarNovaSenha(tx, usuario, novaSenha, { comoFoi: 'criada pelo próprio usuário no primeiro acesso' }));
+    res.json({ ok: true, mensagem: 'Senha criada. Entrando com a nova senha...' });
+  } catch (err) {
+    console.error('[POST /auth/senha/primeiro-acesso]', err.message);
+    res.status(500).json({ erro: 'Erro ao criar a senha' });
+  }
+});
+
+// PUT /auth/senha { senhaAtual, novaSenha } — o proprio usuario troca a senha.
+// Encerra as outras sessoes e devolve uma sessao nova.
+router.put('/senha', authRequired, async (req, res) => {
+  try {
+    const { senhaAtual, novaSenha } = req.body || {};
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: req.usuario.id },
+      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } } }
+    });
+    if (!usuario) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    if (typeof senhaAtual !== 'string' || !(await bcrypt.compare(senhaAtual, usuario.senhaHash))) return res.status(400).json({ erro: 'Senha atual incorreta' });
+    const e = erroNovaSenha(novaSenha);
+    if (e) return res.status(400).json({ erro: e });
+    if (novaSenha === senhaAtual) return res.status(400).json({ erro: 'A nova senha deve ser diferente da atual' });
+    const atualizado = await prisma.$transaction(tx => gravarNovaSenha(tx, usuario, novaSenha, { comoFoi: 'alterada pelo próprio usuário' }));
+    res.json({ ok: true, mensagem: 'Senha alterada. As outras sessões abertas foram encerradas.', ...emitirSessao({ ...usuario, ...atualizado, organizacao: usuario.organizacao }) });
+  } catch (err) {
+    console.error('[PUT /auth/senha]', err.message);
+    res.status(500).json({ erro: 'Erro ao alterar a senha' });
+  }
+});
+
+// POST /auth/senha/esqueci { email } — resposta IGUAL exista ou nao o e-mail.
+// Sem e-mail configurado no servidor: 503 para todos (nao revela nada).
+const MSG_ESQUECI = `Se este e-mail estiver cadastrado, você vai receber em instantes um link para criar uma nova senha. O link vale por ${MINUTOS_LINK} minutos e só pode ser usado uma vez.`;
+router.post('/senha/esqueci', async (req, res) => {
+  try {
+    if (!emailConfigurado()) {
+      return res.status(503).json({ erro: 'A recuperação de senha por e-mail está indisponível no momento. Procure o Gestor da sua câmara.' });
+    }
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const usuario = email && /^[^\s@]+@[^\s@]+$/.test(email)
+      ? await buscarPorEmail(prisma.usuario, email, { include: { organizacao: { select: { ativo: true } } } })
+      : null;
+    if (usuario && !usuario.deletedAt && usuario.ativo && usuario.organizacao?.ativo) {
+      const token = gerarToken();
+      await prisma.tokenRecuperacaoSenha.create({
+        data: { usuarioId: usuario.id, tokenHash: hashToken(token), expiraEm: new Date(Date.now() + MINUTOS_LINK * 60000) }
+      });
+      try {
+        await enviarRecuperacaoSenha({ to: usuario.email, nome: usuario.nome, link: urlRedefinirSenha(token), minutos: MINUTOS_LINK });
+      } catch (e) {
+        console.error('[auth/esqueci] falha no envio:', e.message);
+      }
+    }
+    res.json({ ok: true, mensagem: MSG_ESQUECI });
+  } catch (err) {
+    console.error('[POST /auth/senha/esqueci]', err.message);
+    res.status(500).json({ erro: 'Erro ao processar o pedido' });
+  }
+});
+
+// POST /auth/senha/redefinir { token, novaSenha } — link de uso unico (30 min)
+router.post('/senha/redefinir', async (req, res) => {
+  try {
+    const { token, novaSenha } = req.body || {};
+    const registro = token ? await prisma.tokenRecuperacaoSenha.findUnique({ where: { tokenHash: hashToken(token) } }) : null;
+    if (!registro || registro.usadoEm || new Date(registro.expiraEm) < new Date()) {
+      return res.status(400).json({ erro: 'Link inválido, já usado ou expirado. Peça um novo em "Esqueci minha senha".' });
+    }
+    const e = erroNovaSenha(novaSenha);
+    if (e) return res.status(400).json({ erro: e });
+    const usuario = await prisma.usuario.findUnique({ where: { id: registro.usuarioId } });
+    if (!usuario || usuario.deletedAt || !usuario.ativo) return res.status(400).json({ erro: 'Link inválido, já usado ou expirado. Peça um novo em "Esqueci minha senha".' });
+    await prisma.$transaction(async (tx) => {
+      // uso unico: marca este e qualquer outro link pendente do usuario
+      await tx.tokenRecuperacaoSenha.updateMany({ where: { usuarioId: usuario.id, usadoEm: null }, data: { usadoEm: new Date() } });
+      await gravarNovaSenha(tx, usuario, novaSenha, { comoFoi: 'redefinida pelo link de recuperação enviado por e-mail' });
+    });
+    res.json({ ok: true, mensagem: 'Senha criada. Entre com a nova senha.' });
+  } catch (err) {
+    console.error('[POST /auth/senha/redefinir]', err.message);
+    res.status(500).json({ erro: 'Erro ao redefinir a senha' });
+  }
+});
+
 router.get('/me', async (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.mfaPending) return res.status(401).json({ erro: 'Sessão incompleta (MFA pendente)' });
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, JWT_VERIFY);
+    if (decoded.mfaPending || decoded.mfaSetup) return res.status(401).json({ erro: 'Sessão incompleta (MFA pendente)' });
+    if (!(await sessaoValida(prisma, decoded))) return res.status(401).json({ erro: 'Sessão encerrada. Entre novamente.' });
     const usuario = await prisma.usuario.findUnique({
       where: { id: decoded.id },
       select: {
         id: true, nome: true, email: true, perfil: true, ativo: true, mfaAtivo: true, deletedAt: true,
         organizacaoId: true,
-        organizacao: { select: { nome: true, slug: true, plano: true, modulosAtivos: true } }
+        organizacao: { select: { nome: true, slug: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } }
       }
     });
     if (!usuario || usuario.deletedAt) return res.status(401).json({ erro: 'Sessão inválida' });
     delete usuario.deletedAt;
     const { organizacao, ...rest } = usuario;
-    res.json({ ...rest, orgNome: organizacao.nome, orgSlug: organizacao.slug, plano: organizacao.plano, modulosAtivos: organizacao.modulosAtivos });
+    res.json({ ...rest, orgNome: organizacao.nome, orgSlug: organizacao.slug, plano: organizacao.plano, modulosAtivos: organizacao.modulosAtivos, mfaObrigatorioOrg: organizacao.mfaObrigatorio });
   } catch (err) {
     res.status(401).json({ erro: 'Token inválido' });
   }
@@ -145,13 +308,19 @@ router.get('/me', async (req, res) => {
 
 // ==================== MFA (TOTP / Google Authenticator) ====================
 
-// Gera um secret novo, grava no usuario (mfaAtivo continua false) e
-// devolve o QR code em data URL pronto pra escanear. Se chamar 2x, o
-// secret antigo e sobrescrito — so o ultimo vale.
-router.post('/mfa/configurar', authRequired, async (req, res) => {
+// Gera um secret novo e devolve o QR code em data URL.
+// - MFA ainda nao ativo: grava em mfaSecret (mfaAtivo continua false).
+// - MFA ja ativo (troca de aparelho): EXIGE o codigo atual valido (Etapa
+//   6d). Sem ele, recusa e nao altera nada. Com ele, o segredo novo fica em
+//   mfaSecretPendente; o MFA atual segue valendo ate o novo ser confirmado
+//   em /mfa/ativar.
+router.post('/mfa/configurar', authOuSetupMfa, async (req, res) => {
   try {
     const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
     if (!usuario) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    if (usuario.mfaAtivo && !codigoValido(usuario.mfaSecret, req.body?.codigo)) {
+      return res.status(400).json({ erro: 'O MFA já está ativo: informe o código atual do autenticador para trocar de aparelho' });
+    }
 
     const secret = speakeasy.generateSecret({
       length: 20,
@@ -160,7 +329,9 @@ router.post('/mfa/configurar', authRequired, async (req, res) => {
     });
     await prisma.usuario.update({
       where: { id: usuario.id },
-      data: { mfaSecret: secret.base32, mfaAtivo: false }
+      data: usuario.mfaAtivo
+        ? { mfaSecretPendente: secret.base32 }
+        : { mfaSecret: secret.base32, mfaSecretPendente: null, mfaAtivo: false }
     });
     const qrCode = await QRCode.toDataURL(secret.otpauth_url);
     res.json({
@@ -176,24 +347,39 @@ router.post('/mfa/configurar', authRequired, async (req, res) => {
 
 // Recebe o codigo de 6 digitos gerado pelo Authenticator e, se casar
 // com o secret gravado no configurar, marca mfaAtivo=true.
-router.post('/mfa/ativar', authRequired, validadorCodigoMfa, validar, async (req, res) => {
+router.post('/mfa/ativar', authOuSetupMfa, validadorCodigoMfa, validar, async (req, res) => {
   try {
     const { codigo } = req.body;
     const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
-    if (!usuario || !usuario.mfaSecret) {
-      return res.status(400).json({ erro: 'Configure o MFA antes de ativar' });
+    // Troca de aparelho: confirma o segredo pendente; senao, o da configuracao
+    const troca = !!(usuario?.mfaAtivo && usuario.mfaSecretPendente);
+    const alvo = troca ? usuario.mfaSecretPendente : usuario?.mfaSecret;
+    if (!usuario || !alvo || (usuario.mfaAtivo && !troca)) {
+      return res.status(400).json({ erro: usuario?.mfaAtivo ? 'O MFA já está ativo' : 'Configure o MFA antes de ativar' });
     }
-    const ok = speakeasy.totp.verify({
-      secret: usuario.mfaSecret,
-      encoding: 'base32',
-      token: codigo,
-      window: 1
+    if (!codigoValido(alvo, codigo)) return res.status(400).json({ erro: 'Código inválido' });
+    await prisma.$transaction(async (tx) => {
+      await tx.usuario.update({
+        where: { id: usuario.id },
+        data: troca ? { mfaSecret: alvo, mfaSecretPendente: null, mfaAtivo: true } : { mfaAtivo: true }
+      });
+      await historicoMfa(tx, usuario, { mfa: troca ? { antes: 'ativo', depois: 'ativo (autenticador trocado)' } : { antes: 'inativo', depois: 'ativo' } });
     });
-    if (!ok) return res.status(400).json({ erro: 'Código inválido' });
-    await prisma.usuario.update({
-      where: { id: usuario.id },
-      data: { mfaAtivo: true }
-    });
+
+    // Veio do login com MFA obrigatorio: conclui o login aqui.
+    if (req.mfaSetup) {
+      const completo = await prisma.usuario.findUnique({
+        where: { id: usuario.id },
+        include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } } }
+      });
+      if (!completo || completo.deletedAt || !completo.ativo || !completo.organizacao.ativo) {
+        return res.status(403).json({ erro: 'Acesso desativado' });
+      }
+      await prisma.usuario.update({ where: { id: completo.id }, data: { ultimoAcesso: new Date() } });
+      auditarLogin(prisma, { req, sucesso: true, userType: 'usuario', userId: completo.id });
+      return res.json({ ok: true, mfaAtivo: true, ...emitirSessao(completo) });
+    }
+
     res.json({ ok: true, mfaAtivo: true });
   } catch (err) {
     console.error('[POST /auth/mfa/ativar]', err);
@@ -209,7 +395,7 @@ router.post('/mfa/verificar', validadorCodigoMfa, validar, async (req, res) => {
     if (!tempToken) return res.status(400).json({ erro: 'tempToken obrigatório' });
     let payload;
     try {
-      payload = jwt.verify(tempToken, process.env.JWT_SECRET);
+      payload = jwt.verify(tempToken, process.env.JWT_SECRET, JWT_VERIFY);
     } catch (e) {
       return res.status(401).json({ erro: 'Sessão expirada. Faça login novamente.' });
     }
@@ -218,7 +404,7 @@ router.post('/mfa/verificar', validadorCodigoMfa, validar, async (req, res) => {
     }
     const usuario = await prisma.usuario.findUnique({
       where: { id: payload.userId },
-      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true } } }
+      include: { organizacao: { select: { id: true, nome: true, ativo: true, plano: true, modulosAtivos: true, mfaObrigatorio: true } } }
     });
     if (!usuario || usuario.deletedAt || !usuario.mfaSecret || !usuario.mfaAtivo) {
       return res.status(400).json({ erro: 'MFA não configurado' });
@@ -242,27 +428,35 @@ router.post('/mfa/verificar', validadorCodigoMfa, validar, async (req, res) => {
   }
 });
 
-// Desativa MFA. Requer um codigo TOTP valido atual para confirmar que
-// e o proprio dono da conta (ninguem com token roubado pode desativar).
-router.put('/mfa/desativar', authRequired, validadorCodigoMfa, validar, async (req, res) => {
+// Desativa MFA. Requer o codigo TOTP atual OU a senha (Etapa 6d) para
+// confirmar que e o proprio dono da conta. Sempre responde com mensagem.
+router.put('/mfa/desativar', authRequired, async (req, res) => {
   try {
-    const { codigo } = req.body;
-    const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
+    const { codigo, senha } = req.body || {};
+    if (!codigo && !senha) return res.status(400).json({ erro: 'Informe o código do autenticador ou a sua senha' });
+    if (codigo && !RE_CODIGO.test(String(codigo))) return res.status(400).json({ erro: 'Código deve ter 6 dígitos' });
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: req.usuario.id },
+      include: { organizacao: { select: { mfaObrigatorio: true } } }
+    });
     if (!usuario || !usuario.mfaSecret || !usuario.mfaAtivo) {
       return res.status(400).json({ erro: 'MFA não está ativo' });
     }
-    const ok = speakeasy.totp.verify({
-      secret: usuario.mfaSecret,
-      encoding: 'base32',
-      token: codigo,
-      window: 1
+    if (usuario.organizacao.mfaObrigatorio) {
+      return res.status(403).json({ erro: 'Sua organização exige MFA. Não é possível desativar.' });
+    }
+    const ok = codigo
+      ? codigoValido(usuario.mfaSecret, codigo)
+      : (typeof senha === 'string' && senha.length <= 200 && await bcrypt.compare(senha, usuario.senhaHash));
+    if (!ok) return res.status(400).json({ erro: codigo ? 'Código inválido' : 'Senha incorreta' });
+    await prisma.$transaction(async (tx) => {
+      await tx.usuario.update({
+        where: { id: usuario.id },
+        data: { mfaSecret: null, mfaSecretPendente: null, mfaAtivo: false }
+      });
+      await historicoMfa(tx, usuario, { mfa: { antes: 'ativo', depois: 'inativo' }, confirmadoCom: { antes: null, depois: codigo ? 'código do autenticador' : 'senha' } });
     });
-    if (!ok) return res.status(400).json({ erro: 'Código inválido' });
-    await prisma.usuario.update({
-      where: { id: usuario.id },
-      data: { mfaSecret: null, mfaAtivo: false }
-    });
-    res.json({ ok: true, mfaAtivo: false });
+    res.json({ ok: true, mfaAtivo: false, mensagem: 'MFA desativado.' });
   } catch (err) {
     console.error('[PUT /auth/mfa/desativar]', err);
     res.status(500).json({ erro: 'Erro ao desativar MFA' });

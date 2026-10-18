@@ -3,6 +3,7 @@
 // Importado e composto em server.js.
 
 const rateLimit = require('express-rate-limit');
+const jwt = require('jsonwebtoken');
 const { ipKeyGenerator } = require('express-rate-limit');
 const { validationResult, body, param } = require('express-validator');
 
@@ -15,25 +16,83 @@ const { validationResult, body, param } = require('express-validator');
 // mesmo quando a gente ja seta "trust proxy" no server.js.
 const VALIDATE_OFF = { xForwardedForHeader: false };
 
+// Etapa 7a: chave do limite = IP REAL do cliente. O express-rate-limit chama
+// keyGenerator(req, res); passar o ipKeyGenerator direto entregava o objeto
+// req no lugar do IP e o contador nunca somava (nenhum limite funcionava).
+// req.ip ja respeita o "trust proxy" do server.js (2 saltos: borda do
+// Railway + proxy interno), entao a chave e o IP do cliente.
+const chaveIp = (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || '');
+
+// Rotas autenticadas do painel: a chave e o USUARIO da sessao, nao o IP —
+// varios servidores de uma camara costumam sair pelo mesmo IP e dividiriam
+// um contador so. O token so e lido (sem verificar) para escolher a chave: a
+// autenticacao de verdade acontece depois, na rota. Sem sessao, vale o IP.
+function chaveUsuarioOuIp(req) {
+  const h = req.headers?.authorization || '';
+  if (h.startsWith('Bearer ')) {
+    const d = jwt.decode(h.slice(7));
+    if (d && typeof d === 'object' && (d.id || d.userId)) return `u:${d.isAdmin ? 'adm:' : ''}${d.id || d.userId}`;
+  }
+  return chaveIp(req);
+}
+const LIMITE_PAINEL_POR_MINUTO = 300;
+
 // Resposta padrao de rate limit — mensagem legivel para o titular/usuario
 // com o tempo de espera em minutos.
 function mensagemExcesso(minutos) {
   return { erro: `Muitas tentativas. Tente novamente em ${minutos} minutos.` };
 }
 
-// /auth/* — 10 requests / 15 min / IP. Cobre tanto login quanto token
-// refresh ou me; protege contra brute force e enumeracao de contas.
-// Conta so as falhas para nao penalizar quem ja logou.
-const limiterAuth = rateLimit({
+// Etapa 7b: a conta da tentativa — e-mail do corpo (login, esqueci a
+// senha) ou o usuario do token (MFA, troca de senha). So escolhe a chave;
+// a validacao de verdade e feita na rota.
+function contaDaTentativa(req) {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (email) return email.slice(0, 200);
+  for (const t of [req.body?.tempToken, req.body?.trocaToken, (req.headers?.authorization || '').replace(/^Bearer /, '')]) {
+    if (!t || typeof t !== 'string') continue;
+    const d = jwt.decode(t);
+    if (d && typeof d === 'object' && (d.userId || d.id)) return `u:${d.userId || d.id}`;
+  }
+  return '-';
+}
+const chaveIpConta = req => `${chaveIp(req)}|${contaDaTentativa(req)}`;
+
+// /auth/* — por IP + CONTA: 10 erros / 15 min. Servidores da mesma camara
+// atras do mesmo IP nao se bloqueiam entre si (cada conta tem o seu
+// contador). Conta so as falhas para nao penalizar quem ja entrou.
+const LIMITE_POR_CONTA = 10;
+const TETO_POR_IP = 50;
+const limiterAuthConta = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: LIMITE_POR_CONTA,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveIpConta,
   validate: VALIDATE_OFF,
   message: mensagemExcesso(15)
 });
+// ... e um teto so por IP: 50 erros / 15 min (varias contas tentadas do
+// mesmo IP). Fica DEPOIS do limitador da conta: tentativas numa conta ja
+// bloqueada nao consomem o teto dos colegas.
+const limiterAuthIp = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: TETO_POR_IP,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: chaveIp,
+  validate: VALIDATE_OFF,
+  message: mensagemExcesso(15)
+});
+const limiterAuth = [limiterAuthConta, limiterAuthIp];
+
+// /admin/login — mesma regra do /auth, contadores separados.
+const limiterAdminLogin = [
+  rateLimit({ windowMs: 15 * 60 * 1000, max: LIMITE_POR_CONTA, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true, keyGenerator: chaveIpConta, validate: VALIDATE_OFF, message: mensagemExcesso(15) }),
+  rateLimit({ windowMs: 15 * 60 * 1000, max: TETO_POR_IP, standardHeaders: true, legacyHeaders: false, skipSuccessfulRequests: true, keyGenerator: chaveIp, validate: VALIDATE_OFF, message: mensagemExcesso(15) })
+];
 
 // /documents/* — 20 requests / hora / USUARIO (keyGenerator custom).
 // Para usuarios autenticados usa o id do JWT extraido do header; para
@@ -45,7 +104,7 @@ const limiterDocuments = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   validate: VALIDATE_OFF,
-  keyGenerator: (req, res) => {
+  keyGenerator: (req) => {
     // Extrai sub/id do JWT sem verificar assinatura — so para bucketar o
     // limite por usuario. A verificacao real acontece no authMiddleware.
     try {
@@ -59,7 +118,7 @@ const limiterDocuments = rateLimit({
       }
     } catch (e) { /* cai no IP */ }
     // Fallback para IP — delega ao helper do pacote pra bucketing IPv6 correto.
-    return ipKeyGenerator(req, res);
+    return chaveIp(req);
   },
   message: mensagemExcesso(60)
 });
@@ -71,7 +130,7 @@ const limiterDsarPublico = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveIp,
   validate: VALIDATE_OFF,
   message: mensagemExcesso(15)
 });
@@ -136,20 +195,28 @@ function validar(req, res, next) {
 }
 
 // Validators reutilizaveis (cadeia pronta pra aplicar em rotas)
+// So tira espacos e poe em minusculas. O normalizeEmail() do validator
+// removia pontos e "+sufixo" de enderecos Gmail, mas so em algumas rotas
+// (login, criar camara): quem foi cadastrado pelo Gestor com ponto ou "+"
+// no e-mail nao conseguia entrar. Ver services/email.js (buscarPorEmail).
 const validarEmail = (campo = 'email') =>
-  body(campo).isEmail().withMessage('Email invalido').normalizeEmail();
+  body(campo).trim().isEmail().withMessage('E-mail inválido').customSanitizer(v => String(v).trim().toLowerCase());
 
 const validarCpf = (campo = 'titularCpf', { opcional = false } = {}) => {
   let chain = body(campo).trim();
   if (opcional) chain = chain.optional({ checkFalsy: true });
+  // Etapa 7b: formato e digito verificador
   return chain
     .matches(/^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$|^\d{11}$/)
-    .withMessage('CPF invalido — use 11 digitos');
+    .withMessage('CPF inválido — use 11 dígitos')
+    .bail()
+    .custom(v => require('../services/documentosId').cpfValido(v))
+    .withMessage('CPF inválido: confira os números (dígito verificador não confere)');
 };
 
 const validarCuid = (campo, loc = 'body') => {
   const chain = loc === 'param' ? param(campo) : body(campo);
-  return chain.trim().isLength({ min: 20, max: 40 }).matches(/^[a-z0-9]+$/i).withMessage(`${campo} invalido`);
+  return chain.trim().isLength({ min: 20, max: 40 }).matches(/^[a-z0-9]+$/i).withMessage(`${campo} inválido`);
 };
 
 // Texto livre: trim + escape de < > & " '. Nao bloqueia entrada valida,
@@ -166,6 +233,13 @@ const validarEnum = (campo, valores) =>
 module.exports = {
   mensagemExcesso,
   limiterAuth,
+  limiterAdminLogin,
+  chaveIp,
+  chaveIpConta,
+  LIMITE_POR_CONTA,
+  TETO_POR_IP,
+  chaveUsuarioOuIp,
+  LIMITE_PAINEL_POR_MINUTO,
   limiterDocuments,
   limiterDsarPublico,
   tentativasSuspeitas,

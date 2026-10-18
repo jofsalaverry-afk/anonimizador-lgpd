@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { PrismaClient } = require('@prisma/client');
 const { auditoriaMiddleware } = require('./middlewares/auditoria');
 const {
   limiterAuth,
@@ -11,11 +10,20 @@ const {
   tentativasSuspeitas
 } = require('./middlewares/seguranca');
 
-const prisma = new PrismaClient();
+const { prisma } = require('./db');
+// Etapa 7a: em producao, sem PUBLIC_APP_URL o require abaixo lanca erro e
+// o servidor nao sobe (em vez de usar um endereco padrao silencioso).
+const { APP_URL } = require('./services/appUrl');
+const { origensCors } = require('./services/origensCors');
 const app = express();
 // Railway expoe o app atras de proxy; precisamos confiar no X-Forwarded-For
 // para o rate limiter identificar o IP correto do cliente.
-app.set('trust proxy', 1);
+// Etapa 7a (medido no ambiente poc em 17/10/2026): o Railway entrega
+// X-Forwarded-For = "<IP do cliente>, <IP do no de borda>" vindo de um
+// endereco interno, e descarta X-Forwarded-For/X-Real-IP enviados pelo
+// cliente. Com 1 salto, req.ip era o no de borda (clientes diferentes
+// dividiam o contador); com 2 saltos, req.ip e o cliente.
+app.set('trust proxy', 2);
 
 // Helmet — headers de seguranca padrao da industria.
 // - CSP restritivo (API JSON, nao serve HTML, nao precisa liberar nada)
@@ -45,16 +53,8 @@ app.use(helmet({
 // OPTIONS) antes de qualquer outro middleware. Em Express 5 o path-to-regexp
 // v8 removeu suporte a regex paths em route handlers, entao usamos middleware
 // generico em vez de app.options('*', ...).
-const ORIGENS_PERMITIDAS_CORS = [
-  'https://anonimizadorldpd.com',
-  'https://www.anonimizadorldpd.com',
-  'https://anonimizadorlgpd.com',
-  'https://www.anonimizadorlgpd.com',
-  'https://melodious-emotion-production-c6a6.up.railway.app',
-  'https://loquacious-taiyaki-921c36.netlify.app',
-  'http://localhost:3000',
-  'http://localhost:5173'
-];
+// Etapa 7a: lista em services/origensCors.js (sem localhost em producao).
+const ORIGENS_PERMITIDAS_CORS = origensCors(process.env, APP_URL);
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && ORIGENS_PERMITIDAS_CORS.includes(origin)) {
@@ -62,6 +62,8 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    // Deixa o navegador ler o nome do arquivo dos downloads (exportacoes, PDF/A, ZIP)
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     res.setHeader('Vary', 'Origin');
   } else if (origin) {
     console.warn('[CORS] Origem bloqueada:', origin);
@@ -70,29 +72,30 @@ app.use((req, res, next) => {
   next();
 });
 
-const { ipKeyGenerator } = require('express-rate-limit');
+const { chaveIp, chaveUsuarioOuIp, LIMITE_PAINEL_POR_MINUTO, limiterAdminLogin } = require('./middlewares/seguranca');
 
-// Limite moderado para rotas admin autenticadas: 60 req/min (nao-sensivel,
-// so para evitar flood de painel interno). Mantido inline pois e especifico.
+// Limite moderado para rotas admin autenticadas (nao-sensivel, so para
+// evitar flood de painel interno). Etapa 7a: por usuario (ver chaveUsuarioOuIp)
+// — antes a chave estava quebrada e o limite nunca valia.
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: LIMITE_PAINEL_POR_MINUTO,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveUsuarioOuIp,
   validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
 
-// Limite moderado p/ rotas de CRUD autenticadas (ROPA, repositorio, etc.):
-// 60 req/min. Menor que o anterior (20/min em ../documents) pois sao
-// operacoes de painel, nao de processamento pesado.
+// Limite moderado p/ rotas de CRUD autenticadas (ROPA, repositorio, etc.).
+// Etapa 7a: por usuario e com folga (uma tela do painel dispara varias
+// chamadas); 60/min por IP derrubaria uma camara inteira atras de um IP so.
 const crudLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: LIMITE_PAINEL_POR_MINUTO,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: ipKeyGenerator,
+  keyGenerator: chaveUsuarioOuIp,
   validate: { xForwardedForHeader: false },
   message: { erro: 'Muitas requisicoes. Aguarde um momento.' }
 });
@@ -105,6 +108,8 @@ const crudLimiter = rateLimit({
 app.use('/admin', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
 app.use('/perfil', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
 app.use('/repositorio', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
+// FAQ do portal pode passar dos 50kb do parser global
+app.use('/organizacao', express.json({ limit: '2mb' }), express.urlencoded({ limit: '2mb', extended: true }));
 app.use(express.json({ limit: '50kb' }));
 app.use(express.urlencoded({ limit: '50kb', extended: true }));
 
@@ -135,7 +140,7 @@ const treinamentoRoutes = require('./routes/treinamento');
 // - /documents/* → 20/hora/usuario (uso de IA, custo por token)
 // - /admin, /ropa, /repositorio, /conformidade, /treinamento → 60/min (CRUD painel)
 app.use('/auth', limiterAuth);
-app.use('/admin/login', limiterAuth);
+app.use('/admin/login', limiterAdminLogin);
 app.use('/admin', adminLimiter);
 app.use('/dsar/publico', limiterDsarPublico);
 app.use('/documents', limiterDocuments);
@@ -158,6 +163,58 @@ app.use('/conformidade', crudLimiter);
 app.use('/conformidade', conformidadeRoutes);
 app.use('/treinamento', crudLimiter);
 app.use('/treinamento', treinamentoRoutes);
+// Transversais (Etapa 1 PoC): anexos, historico por registro e lista de
+// usuarios da organizacao para seletores de responsavel.
+app.use('/anexos', crudLimiter);
+app.use('/anexos', require('./routes/anexos'));
+app.use('/historico', crudLimiter);
+app.use('/historico', require('./routes/historico'));
+app.use('/usuarios', crudLimiter);
+app.use('/usuarios', require('./routes/usuarios'));
+// Etapa 2 PoC: setores (transversal), inventario de sistemas e terceiros
+app.use('/setores', crudLimiter);
+app.use('/setores', require('./routes/setores'));
+app.use('/inventario', crudLimiter);
+app.use('/inventario', require('./routes/inventario'));
+app.use('/terceiros', crudLimiter);
+app.use('/terceiros', require('./routes/terceiros'));
+// Etapa 3 PoC: verificacao publica de certificado de treinamento (sem
+// login). Limite proprio para evitar varredura de codigos.
+const limiterCertificado = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: chaveIp,
+  validate: { xForwardedForHeader: false },
+  message: { erro: 'Muitas consultas. Aguarde alguns minutos.' }
+});
+app.use('/certificado', limiterCertificado);
+app.use('/certificado', require('./routes/certificadoPublico'));
+// Etapa 4 PoC: painel de indicadores, relatorios PDF/A e portabilidade
+app.use('/indicadores', crudLimiter);
+app.use('/indicadores', require('./routes/indicadores'));
+app.use('/relatorios', crudLimiter);
+app.use('/relatorios', require('./routes/relatorios'));
+app.use('/portabilidade', crudLimiter);
+app.use('/portabilidade', require('./routes/portabilidade'));
+// Etapa 5 PoC: gerador de minutas, dados do encarregado/FAQ e pagina
+// publica de transparencia (sem login, com limite proprio).
+app.use('/gerador', crudLimiter);
+app.use('/gerador', require('./routes/gerador'));
+app.use('/organizacao', crudLimiter);
+app.use('/organizacao', require('./routes/organizacao'));
+const limiterTransparencia = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: chaveIp,
+  validate: { xForwardedForHeader: false },
+  message: { erro: 'Muitas requisições. Aguarde um momento.' }
+});
+app.use('/transparencia', limiterTransparencia);
+app.use('/transparencia', require('./routes/transparencia'));
 
 // Healthcheck. Deve ser monitorado externamente por um uptime monitor
 // gratuito (UptimeRobot, BetterStack, Healthchecks.io) apontando para
@@ -176,8 +233,10 @@ const { getStatus, getMetrics } = require('./routes/observability');
 app.get('/api/status', adminAuth, getStatus);
 app.get('/api/metrics', adminAuth, getMetrics);
 
+// Etapa 7a: so abre a porta quando executado direto (node src/server.js);
+// os testes importam o app montado com os mesmos limitadores.
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+if (require.main === module) app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
   // Inicializa cron jobs apos o servidor subir
   try {
@@ -188,4 +247,4 @@ app.listen(PORT, () => {
   }
 });
 
-module.exports = { prisma };
+module.exports = { app, prisma };

@@ -252,7 +252,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
     if (status === 422 && data.error === 'pdf_sem_texto_extraivel') {
       setPdfSemTextoModal({
         isOpen: true,
-        message: data.message || 'Este PDF parece estar digitalizado e não contém texto editável extraível.',
+        message: data.message || 'PDF digitalizado sem texto: não é possível processar; envie um PDF com texto selecionável.',
         suporte: data.suporte || 'contato@infolock.com.br'
       });
       return;
@@ -260,6 +260,11 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
     // Servico temporariamente indisponivel (hoje, billing da Anthropic
     // esgotado). Mensagem na UI e generica; o request_id, se vier, fica
     // so no console para o suporte cruzar pelo horario do log.
+    // Etapa 7a: texto/Word sem a chave da IA — mensagem do backend diz o que fazer
+    if (status === 503 && data.semIA) {
+      setErro(data.erro);
+      return;
+    }
     if (status === 503) {
       if (data.request_id) {
         console.error('[Anonimizador 503]', { request_id: data.request_id });
@@ -372,7 +377,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
       </div>
 
       {erro && <div className="alert-error">{erro}</div>}
-      <button className="btn-primary mb-24" onClick={handleSubmit} disabled={loading}>
+      <button className="btn-primary acao-leitura mb-24" onClick={handleSubmit} disabled={loading}>
         {loading ? '⏳ Processando... (pode levar até 1 minuto)' : 'Anonimizar documento'}
       </button>
 
@@ -402,7 +407,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
               <div>
                 <strong>Modo básico ativado</strong>
                 <div className="text-sm" style={{ marginTop: 4 }}>
-                  {resultado.avisoIA || 'Processado em modo básico (IA indisponível).'}
+                  {resultado.avisoIA || 'Processado em modo básico: foram tarjados apenas CPF, e-mail pessoal e telefone. Revise nomes, endereços e demais dados pessoais manualmente.'}
                 </div>
               </div>
             </div>
@@ -424,7 +429,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
             <textarea value={resultado.textoAnonimizado} readOnly rows={10} style={{ fontFamily: 'monospace' }} />
           )}
           <div className="btn-row mt-16">
-            <button className="btn-primary btn-sm" onClick={baixarPDF} disabled={loadingPDF}>
+            <button className="btn-primary acao-leitura btn-sm" onClick={baixarPDF} disabled={loadingPDF}>
               {loadingPDF ? '⏳ Gerando...' : '⬇ Baixar PDF'}
             </button>
             <button className="btn-secondary btn-sm" onClick={baixarTXT}>⬇ Baixar TXT</button>
@@ -444,7 +449,7 @@ export default function Anonimizador({ token, usuario, onTokenInvalido }) {
             onClick={e => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: 8, padding: 24, maxWidth: 420, width: '90%', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
           >
-            <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>📄 Documento digitalizado detectado</h3>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>📄 PDF digitalizado sem texto</h3>
             <p className="text-sm mb-16" style={{ color: '#64748b' }}>
               {pdfSemTextoModal.message}
             </p>

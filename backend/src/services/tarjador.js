@@ -360,13 +360,13 @@ const LABELS_CATEGORIA = {
 };
 
 const MOTIVOS_TARJA = {
-  cpf: 'CPF identifica unicamente uma pessoa. A LGPD (Art. 5, I) trata CPF como dado pessoal e ele e sempre tarjado — mesmo de agente publico.',
-  rg: 'RG e documento de identidade pessoal. A LGPD (Art. 5, I) protege como dado pessoal.',
-  email: 'Email pessoal (Gmail, Hotmail, etc.) identifica a pessoa e e protegido pela LGPD (Art. 5, I).',
-  telefone: 'Telefone/celular pessoal e um dado que identifica a pessoa. Protegido pela LGPD (Art. 5, I).',
-  endereco: 'Endereco residencial mostra onde a pessoa mora. E dado pessoal protegido pela LGPD (Art. 5, I).',
-  nome: 'Nome de pessoa sem cargo ou funcao publica identificada no documento. Tratado como dado pessoal pela LGPD (Art. 5, I).',
-  outro: 'Dado pessoal identificado no documento. Protegido pela LGPD (Art. 5, I).'
+  cpf: 'CPF identifica unicamente uma pessoa. A LGPD (art. 5º, I) trata o CPF como dado pessoal e ele é sempre tarjado — mesmo de agente público.',
+  rg: 'RG é documento de identidade pessoal. A LGPD (art. 5º, I) o protege como dado pessoal.',
+  email: 'E-mail pessoal (Gmail, Hotmail etc.) identifica a pessoa e é protegido pela LGPD (art. 5º, I).',
+  telefone: 'Telefone/celular pessoal é um dado que identifica a pessoa. Protegido pela LGPD (art. 5º, I).',
+  endereco: 'Endereço residencial mostra onde a pessoa mora. É dado pessoal protegido pela LGPD (art. 5º, I).',
+  nome: 'Nome de pessoa sem cargo ou função pública identificada no documento. Tratado como dado pessoal pela LGPD (art. 5º, I).',
+  outro: 'Dado pessoal identificado no documento. Protegido pela LGPD (art. 5º, I).'
 };
 
 function categorizarTrecho(trecho) {
@@ -519,7 +519,7 @@ function gerarRelatorio(itens, linhas, tarjas, aprendizado = new Map()) {
       addNaoTarjado(
         m[0],
         'CNPJ',
-        'CNPJ identifica uma empresa ou orgao (pessoa juridica), nao uma pessoa fisica. Por isso nao e considerado dado pessoal pela LGPD e deve permanecer publico.'
+        'CNPJ identifica uma empresa ou órgão (pessoa jurídica), não uma pessoa física. Por isso não é considerado dado pessoal pela LGPD e deve permanecer público.'
       );
     }
     const emails = item.texto.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g) || [];
@@ -527,8 +527,8 @@ function gerarRelatorio(itens, linhas, tarjas, aprendizado = new Map()) {
       if (RE_EMAIL_INST_CAT.test(email)) {
         addNaoTarjado(
           email,
-          'Email institucional',
-          'Email institucional (dominio .gov, .leg, .jus, etc.) e um canal oficial de comunicacao do orgao publico. A LAI (Lei 12.527/2011) exige que seja publico — transparencia ativa.'
+          'E-mail institucional',
+          'E-mail institucional (domínio .gov, .leg, .jus etc.) é um canal oficial de comunicação do órgão público. A LAI (Lei 12.527/2011) exige que seja público — transparência ativa.'
         );
       }
     }
@@ -549,8 +549,8 @@ function gerarRelatorio(itens, linhas, tarjas, aprendizado = new Map()) {
       if (stopWords.test(nome)) continue;
       addNaoTarjado(
         nome,
-        'Agente publico',
-        'Nome aparece junto a um cargo ou funcao publica (prefeito, vereador, servidor, fiscal, representante legal, etc.). Pela LAI (Lei 12.527/2011), atos de agentes publicos sao dados publicos — transparencia ativa.'
+        'Agente público',
+        'Nome aparece junto a um cargo ou função pública (prefeito, vereador, servidor, fiscal, representante legal etc.). Pela LAI (Lei 12.527/2011), atos de agentes públicos são dados públicos — transparência ativa.'
       );
     }
   }

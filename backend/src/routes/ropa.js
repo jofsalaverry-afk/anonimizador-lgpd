@@ -1,22 +1,33 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
+const { registrarHistorico } = require('../services/historico');
+const { responsavelValido, idsDaOrganizacao } = require('../services/entidades');
+const { calcularRetencao } = require('../services/retencao');
+const { pendenciasMapeamento } = require('../services/indicadores');
+const { ART7, ART11, rotuloBaseLegal, normalizarCategorias } = require('../services/basesLegais');
+
+// baseLegal so aceita art. 7; baseLegalSensivel so aceita art. 11 (ou vazio).
+function erroBaseLegal({ baseLegal, baseLegalSensivel }, { exigir }) {
+  if ((exigir || baseLegal !== undefined) && !ART7.includes(baseLegal)) return 'Base legal inválida: escolha uma hipótese do art. 7º da LGPD';
+  if (baseLegalSensivel !== undefined && baseLegalSensivel !== null && baseLegalSensivel !== '' && !ART11.includes(baseLegalSensivel)) {
+    return 'Base legal para dados sensíveis inválida: escolha uma hipótese do art. 11 da LGPD';
+  }
+  return null;
+}
+const { responderExport } = require('../services/exportadores');
+const { dataPura, hojeSP } = require('../services/datas');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
+const { documentoCsv } = require('../services/textoSeguro');
+const R = require('../services/rotulos');
+const { fmtDataHoraCsv } = require('../services/datas');
+const { cnpjValido } = require('../services/documentosId');
 
 // ---------- Middlewares ----------
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 const requireModulo = async (req, res, next) => {
   try {
@@ -54,11 +65,99 @@ async function gravarHistorico(tratamentoId, organizacaoId, alteradoPor) {
   });
 }
 
-// Select padrao para retornar tratamento com compartilhamentos
+// Select padrao para retornar tratamento com compartilhamentos, setor e
+// sistemas do inventario.
 const TRATAMENTO_INCLUDE = {
-  compartilhamentos: true,
+  compartilhamentos: { include: { terceiro: { select: { id: true, razaoSocial: true, risco: true } } } },
+  setor: { select: { id: true, nome: true } },
+  sistemas: { include: { sistema: { select: { id: true, nome: true, tipo: true } } } },
   _count: { select: { historico: true } }
 };
+
+// Forma do tratamento para o diff do HistoricoRegistro: compartilhamentos,
+// setor e sistemas viram texto legivel (ids de relacao nao dizem nada na tela).
+function paraHistorico(t) {
+  if (!t) return null;
+  const { compartilhamentos, setor, setorId, sistemas, ...resto } = t;
+  return {
+    ...resto,
+    setor: setor?.nome || null,
+    sistemas: (sistemas || []).map(v => v.sistema?.nome).filter(Boolean).sort(),
+    compartilhamentos: (compartilhamentos || []).map(c =>
+      `${c.terceiroNome}${c.terceiroCNPJ ? ` (${c.terceiroCNPJ})` : ''} — ${c.finalidadeCompartilhamento} — ${c.paisDestino}`
+    )
+  };
+}
+
+// Etapa 7b: retencao em dias, inteiro nao negativo (vazio = nao informado)
+function erroRetencao(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0) return 'Retenção inválida: informe um número inteiro de dias, zero ou maior';
+  return null;
+}
+const HIPOTESES_ART33 = Object.keys(R.HIPOTESE_ART33);
+// "Brasil" (com ou sem acento/caixa) ou vazio = territorio nacional
+const ehExterior = pais => {
+  const p = String(pais || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  return !!p && !['brasil', 'brazil', 'br'].includes(p);
+};
+
+// Valida setor, sistemas e terceiros (todos da mesma organizacao) e monta
+// os compartilhamentos. Compartilhamento com terceiroId herda nome/CNPJ
+// do cadastro quando vierem vazios; os antigos (so nome/CNPJ) seguem iguais.
+// cnpjsAtuais: CNPJs ja gravados no tratamento (aceitos mesmo sem digito valido,
+// para nao travar a edicao de cadastro antigo).
+async function validarVinculos(body, organizacaoId, cnpjsAtuais = []) {
+  const { setorId, sistemaIds, compartilhamentos } = body;
+  if (setorId && !(await idsDaOrganizacao(prisma.setor, setorId, organizacaoId))) return { erro: 'Setor inválido' };
+  if (sistemaIds !== undefined) {
+    if (!Array.isArray(sistemaIds)) return { erro: 'sistemaIds deve ser uma lista' };
+    if (!(await idsDaOrganizacao(prisma.sistemaInventario, sistemaIds, organizacaoId))) return { erro: 'Sistema inválido' };
+  }
+  let comps;
+  if (Array.isArray(compartilhamentos)) {
+    const ids = compartilhamentos.map(c => c.terceiroId).filter(Boolean);
+    const terceiros = ids.length === 0 ? [] : await prisma.terceiro.findMany({
+      where: { id: { in: ids }, organizacaoId }, select: { id: true, razaoSocial: true, cnpj: true }
+    });
+    const porId = Object.fromEntries(terceiros.map(t => [t.id, t]));
+    comps = [];
+    for (const c of compartilhamentos) {
+      const t = c.terceiroId ? porId[c.terceiroId] : null;
+      if (c.terceiroId && !t) return { erro: 'Terceiro inválido no compartilhamento' };
+      const terceiroNome = (c.terceiroNome || '').trim() || t?.razaoSocial || '';
+      if (!terceiroNome) return { erro: 'Informe o nome do terceiro no compartilhamento' };
+      // Etapa 7b: CNPJ com digito verificador; pais estrangeiro exige a hipotese do art. 33
+      if (c.terceiroCNPJ && !cnpjsAtuais.includes(c.terceiroCNPJ) && !cnpjValido(c.terceiroCNPJ)) return { erro: `CNPJ inválido no compartilhamento com ${terceiroNome}: confira os números (dígito verificador não confere)` };
+      if (ehExterior(c.paisDestino) && !HIPOTESES_ART33.includes(c.baseLegalTransferencia)) {
+        return { erro: `Compartilhamento com ${terceiroNome} vai para o exterior (${String(c.paisDestino).trim()}): escolha a hipótese do art. 33 da LGPD (incisos I a IX)` };
+      }
+      comps.push({
+        terceiroNome,
+        terceiroCNPJ: c.terceiroCNPJ || t?.cnpj || null,
+        finalidadeCompartilhamento: c.finalidadeCompartilhamento,
+        paisDestino: c.paisDestino || 'Brasil',
+        baseLegalTransferencia: ehExterior(c.paisDestino) ? c.baseLegalTransferencia : null,
+        terceiroId: t ? t.id : null
+      });
+    }
+  }
+  const sistemas = Array.isArray(sistemaIds) ? [...new Set(sistemaIds.filter(Boolean))] : undefined;
+  return { compartilhamentos: comps, sistemaIds: sistemas };
+}
+
+// Tratamento.responsavelId nao tem FK (coluna legada); resolve o nome
+// por lookup escopado na organizacao.
+async function comNomeResponsavel(tratamentos, organizacaoId) {
+  const ids = [...new Set(tratamentos.map(t => t.responsavelId).filter(Boolean))];
+  const usuarios = ids.length === 0 ? [] : await prisma.usuario.findMany({
+    where: { id: { in: ids }, organizacaoId },
+    select: { id: true, nome: true }
+  });
+  const nomes = Object.fromEntries(usuarios.map(u => [u.id, u.nome]));
+  return tratamentos.map(t => ({ ...t, responsavelNome: nomes[t.responsavelId] || null }));
+}
 
 // ---------- Rotas ----------
 
@@ -70,7 +169,12 @@ router.get('/tratamentos', async (req, res) => {
       include: TRATAMENTO_INCLUDE,
       orderBy: { criadoEm: 'desc' }
     });
-    res.json(tratamentos);
+    // mapeado/pendencias: mesma regra do indicador do painel
+    const comNomes = await comNomeResponsavel(tratamentos, req.usuario.organizacaoId);
+    res.json(comNomes.map(t => {
+      const pendencias = pendenciasMapeamento(t);
+      return { ...t, mapeado: pendencias.length === 0, pendenciasMapeamento: pendencias };
+    }));
   } catch (err) {
     console.error('[GET /ropa/tratamentos]', err);
     res.status(500).json({ erro: 'Erro ao listar tratamentos' });
@@ -88,38 +192,50 @@ router.post('/tratamentos', async (req, res) => {
     const {
       nome, finalidade, baseLegal, categoriasDados, categoriasTitulares,
       retencaoDias, formaDescarte, responsavelId, medidasSeguranca,
-      compartilhamentos
+      setorId, outrosMeios, baseLegalSensivel
     } = req.body;
 
     if (!nome || !finalidade || !baseLegal) {
       return res.status(400).json({ erro: 'nome, finalidade e baseLegal são obrigatórios' });
     }
+    const erroRet = erroRetencao(retencaoDias);
+    if (erroRet) return res.status(400).json({ erro: erroRet });
+    const erroBase = erroBaseLegal(req.body, { exigir: true });
+    if (erroBase) return res.status(400).json({ erro: erroBase });
+    if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
+    const vinc = await validarVinculos(req.body, req.usuario.organizacaoId);
+    if (vinc.erro) return res.status(400).json({ erro: vinc.erro });
 
-    const tratamento = await prisma.tratamento.create({
-      data: {
-        organizacaoId: req.usuario.organizacaoId,
-        nome, finalidade, baseLegal,
-        categoriasDados: categoriasDados || [],
-        categoriasTitulares: categoriasTitulares || [],
-        retencaoDias: retencaoDias || null,
-        formaDescarte: formaDescarte || null,
-        responsavelId: responsavelId || null,
-        medidasSeguranca: medidasSeguranca || null,
-        compartilhamentos: {
-          create: (compartilhamentos || []).map(c => ({
-            terceiroNome: c.terceiroNome,
-            terceiroCNPJ: c.terceiroCNPJ || null,
-            finalidadeCompartilhamento: c.finalidadeCompartilhamento,
-            paisDestino: c.paisDestino || 'Brasil',
-            baseLegalTransferencia: c.baseLegalTransferencia || null
-          }))
-        }
-      },
-      include: TRATAMENTO_INCLUDE
+    const tratamento = await prisma.$transaction(async (tx) => {
+      const criado = await tx.tratamento.create({
+        data: {
+          organizacaoId: req.usuario.organizacaoId,
+          nome, finalidade, baseLegal,
+          baseLegalSensivel: baseLegalSensivel || null,
+          categoriasDados: normalizarCategorias(categoriasDados),
+          categoriasTitulares: normalizarCategorias(categoriasTitulares),
+          retencaoDias: retencaoDias || null,
+          formaDescarte: formaDescarte || null,
+          responsavelId: responsavelId || null,
+          medidasSeguranca: medidasSeguranca || null,
+          setorId: setorId || null,
+          outrosMeios: outrosMeios || null,
+          compartilhamentos: { create: vinc.compartilhamentos || [] },
+          sistemas: { create: (vinc.sistemaIds || []).map(sistemaId => ({ sistemaId })) }
+        },
+        include: TRATAMENTO_INCLUDE
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'TRATAMENTO', registroId: criado.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null, depois: paraHistorico(criado)
+      });
+      return criado;
     });
 
-    // Registra snapshot inicial no historico
-    await gravarHistorico(tratamento.id, req.usuario.id);
+    // Registra snapshot inicial no historico legado (TratamentoHistorico)
+    await gravarHistorico(tratamento.id, req.usuario.organizacaoId, req.usuario.id);
 
     res.status(201).json(tratamento);
   } catch (err) {
@@ -136,50 +252,67 @@ router.put('/tratamentos/:id', async (req, res) => {
     }
 
     const existente = await prisma.tratamento.findFirst({
-      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
+      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId },
+      include: TRATAMENTO_INCLUDE
     });
     if (!existente) return res.status(404).json({ erro: 'Tratamento não encontrado' });
-
-    // Grava snapshot do estado ANTES da alteracao
-    await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
 
     const {
       nome, finalidade, baseLegal, categoriasDados, categoriasTitulares,
       retencaoDias, formaDescarte, responsavelId, medidasSeguranca, ativo,
-      compartilhamentos
+      setorId, outrosMeios, baseLegalSensivel
     } = req.body;
+    const erroBase = erroBaseLegal(req.body, { exigir: false });
+    if (erroBase) return res.status(400).json({ erro: erroBase });
+    const erroRet = erroRetencao(retencaoDias);
+    if (erroRet) return res.status(400).json({ erro: erroRet });
 
-    // Atualiza compartilhamentos: deleta todos e recria (simples e correto)
-    if (Array.isArray(compartilhamentos)) {
-      await prisma.compartilhamentoTratamento.deleteMany({ where: { tratamentoId: req.params.id } });
+    if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
     }
+    const vinc = await validarVinculos(req.body, req.usuario.organizacaoId, (existente.compartilhamentos || []).map(c => c.terceiroCNPJ).filter(Boolean));
+    if (vinc.erro) return res.status(400).json({ erro: vinc.erro });
 
-    const tratamento = await prisma.tratamento.update({
-      where: { id: req.params.id },
-      data: {
-        ...(nome !== undefined && { nome }),
-        ...(finalidade !== undefined && { finalidade }),
-        ...(baseLegal !== undefined && { baseLegal }),
-        ...(categoriasDados !== undefined && { categoriasDados }),
-        ...(categoriasTitulares !== undefined && { categoriasTitulares }),
-        ...(retencaoDias !== undefined && { retencaoDias }),
-        ...(formaDescarte !== undefined && { formaDescarte }),
-        ...(responsavelId !== undefined && { responsavelId }),
-        ...(medidasSeguranca !== undefined && { medidasSeguranca }),
-        ...(ativo !== undefined && { ativo }),
-        ...(Array.isArray(compartilhamentos) && {
-          compartilhamentos: {
-            create: compartilhamentos.map(c => ({
-              terceiroNome: c.terceiroNome,
-              terceiroCNPJ: c.terceiroCNPJ || null,
-              finalidadeCompartilhamento: c.finalidadeCompartilhamento,
-              paisDestino: c.paisDestino || 'Brasil',
-              baseLegalTransferencia: c.baseLegalTransferencia || null
-            }))
-          }
-        })
-      },
-      include: TRATAMENTO_INCLUDE
+    // Grava snapshot do estado ANTES da alteracao
+    await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
+
+    const tratamento = await prisma.$transaction(async (tx) => {
+      // Atualiza compartilhamentos: deleta todos e recria (simples e correto)
+      if (vinc.compartilhamentos) {
+        await tx.compartilhamentoTratamento.deleteMany({ where: { tratamentoId: req.params.id } });
+      }
+      if (vinc.sistemaIds) {
+        await tx.tratamentoSistema.deleteMany({ where: { tratamentoId: req.params.id } });
+      }
+
+      const atualizado = await tx.tratamento.update({
+        where: { id: req.params.id },
+        data: {
+          ...(nome !== undefined && { nome }),
+          ...(finalidade !== undefined && { finalidade }),
+          ...(baseLegal !== undefined && { baseLegal }),
+          ...(baseLegalSensivel !== undefined && { baseLegalSensivel: baseLegalSensivel || null }),
+          ...(categoriasDados !== undefined && { categoriasDados: normalizarCategorias(categoriasDados) }),
+          ...(categoriasTitulares !== undefined && { categoriasTitulares: normalizarCategorias(categoriasTitulares) }),
+          ...(retencaoDias !== undefined && { retencaoDias }),
+          ...(formaDescarte !== undefined && { formaDescarte }),
+          ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
+          ...(medidasSeguranca !== undefined && { medidasSeguranca }),
+          ...(ativo !== undefined && { ativo }),
+          ...(setorId !== undefined && { setorId: setorId || null }),
+          ...(outrosMeios !== undefined && { outrosMeios: outrosMeios || null }),
+          ...(vinc.compartilhamentos && { compartilhamentos: { create: vinc.compartilhamentos } }),
+          ...(vinc.sistemaIds && { sistemas: { create: vinc.sistemaIds.map(sistemaId => ({ sistemaId })) } })
+        },
+        include: TRATAMENTO_INCLUDE
+      });
+
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'TRATAMENTO', registroId: req.params.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id,
+        antes: paraHistorico(existente), depois: paraHistorico(atualizado)
+      });
+      return atualizado;
     });
 
     res.json(tratamento);
@@ -203,15 +336,111 @@ router.delete('/tratamentos/:id', async (req, res) => {
 
     await gravarHistorico(req.params.id, req.usuario.organizacaoId, req.usuario.id);
 
-    await prisma.tratamento.update({
-      where: { id: req.params.id },
-      data: { ativo: false }
+    await prisma.$transaction(async (tx) => {
+      await tx.tratamento.update({
+        where: { id: req.params.id },
+        data: { ativo: false }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'TRATAMENTO', registroId: req.params.id,
+        acao: 'EXCLUIR', usuarioId: req.usuario.id,
+        diff: { ativo: { antes: existente.ativo, depois: false } }
+      });
     });
 
     res.json({ ok: true });
   } catch (err) {
     console.error('[DELETE /ropa/tratamentos/:id]', err);
     res.status(500).json({ erro: 'Erro ao excluir tratamento' });
+  }
+});
+
+// ==================== Descarte (Etapa 3 PoC) ====================
+
+const DESCARTE_INCLUDE = { responsavel: { select: { id: true, nome: true } } };
+
+function resumoDescarte(d) {
+  const data = new Date(d.dataDescarte).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  return `${data} — ${d.metodo}${d.quantidade != null ? ` — ${d.quantidade} registro(s)` : ''} — ${d.descricao}`;
+}
+
+// GET /ropa/descartes/export?formato=csv|json — todos os descartes da org
+router.get('/descartes/export', async (req, res) => {
+  try {
+    await responderExport(res, prisma, 'descartes', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /ropa/descartes/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar descartes' });
+  }
+});
+
+// GET /ropa/tratamentos/:id/descartes — lista + situacao do prazo de retencao
+router.get('/tratamentos/:id/descartes', async (req, res) => {
+  try {
+    const orgId = req.usuario.organizacaoId;
+    const t = await prisma.tratamento.findFirst({ where: { id: req.params.id, organizacaoId: orgId } });
+    if (!t) return res.status(404).json({ erro: 'Tratamento não encontrado' });
+    const descartes = await prisma.registroDescarte.findMany({
+      where: { tratamentoId: t.id, organizacaoId: orgId }, include: DESCARTE_INCLUDE, orderBy: { dataDescarte: 'desc' }
+    });
+    res.json({ descartes, retencao: calcularRetencao(t, descartes[0]) });
+  } catch (err) {
+    console.error('[GET /ropa/tratamentos/:id/descartes]', err);
+    res.status(500).json({ erro: 'Erro ao listar descartes' });
+  }
+});
+
+// POST /ropa/tratamentos/:id/descartes { dataDescarte, descricao, quantidade, metodo, responsavelId }
+router.post('/tratamentos/:id/descartes', async (req, res) => {
+  try {
+    if (req.usuario.perfil === 'AUDITOR' || req.usuario.perfil === 'TREINANDO') {
+      return res.status(403).json({ erro: 'Sem permissão para registrar descarte' });
+    }
+    const orgId = req.usuario.organizacaoId;
+    const t = await prisma.tratamento.findFirst({ where: { id: req.params.id, organizacaoId: orgId } });
+    if (!t) return res.status(404).json({ erro: 'Tratamento não encontrado' });
+
+    const { dataDescarte, descricao, quantidade, metodo, responsavelId } = req.body || {};
+    // data pura (AAAA-MM-DD); "futura" comparada com hoje em Sao Paulo
+    const data = dataPura(dataDescarte);
+    if (!data) return res.status(400).json({ erro: 'Data do descarte inválida (use AAAA-MM-DD)' });
+    if (data > hojeSP()) return res.status(400).json({ erro: 'Data do descarte não pode ser futura' });
+    const desc = typeof descricao === 'string' ? descricao.trim() : '';
+    const met = typeof metodo === 'string' ? metodo.trim() : '';
+    if (!desc || !met) return res.status(400).json({ erro: 'Descrição e método são obrigatórios' });
+    let qtd = null;
+    if (quantidade !== undefined && quantidade !== null && quantidade !== '') {
+      qtd = Number(quantidade);
+      if (!Number.isInteger(qtd) || qtd < 0) return res.status(400).json({ erro: 'Quantidade inválida' });
+    }
+    if (!(await responsavelValido(prisma, responsavelId, orgId))) return res.status(400).json({ erro: 'Responsável inválido' });
+
+    const descarte = await prisma.$transaction(async (tx) => {
+      const criado = await tx.registroDescarte.create({
+        data: {
+          organizacaoId: orgId, tratamentoId: t.id, dataDescarte: data, descricao: desc.slice(0, 2000),
+          quantidade: qtd, metodo: met.slice(0, 200), responsavelId: responsavelId || null, criadoPorId: req.usuario.id
+        },
+        include: DESCARTE_INCLUDE
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: orgId, entidade: 'DESCARTE', registroId: criado.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null,
+        depois: {
+          tratamento: t.nome, dataDescarte: criado.dataDescarte, descricao: criado.descricao,
+          quantidade: criado.quantidade, metodo: criado.metodo, responsavelId: criado.responsavelId
+        }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: orgId, entidade: 'TRATAMENTO', registroId: t.id, acao: 'EDITAR', usuarioId: req.usuario.id,
+        diff: { descarte: { antes: null, depois: resumoDescarte(criado) } }
+      });
+      return criado;
+    });
+    res.status(201).json(descarte);
+  } catch (err) {
+    console.error('[POST /ropa/tratamentos/:id/descartes]', err);
+    res.status(500).json({ erro: 'Erro ao registrar descarte' });
   }
 });
 
@@ -238,37 +467,35 @@ router.get('/tratamentos/:id/historico', async (req, res) => {
 router.get('/export', async (req, res) => {
   try {
     const formato = req.query.formato || 'json';
-    const tratamentos = await prisma.tratamento.findMany({
+    const tratamentos = await comNomeResponsavel(await prisma.tratamento.findMany({
       where: { organizacaoId: req.usuario.organizacaoId },
-      include: { compartilhamentos: true }
-    });
+      include: TRATAMENTO_INCLUDE
+    }), req.usuario.organizacaoId);
 
     if (formato === 'csv') {
-      const header = 'nome,finalidade,baseLegal,categoriasDados,categoriasTitulares,retencaoDias,formaDescarte,medidasSeguranca,ativo,criadoEm,compartilhamentos';
+      // Colunas novas entram no fim para nao deslocar planilhas existentes
+      // baseLegal sai com o rotulo (art. 7); baseLegalSensivel (art. 11) entra no fim
+      // Etapa 7b: padrao unico (";", BOM, Brasilia, rotulos); textos neutralizados contra formula
+      const cab = ['Nome', 'Finalidade', 'Base legal (LGPD, art. 7º)', 'Categorias de dados', 'Categorias de titulares', 'Retenção (dias)',
+        'Forma de descarte', 'Medidas de segurança', 'Ativo', 'Criado em (Brasília)', 'Compartilhamentos', 'Responsável', 'Setor', 'Sistemas',
+        'Outros meios', 'Base legal para dados sensíveis (LGPD, art. 11)'];
       const rows = tratamentos.map(t => {
-        const comp = t.compartilhamentos.map(c => `${c.terceiroNome}(${c.paisDestino})`).join('; ');
+        const comp = t.compartilhamentos.map(c => `${c.terceiroNome} (${c.paisDestino}${c.baseLegalTransferencia ? ' — ' + R.rotulo(R.HIPOTESE_ART33, c.baseLegalTransferencia) : ''})`).join('; ');
         return [
-          `"${(t.nome || '').replace(/"/g, '""')}"`,
-          `"${(t.finalidade || '').replace(/"/g, '""')}"`,
-          t.baseLegal,
-          `"${(t.categoriasDados || []).join('; ')}"`,
-          `"${(t.categoriasTitulares || []).join('; ')}"`,
-          t.retencaoDias || '',
-          `"${(t.formaDescarte || '').replace(/"/g, '""')}"`,
-          `"${(t.medidasSeguranca || '').replace(/"/g, '""')}"`,
-          t.ativo,
-          t.criadoEm.toISOString(),
-          `"${comp}"`
-        ].join(',');
+          t.nome, t.finalidade, rotuloBaseLegal(t.baseLegal),
+          normalizarCategorias(t.categoriasDados).join('; '), normalizarCategorias(t.categoriasTitulares).join('; '),
+          t.retencaoDias ?? '', t.formaDescarte, t.medidasSeguranca, t.ativo ? 'Sim' : 'Não', fmtDataHoraCsv(t.criadoEm),
+          comp, t.responsavelNome, t.setor?.nome, (t.sistemas || []).map(v => v.sistema?.nome).filter(Boolean).join('; '),
+          t.outrosMeios, rotuloBaseLegal(t.baseLegalSensivel)
+        ];
       });
-      const csv = [header, ...rows].join('\n');
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename=ropa-tratamentos.csv');
-      return res.send('\uFEFF' + csv); // BOM para Excel abrir UTF-8 correto
+      return res.send(documentoCsv(cab, rows));
     }
 
-    // Default: JSON
-    res.json(tratamentos);
+    // Default: JSON (codigos + rotulos)
+    res.json(tratamentos.map(t => ({ ...t, baseLegalRotulo: rotuloBaseLegal(t.baseLegal), baseLegalSensivelRotulo: rotuloBaseLegal(t.baseLegalSensivel) || null })));
   } catch (err) {
     console.error('[GET /ropa/export]', err);
     res.status(500).json({ erro: 'Erro ao exportar tratamentos' });

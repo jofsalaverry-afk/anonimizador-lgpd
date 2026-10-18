@@ -1,23 +1,28 @@
 const express = require('express');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
+const { registrarHistorico } = require('../services/historico');
+const { responsavelValido } = require('../services/entidades');
+const { calcularRetencao, ultimosDescartes } = require('../services/retencao');
+const { responderExport } = require('../services/exportadores');
+const { prazoComunicacao } = require('../services/incidentes');
+const { dataPura, fmtData } = require('../services/datas');
+const { codigosExibicao } = require('../services/checklistCodigos');
+const { erroLinkEvidencia } = require('../services/textoSeguro');
+
+// Itens visiveis para a organizacao: catalogo global (organizacaoId null)
+// + atividades proprias dela. Atividade de outra org nunca aparece.
+const itensDaOrg = (organizacaoId) => ({ OR: [{ organizacaoId: null }, { organizacaoId }] });
+const CRITICIDADES = ['ALTA', 'MEDIA', 'BAIXA'];
+const CATEGORIA_PROPRIA = 'Atividades próprias';
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // ---------- Middlewares ----------
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 // Alertas sao transversais — nao exigem modulo checklist.
 // Apenas as rotas de checklist sao protegidas pelo modulo.
@@ -44,13 +49,19 @@ router.use(authMiddleware);
 router.get('/checklist', requireChecklistModulo, async (req, res) => {
   try {
     const itens = await prisma.itemChecklist.findMany({
+      where: itensDaOrg(req.usuario.organizacaoId),
+      include: { responsavel: { select: { id: true, nome: true } } },
       orderBy: { codigo: 'asc' }
     });
     const respostas = await prisma.respostaChecklist.findMany({
-      where: { organizacaoId: req.usuario.organizacaoId }
+      where: { organizacaoId: req.usuario.organizacaoId },
+      include: { responsavel: { select: { id: true, nome: true } } }
     });
     const respostaPorItem = Object.fromEntries(respostas.map(r => [r.itemId, r]));
-    const resultado = itens.map(it => ({ ...it, resposta: respostaPorItem[it.id] || null }));
+    // Catalogo pelo codigo; atividades proprias depois, como AP-001, AP-002...
+    const resultado = codigosExibicao(itens)
+      .map(it => ({ ...it, resposta: respostaPorItem[it.id] || null }))
+      .sort((a, b) => (!!a.organizacaoId - !!b.organizacaoId) || a.codigoExibicao.localeCompare(b.codigoExibicao));
     res.json(resultado);
   } catch (err) {
     console.error('[GET /conformidade/checklist]', err);
@@ -66,13 +77,36 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
     }
 
     const { status, observacao, evidenciaUrl, proximaRevisao } = req.body;
+    let { responsavelId } = req.body;
     const STATUS_VALIDOS = ['CONFORME', 'PARCIAL', 'NAO_CONFORME', 'NAO_APLICAVEL'];
     if (!STATUS_VALIDOS.includes(status)) {
       return res.status(400).json({ erro: 'status inválido' });
     }
+    // Etapa 7a: evidencia so com http/https (ou referencia em texto)
+    const erroLink = erroLinkEvidencia(evidenciaUrl);
+    if (erroLink) return res.status(400).json({ erro: erroLink });
 
-    const item = await prisma.itemChecklist.findUnique({ where: { id: req.params.itemId } });
+    const item = await prisma.itemChecklist.findFirst({
+      where: { id: req.params.itemId, ...itensDaOrg(req.usuario.organizacaoId) }
+    });
     if (!item) return res.status(404).json({ erro: 'Item não encontrado' });
+    // Atividade propria tem UM responsavel (o da atividade, editado em
+    // "Editar atividade"); a resposta herda dele. Item do catalogo: o
+    // responsavel e o da resposta.
+    if (item.organizacaoId) responsavelId = item.responsavelId || '';
+    if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
+    const revisao = dataPura(proximaRevisao);
+    if (revisao === undefined) return res.status(400).json({ erro: 'Próxima revisão inválida (use AAAA-MM-DD)' });
+
+    const chave = {
+      organizacaoId_itemId: {
+        organizacaoId: req.usuario.organizacaoId,
+        itemId: req.params.itemId
+      }
+    };
+    const anterior = await prisma.respostaChecklist.findUnique({ where: chave });
 
     // Hash de integridade da evidencia (se houver URL ou observacao)
     const conteudoHash = (evidenciaUrl || '') + (observacao || '') + new Date().toISOString();
@@ -80,30 +114,37 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
       ? crypto.createHash('sha256').update(conteudoHash).digest('hex')
       : null;
 
-    const resposta = await prisma.respostaChecklist.upsert({
-      where: {
-        organizacaoId_itemId: {
+    const resposta = await prisma.$transaction(async (tx) => {
+      const salva = await tx.respostaChecklist.upsert({
+        where: chave,
+        create: {
           organizacaoId: req.usuario.organizacaoId,
-          itemId: req.params.itemId
-        }
-      },
-      create: {
-        organizacaoId: req.usuario.organizacaoId,
-        itemId: req.params.itemId,
-        status, observacao: observacao || null,
-        evidenciaUrl: evidenciaUrl || null,
-        evidenciaHash,
-        validadoPor: req.usuario.id,
-        proximaRevisao: proximaRevisao ? new Date(proximaRevisao) : null
-      },
-      update: {
-        status,
-        observacao: observacao || null,
-        evidenciaUrl: evidenciaUrl || null,
-        evidenciaHash,
-        validadoPor: req.usuario.id,
-        ...(proximaRevisao && { proximaRevisao: new Date(proximaRevisao) })
-      }
+          itemId: req.params.itemId,
+          status, observacao: observacao || null,
+          evidenciaUrl: evidenciaUrl || null,
+          evidenciaHash,
+          validadoPor: req.usuario.id,
+          responsavelId: responsavelId || null,
+          proximaRevisao: revisao
+        },
+        update: {
+          status,
+          observacao: observacao || null,
+          evidenciaUrl: evidenciaUrl || null,
+          evidenciaHash,
+          validadoPor: req.usuario.id,
+          ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
+          ...(revisao && { proximaRevisao: revisao })
+        },
+        include: { responsavel: { select: { id: true, nome: true } } }
+      });
+      // registroId = id do item do catalogo (unico por org via organizacaoId)
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'CHECKLIST_ITEM', registroId: req.params.itemId,
+        acao: anterior ? 'EDITAR' : 'CRIAR', usuarioId: req.usuario.id,
+        antes: anterior, depois: salva
+      });
+      return salva;
     });
 
     res.json(resposta);
@@ -113,10 +154,117 @@ router.post('/checklist/:itemId/responder', requireChecklistModulo, async (req, 
   }
 });
 
+// GET /conformidade/checklist/export?formato=csv|json (catalogo + atividades proprias)
+router.get('/checklist/export', requireChecklistModulo, async (req, res) => {
+  try {
+    await responderExport(res, prisma, 'checklist', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /conformidade/checklist/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar checklist' });
+  }
+});
+
+// ==================== Atividades proprias (Etapa 3 PoC) ====================
+// A organizacao cadastra atividades alem do catalogo global. Ficam em
+// ItemChecklist com organizacaoId preenchido; respondem pelo mesmo fluxo
+// (/checklist/:itemId/responder) e aceitam <Anexos> como evidencia.
+
+async function lerAtividade(b, orgId, { parcial }) {
+  const data = {};
+  if (!parcial || b.titulo !== undefined) {
+    const t = typeof b.titulo === 'string' ? b.titulo.trim() : '';
+    if (!t) return { erro: 'Título é obrigatório' };
+    data.titulo = t.slice(0, 200);
+  }
+  if (!parcial || b.descricao !== undefined) data.descricao = typeof b.descricao === 'string' ? b.descricao.trim().slice(0, 2000) : '';
+  if (b.criticidade !== undefined) {
+    if (!CRITICIDADES.includes(b.criticidade)) return { erro: 'Criticidade inválida' };
+    data.criticidade = b.criticidade;
+  }
+  if (b.prazo !== undefined) {
+    const prazo = dataPura(b.prazo);
+    if (prazo === undefined) return { erro: 'Prazo inválido (use AAAA-MM-DD)' };
+    data.prazo = prazo;
+  }
+  if (b.responsavelId !== undefined) {
+    if (!(await responsavelValido(prisma, b.responsavelId, orgId))) return { erro: 'Responsável inválido' };
+    data.responsavelId = b.responsavelId || null;
+  }
+  return { data };
+}
+
+// POST /conformidade/atividades { titulo, descricao, responsavelId, prazo, criticidade }
+router.post('/atividades', requireChecklistModulo, async (req, res) => {
+  try {
+    if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Sem permissão para cadastrar atividades' });
+    }
+    const orgId = req.usuario.organizacaoId;
+    const lido = await lerAtividade(req.body || {}, orgId, { parcial: false });
+    if (lido.erro) return res.status(400).json({ erro: lido.erro });
+    const qtd = await prisma.itemChecklist.count({ where: { organizacaoId: orgId } });
+    const item = await prisma.$transaction(async (tx) => {
+      const criado = await tx.itemChecklist.create({
+        data: {
+          ...lido.data,
+          organizacaoId: orgId,
+          // codigo e unico global: prefixo da org + sequencial + sufixo aleatorio
+          codigo: `ORG-${orgId.slice(-5).toUpperCase()}-${String(qtd + 1).padStart(3, '0')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`,
+          categoria: CATEGORIA_PROPRIA,
+          fundamentoLegal: '',
+          obrigatorio: false,
+          criticidade: lido.data.criticidade || 'MEDIA',
+          evidenciaRequerida: 'DOCUMENTO'
+        },
+        include: { responsavel: { select: { id: true, nome: true } } }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: orgId, entidade: 'CHECKLIST_ITEM', registroId: criado.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null,
+        depois: { titulo: criado.titulo, descricao: criado.descricao, responsavelId: criado.responsavelId, prazo: criado.prazo, criticidade: criado.criticidade }
+      });
+      return criado;
+    });
+    res.status(201).json(item);
+  } catch (err) {
+    console.error('[POST /conformidade/atividades]', err);
+    res.status(500).json({ erro: 'Erro ao cadastrar atividade' });
+  }
+});
+
+// PUT /conformidade/atividades/:id — so atividades da propria org (nao o catalogo global)
+router.put('/atividades/:id', requireChecklistModulo, async (req, res) => {
+  try {
+    if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Sem permissão para editar atividades' });
+    }
+    const orgId = req.usuario.organizacaoId;
+    const existente = await prisma.itemChecklist.findFirst({ where: { id: req.params.id, organizacaoId: orgId } });
+    if (!existente) return res.status(404).json({ erro: 'Atividade não encontrada' });
+    const lido = await lerAtividade(req.body || {}, orgId, { parcial: true });
+    if (lido.erro) return res.status(400).json({ erro: lido.erro });
+    const item = await prisma.$transaction(async (tx) => {
+      const atualizado = await tx.itemChecklist.update({
+        where: { id: existente.id }, data: lido.data,
+        include: { responsavel: { select: { id: true, nome: true } } }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: orgId, entidade: 'CHECKLIST_ITEM', registroId: existente.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id, antes: existente, depois: atualizado
+      });
+      return atualizado;
+    });
+    res.json(item);
+  } catch (err) {
+    console.error('[PUT /conformidade/atividades/:id]', err);
+    res.status(500).json({ erro: 'Erro ao atualizar atividade' });
+  }
+});
+
 // GET /conformidade/score — percentual de conformidade da organizacao
 router.get('/score', requireChecklistModulo, async (req, res) => {
   try {
-    const itens = await prisma.itemChecklist.findMany();
+    const itens = await prisma.itemChecklist.findMany({ where: itensDaOrg(req.usuario.organizacaoId) });
     const respostas = await prisma.respostaChecklist.findMany({
       where: { organizacaoId: req.usuario.organizacaoId }
     });
@@ -159,6 +307,8 @@ router.get('/score', requireChecklistModulo, async (req, res) => {
     res.json({
       score,
       totalItens: itens.length,
+      // "X de Y itens respondidos"
+      respondidos: itens.length - porStatus.SEM_RESPOSTA,
       porStatus,
       porCategoria: scoreCategoria
     });
@@ -235,6 +385,35 @@ router.get('/alertas', async (req, res) => {
       }
     }
 
+    // INCIDENTE_COMUNICACAO: 3 dias uteis da ciencia (Res. CD/ANPD 15/2024).
+    // Um alerta por etapa (vespera, dia, vencido): referenciaId = id:ETAPA.
+    if (modulos.includes('repositorio')) {
+      const reais = await prisma.incidente.findMany({
+        where: { organizacaoId: orgId, tipoRegistro: 'REAL', riscoRelevante: 'SIM', dataCiencia: { not: null } },
+        select: { id: true, titulo: true, tipoRegistro: true, riscoRelevante: true, dataCiencia: true, dataComunicacaoANPD: true, dataComunicacaoTitulares: true }
+      });
+      const vigentes = [];
+      for (const i of reais) {
+        const p = prazoComunicacao(i);
+        if (!p || !['VESPERA', 'HOJE', 'VENCIDO'].includes(p.situacao)) continue;
+        const quando = fmtData(p.prazo);
+        const texto = { VESPERA: `vence no próximo dia útil (${quando})`, HOJE: `vence hoje (${quando})`, VENCIDO: `venceu em ${quando}` }[p.situacao];
+        const referenciaId = `${i.id}:${p.situacao}`;
+        vigentes.push(referenciaId);
+        alertasGerados.push({
+          tipo: 'INCIDENTE_COMUNICACAO',
+          criticidade: 'ALTA',
+          mensagem: `Incidente "${i.titulo}": comunicação à ANPD e aos titulares ${texto}`,
+          referenciaId
+        });
+      }
+      // Comunicado (ou fora do caso): alertas antigos deixam de valer
+      await prisma.alertaConformidade.updateMany({
+        where: { organizacaoId: orgId, tipo: 'INCIDENTE_COMUNICACAO', lido: false, referenciaId: { notIn: vigentes } },
+        data: { lido: true }
+      });
+    }
+
     // CHECKLIST_REVISAO: itens com proximaRevisao vencida ou proxima
     if (modulos.includes('checklist')) {
       const revisoes = await prisma.respostaChecklist.findMany({
@@ -255,6 +434,58 @@ router.get('/alertas', async (req, res) => {
           referenciaId: r.id
         });
       }
+    }
+
+    // CHECKLIST_REVISAO tambem para atividades proprias com prazo vencido
+    // ou nos proximos 7 dias e ainda nao concluidas (CONFORME/NAO_APLICAVEL).
+    if (modulos.includes('checklist')) {
+      const proprias = await prisma.itemChecklist.findMany({
+        where: { organizacaoId: orgId, prazo: { not: null, lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } },
+        select: { id: true, codigo: true, titulo: true, prazo: true }
+      });
+      const resps = proprias.length === 0 ? [] : await prisma.respostaChecklist.findMany({
+        where: { organizacaoId: orgId, itemId: { in: proprias.map(p => p.id) } }, select: { itemId: true, status: true }
+      });
+      const statusPorItem = Object.fromEntries(resps.map(r => [r.itemId, r.status]));
+      for (const it of proprias) {
+        if (['CONFORME', 'NAO_APLICAVEL'].includes(statusPorItem[it.id])) continue;
+        const dias = Math.ceil((it.prazo - new Date()) / (1000 * 60 * 60 * 24));
+        alertasGerados.push({
+          tipo: 'CHECKLIST_REVISAO',
+          criticidade: dias < 0 ? 'ALTA' : 'MEDIA',
+          mensagem: dias < 0
+            ? `Atividade "${it.titulo}" com prazo vencido há ${Math.abs(dias)} dia(s)`
+            : `Atividade "${it.titulo}" vence em ${dias} dia(s)`,
+          referenciaId: it.id
+        });
+      }
+    }
+
+    // RETENCAO_VENCIDA: prazo de retencao do tratamento venceu, contado
+    // da criacao ou do ultimo descarte registrado (services/retencao.js).
+    const retencaoVencidaIds = new Set();
+    if (modulos.includes('ropa')) {
+      const comRetencao = await prisma.tratamento.findMany({
+        where: { organizacaoId: orgId, ativo: true, retencaoDias: { not: null } },
+        select: { id: true, nome: true, retencaoDias: true, criadoEm: true }
+      });
+      const ultimos = await ultimosDescartes(prisma, comRetencao.map(t => t.id), orgId);
+      for (const t of comRetencao) {
+        const r = calcularRetencao(t, ultimos[t.id]);
+        if (!r || !r.vencido) continue;
+        retencaoVencidaIds.add(t.id);
+        alertasGerados.push({
+          tipo: 'RETENCAO_VENCIDA',
+          criticidade: 'ALTA',
+          mensagem: `Prazo de retenção do tratamento "${t.nome}" venceu em ${fmtData(r.venceEm)} — registre o descarte`,
+          referenciaId: t.id
+        });
+      }
+      // Descarte registrado depois do alerta: o alerta deixa de valer.
+      await prisma.alertaConformidade.updateMany({
+        where: { organizacaoId: orgId, tipo: 'RETENCAO_VENCIDA', lido: false, referenciaId: { notIn: [...retencaoVencidaIds] } },
+        data: { lido: true }
+      });
     }
 
     // ROPA_DESATUALIZADO: tratamentos sem atualizacao ha mais de 365 dias

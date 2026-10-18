@@ -8,13 +8,17 @@
 // logados mas nao derrubam o processo.
 
 const cron = require('node-cron');
-const { PrismaClient } = require('@prisma/client');
 const { limparOtpsExpirados, getSolicitacoesPorPrazo } = require('./dsarService');
 const { enviarAlertaPrazoDPO, enviar } = require('./emailService');
 const { patrulhaSeguranca } = require('./patrulhaSeguranca');
 const { gerarRelatorioDiario, formatarRelatorio } = require('./dailyReport');
 
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
+const { comTrava } = require('./travaCron');
+
+// Etapa 7a: cada tarefa agendada so roda na instancia que pegar a trava
+// (pg_try_advisory_xact_lock); as demais pulam.
+const travado = (nome, fn) => () => comTrava(prisma, nome, fn).catch(err => console.error(`[cron] ${nome}:`, err.message));
 
 // ==================== Job: DSAR SLA diario ====================
 //
@@ -55,8 +59,8 @@ async function jobSlaDSAR() {
               organizacaoId: org.id,
               tipo: 'DSAR_PRAZO',
               mensagem: s.cor === 'vencido'
-                ? `Solicitacao ${s.protocolo} vencida ha ${Math.abs(s.diasRestantes)} dia(s)`
-                : `Solicitacao ${s.protocolo} vence em ${s.diasRestantes} dia(s)`,
+                ? `Solicitação ${s.protocolo} vencida há ${Math.abs(s.diasRestantes)} dia(s)`
+                : `Solicitação ${s.protocolo} vence em ${s.diasRestantes} dia(s)`,
               criticidade: (s.cor === 'vermelho' || s.cor === 'vencido') ? 'ALTA' : 'MEDIA',
               referenciaId: s.id
             }
@@ -234,6 +238,22 @@ async function jobRelatorioDiario() {
   }
 }
 
+// ==================== Job: foto mensal dos indicadores ====================
+//
+// Dia 1 de cada mes, 04:00 UTC (01:00 BRT): grava SnapshotIndicadores do
+// mes ANTERIOR para todas as organizacoes ativas (substitui a foto manual
+// daquele mes, se houver).
+async function jobSnapshotIndicadores() {
+  console.log('[cron:snapshotIndicadores] inicio');
+  try {
+    const { gerarSnapshotsMensais } = require('./indicadores');
+    const r = await gerarSnapshotsMensais(prisma);
+    console.log(`[cron:snapshotIndicadores] ${r.gerados} foto(s) de ${r.mesReferencia}`);
+  } catch (err) {
+    console.error('[cron:snapshotIndicadores] falha:', err.message);
+  }
+}
+
 // ==================== Registro ====================
 
 function iniciarCron() {
@@ -244,48 +264,53 @@ function iniciarCron() {
 
   // Roda todo dia as 09:00 UTC (06:00 America/Sao_Paulo)
   // Formato cron: minuto hora dia-mes mes dia-semana
-  cron.schedule('0 9 * * *', jobSlaDSAR, {
+  cron.schedule('0 9 * * *', travado('jobSlaDSAR', jobSlaDSAR), {
     timezone: 'UTC'
   });
 
   // Retencao: LogAuditoria body redact (02:00 UTC)
-  cron.schedule('0 2 * * *', jobRetencaoLogAuditoria, {
+  cron.schedule('0 2 * * *', travado('jobRetencaoLogAuditoria', jobRetencaoLogAuditoria), {
     timezone: 'UTC'
   });
 
   // Retencao: SolicitacaoTitular anonimizacao 5 anos (02:05 UTC)
-  cron.schedule('5 2 * * *', jobAnonimizacaoDsarAntigo, {
+  cron.schedule('5 2 * * *', travado('jobAnonimizacaoDsarAntigo', jobAnonimizacaoDsarAntigo), {
     timezone: 'UTC'
   });
 
   // Retencao: PesquisaSatisfacao anonimizacao 5 anos (02:10 UTC).
   // No-op de redacao (pesquisa ja e anonima); marca anonimizadoEm
   // para prova de auditoria PNTP.
-  cron.schedule('10 2 * * *', jobAnonimizacaoPesquisaAntiga, {
+  cron.schedule('10 2 * * *', travado('jobAnonimizacaoPesquisaAntiga', jobAnonimizacaoPesquisaAntiga), {
     timezone: 'UTC'
   });
 
   // Patrulha de seguranca diaria (03:30 UTC)
-  cron.schedule('30 3 * * *', jobPatrulhaSeguranca, {
+  cron.schedule('30 3 * * *', travado('jobPatrulhaSeguranca', jobPatrulhaSeguranca), {
     timezone: 'UTC'
   });
 
   // Relatorio diario por email (11:00 UTC = 08:00 BRT)
-  cron.schedule('0 11 * * *', jobRelatorioDiario, {
+  cron.schedule('0 11 * * *', travado('jobRelatorioDiario', jobRelatorioDiario), {
     timezone: 'UTC'
   });
 
-  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC, anonimizaPesquisa 02:10 UTC, patrulhaSeguranca 03:30 UTC, relatorioDiario 11:00 UTC');
+  // Foto mensal dos indicadores (dia 1, 04:00 UTC)
+  cron.schedule('0 4 1 * *', travado('jobSnapshotIndicadores', jobSnapshotIndicadores), {
+    timezone: 'UTC'
+  });
+
+  console.log('[cron] agendado: slaDSAR 09:00 UTC, retencaoLog 02:00 UTC, anonimizaDsar 02:05 UTC, anonimizaPesquisa 02:10 UTC, patrulhaSeguranca 03:30 UTC, relatorioDiario 11:00 UTC, snapshotIndicadores dia 1 04:00 UTC');
 
   // Em dev, permite forcar execucao imediata via env var
   if (process.env.RUN_CRON_ON_BOOT === 'true') {
     console.log('[cron] executando jobs na inicializacao (RUN_CRON_ON_BOOT=true)');
-    jobSlaDSAR().catch(err => console.error(err));
-    jobRetencaoLogAuditoria().catch(err => console.error(err));
-    jobAnonimizacaoDsarAntigo().catch(err => console.error(err));
-    jobAnonimizacaoPesquisaAntiga().catch(err => console.error(err));
-    jobPatrulhaSeguranca().catch(err => console.error(err));
+    travado('jobSlaDSAR', jobSlaDSAR)();
+    travado('jobRetencaoLogAuditoria', jobRetencaoLogAuditoria)();
+    travado('jobAnonimizacaoDsarAntigo', jobAnonimizacaoDsarAntigo)();
+    travado('jobAnonimizacaoPesquisaAntiga', jobAnonimizacaoPesquisaAntiga)();
+    travado('jobPatrulhaSeguranca', jobPatrulhaSeguranca)();
   }
 }
 
-module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo, jobAnonimizacaoPesquisaAntiga, jobPatrulhaSeguranca, jobRelatorioDiario };
+module.exports = { iniciarCron, jobSlaDSAR, jobRetencaoLogAuditoria, jobAnonimizacaoDsarAntigo, jobAnonimizacaoPesquisaAntiga, jobPatrulhaSeguranca, jobRelatorioDiario, jobSnapshotIndicadores };

@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+/* Etapa 7b: fontes hospedadas no proprio frontend (pacotes @fontsource,
+   importados em src/index.js) — nenhuma chamada ao Google Fonts. */
 
 /* ============ Design Tokens ============ */
 :root {
@@ -41,8 +42,8 @@
   --shadow-md: 0 4px 12px rgba(0,0,0,0.09), 0 2px 6px rgba(0,0,0,0.05);
 
   --font-display: 'Instrument Serif', Georgia, 'Times New Roman', serif;
-  --font-sans: 'Instrument Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: 'Instrument Sans Variable', 'Instrument Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* ============ Reset & Base ============ */
@@ -571,6 +572,12 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   display: inline-block; border-radius: var(--radius-sm);
   font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em;
 }
+
+/* Citacoes legais (fundamento do checklist, leis aplicaveis, base legal do
+   ROPA): sem maiusculas forcadas — "arts.", "§ 2º" e "e" como no texto. Os
+   demais selos continuam em caixa alta. */
+.badge-legal,
+.badge.badge-citacao { text-transform: none; letter-spacing: 0.01em; }
 
 .badge-row { display: flex; gap: 6px; flex-wrap: wrap; }
 
@@ -1307,3 +1314,25 @@ label {
   justify-content: flex-end;
   margin-top: 20px;
 }
+
+/* ===== Modo leitura (perfil AUDITOR) =====
+   Esconde botoes de criar/editar/excluir. Primarios que sao leitura
+   (baixar, anonimizar) levam .acao-leitura; secundarios que escrevem
+   levam .acao-escrita. O backend tambem barra as escritas (403). */
+.modo-leitura .btn-primary:not(.acao-leitura),
+.modo-leitura .btn-danger,
+.modo-leitura .acao-escrita {
+  display: none !important;
+}
+.aviso-leitura {
+  font-size: 12px;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+}
+
+/* Etapa 6b: o titulo da tela fica so no topo (content-header); sem o h2,
+   os botoes da tela continuam alinhados a direita */
+.page-header > .btn-row:only-child { margin-left: auto; }

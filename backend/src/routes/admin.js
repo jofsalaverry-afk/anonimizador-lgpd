@@ -2,14 +2,19 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const { PrismaClient } = require('@prisma/client');
 const { body } = require('express-validator');
 const { auditarLogin } = require('../middlewares/auditoria');
 const { validar, validarEmail } = require('../middlewares/seguranca');
 const { getTrilhasComOverrides, TRILHAS_BASE } = require('./treinamento');
+const { slugUnico, slugValido } = require('../services/slug');
+const { registrarHistorico } = require('../services/historico');
+const { garantirModelosDsar } = require('../services/cargaInicial');
+const { lerMotivo, zerarMfa, encerrarSessoes } = require('../services/mfa');
+const { erroNovaSenha } = require('../services/senha');
+const { buscarPorEmail } = require('../services/email');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Multer para upload de arquivos do repositorio pelo painel admin.
 // Mesmos limites da rota do modulo: 20MB, PDF/DOCX.
@@ -41,9 +46,12 @@ const validadoresAdminLogin = [
 
 const validadoresCriarCamara = [
   body('nome').trim().isLength({ min: 2, max: 200 }).withMessage('Nome inválido').escape(),
-  body('cnpj').trim().matches(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$|^\d{14}$/).withMessage('CNPJ inválido'),
+  // Nome da PESSOA do primeiro usuario (Gestor) — antes recebia o nome da organizacao
+  body('nomeGestor').trim().isLength({ min: 2, max: 200 }).withMessage('Informe o nome da pessoa do primeiro usuário (Gestor)'),
+  body('cnpj').trim().matches(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$|^\d{14}$/).withMessage('CNPJ inválido')
+    .bail().custom(v => require('../services/documentosId').cnpjValido(v)).withMessage('CNPJ inválido: confira os números (dígito verificador não confere)'),
   validarEmail('email'),
-  body('senha').isLength({ min: 8, max: 200 }).withMessage('Senha deve ter ao menos 8 caracteres'),
+  body('senha').isLength({ min: 10, max: 200 }).withMessage('A senha inicial deve ter pelo menos 10 caracteres'),
   body('plano').optional().isIn(['basico', 'intermediario', 'avancado']).withMessage('Plano inválido'),
   validar
 ];
@@ -52,7 +60,7 @@ const adminAuth = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     if (!decoded.isAdmin) return res.status(403).json({ erro: 'Acesso negado' });
     req.admin = decoded;
     next();
@@ -64,7 +72,7 @@ const adminAuth = (req, res, next) => {
 router.post('/login', validadoresAdminLogin, async (req, res) => {
   try {
     const { email, senha } = req.body;
-    const admin = await prisma.admin.findUnique({ where: { email } });
+    const admin = await buscarPorEmail(prisma.admin, email);
     if (!admin) {
       auditarLogin(prisma, { req, sucesso: false, userType: 'admin', motivo: 'email_nao_encontrado' });
       return res.status(401).json({ erro: 'Credenciais inválidas' });
@@ -89,10 +97,11 @@ router.get('/camaras', adminAuth, async (req, res) => {
     const orgs = await prisma.organizacao.findMany({
       select: {
         id: true, nome: true, cnpj: true, ativo: true, plano: true, criadoEm: true, modulosAtivos: true, slug: true,
+        mfaObrigatorio: true,
         _count: { select: { documentos: true, usuarios: true } },
         usuarios: {
           where: { deletedAt: null },
-          select: { id: true, email: true, perfil: true, ativo: true, ultimoAcesso: true },
+          select: { id: true, email: true, nome: true, perfil: true, ativo: true, ultimoAcesso: true, mfaAtivo: true },
           orderBy: { criadoEm: 'asc' }
         }
       },
@@ -106,20 +115,26 @@ router.get('/camaras', adminAuth, async (req, res) => {
 
 router.post('/camaras', adminAuth, validadoresCriarCamara, async (req, res) => {
   try {
-    const { nome, cnpj, email, senha, plano } = req.body;
+    const { nome, cnpj, email, senha, plano, nomeGestor } = req.body;
     const nomeNormalizado = nome ? nome.normalize('NFC') : nome;
     const senhaHash = await bcrypt.hash(senha, 10);
+    // Slug publico gerado do nome (antes nao havia como definir: paginas
+    // publicas da organizacao ficavam inacessiveis).
+    const slug = await slugUnico(prisma, nomeNormalizado);
     // Cria organizacao + primeiro usuario (GESTOR) em transacao
     const result = await prisma.$transaction(async (tx) => {
       const org = await tx.organizacao.create({
-        data: { nome: nomeNormalizado, cnpj, plano: plano || 'basico' }
+        data: { nome: nomeNormalizado, cnpj, plano: plano || 'basico', slug }
       });
       const usuario = await tx.usuario.create({
-        data: { email, senhaHash, nome: nomeNormalizado, perfil: 'GESTOR', organizacaoId: org.id }
+        data: { email, senhaHash, nome: nomeGestor.normalize('NFC'), perfil: 'GESTOR', organizacaoId: org.id, senhaTrocaObrigatoria: true }
       });
       return { org, usuario };
     });
-    res.status(201).json({ id: result.org.id, nome: result.org.nome, email: result.usuario.email });
+    // Modelos padrao de resposta DSAR (Etapa 6c). Falha aqui nao desfaz a
+    // organizacao: o seed do proximo deploy completa o que faltar.
+    await garantirModelosDsar(prisma, result.org.id).catch(e => console.error('[admin] modelos DSAR:', e.message));
+    res.status(201).json({ id: result.org.id, nome: result.org.nome, slug: result.org.slug, email: result.usuario.email });
   } catch (err) {
     if (err.code === 'P2002') {
       return res.status(409).json({ erro: 'CNPJ ou email já cadastrado' });
@@ -133,6 +148,11 @@ router.patch('/camaras/:id/toggle', adminAuth, async (req, res) => {
     const org = await prisma.organizacao.findUnique({ where: { id: req.params.id } });
     if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
     const atualizada = await prisma.organizacao.update({ where: { id: req.params.id }, data: { ativo: !org.ativo } });
+    // Etapa 7a: camara desativada -> sessoes de todos os usuarios dela encerradas
+    if (!atualizada.ativo) {
+      const us = await prisma.usuario.findMany({ where: { organizacaoId: atualizada.id }, select: { id: true } });
+      await encerrarSessoes(prisma, us.map(u => u.id));
+    }
     res.json({ id: atualizada.id, ativo: atualizada.ativo });
   } catch (err) {
     res.status(500).json({ erro: 'Erro interno' });
@@ -144,7 +164,9 @@ router.patch('/camaras/:id/toggle', adminAuth, async (req, res) => {
 router.patch('/camaras/:id/modulos', adminAuth, async (req, res) => {
   try {
     const { modulosAtivos } = req.body;
-    const MODULOS_VALIDOS = ['anonimizador', 'ropa', 'dsar', 'repositorio', 'treinamento', 'checklist'];
+    // 'pesquisa' faltava aqui: o Admin oferecia o modulo, mas este filtro o
+    // descartava em qualquer alteracao de modulos da organizacao.
+    const MODULOS_VALIDOS = ['anonimizador', 'ropa', 'dsar', 'repositorio', 'treinamento', 'checklist', 'pesquisa', 'inventario', 'terceiros'];
     const validos = (modulosAtivos || []).filter(m => MODULOS_VALIDOS.includes(m));
     const org = await prisma.organizacao.update({
       where: { id: req.params.id },
@@ -158,20 +180,81 @@ router.patch('/camaras/:id/modulos', adminAuth, async (req, res) => {
   }
 });
 
+// ---------- Slug publico da organizacao ----------
+// PATCH /admin/camaras/:id/slug { slug } — minusculas, numeros e hifens.
+// Trocar o slug quebra links ja divulgados (portal, canal do titular).
+router.patch('/camaras/:id/slug', adminAuth, async (req, res) => {
+  try {
+    const slug = typeof req.body?.slug === 'string' ? req.body.slug.trim().toLowerCase() : '';
+    if (!slugValido(slug)) {
+      return res.status(400).json({ erro: 'Slug inválido: use 3 a 60 caracteres, só letras minúsculas, números e hífens (ex.: camara-viamao)' });
+    }
+    const org = await prisma.organizacao.update({
+      where: { id: req.params.id }, data: { slug }, select: { id: true, nome: true, slug: true }
+    });
+    console.log(`[AUDIT] admin=${req.admin.email} slug=${slug} org=${org.id}`);
+    res.json(org);
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ erro: 'Este slug já está em uso por outra organização' });
+    if (err.code === 'P2025') return res.status(404).json({ erro: 'Organização não encontrada' });
+    res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
+// ---------- MFA obrigatorio por organizacao ----------
+// Quando ligado, quem nao tem MFA ativo nao recebe sessao no login e
+// e levado para configurar o autenticador (ver auth.js /login).
+router.patch('/camaras/:id/mfa-obrigatorio', adminAuth, async (req, res) => {
+  try {
+    const { mfaObrigatorio } = req.body;
+    if (typeof mfaObrigatorio !== 'boolean') {
+      return res.status(400).json({ erro: 'mfaObrigatorio deve ser true ou false' });
+    }
+    const antes = await prisma.organizacao.findUnique({ where: { id: req.params.id }, select: { mfaObrigatorio: true } });
+    if (!antes) return res.status(404).json({ erro: 'Organização não encontrada' });
+    const org = await prisma.$transaction(async (tx) => {
+      const o = await tx.organizacao.update({
+        where: { id: req.params.id },
+        data: { mfaObrigatorio },
+        select: { id: true, nome: true, mfaObrigatorio: true }
+      });
+      // Etapa 6d: fica no historico da organizacao (antes so no log)
+      if (antes.mfaObrigatorio !== mfaObrigatorio) {
+        await registrarHistorico(tx, {
+          organizacaoId: o.id, entidade: 'ORGANIZACAO', registroId: o.id, acao: 'EDITAR', usuarioId: null,
+          diff: { mfaObrigatorio: { antes: antes.mfaObrigatorio, depois: mfaObrigatorio }, alteradoPorAdmin: { antes: null, depois: req.admin?.email || 'admin' } }
+        });
+      }
+      return o;
+    });
+    console.log(`[AUDIT] admin=${req.admin.email} mfa_obrigatorio=${mfaObrigatorio} org=${org.id}`);
+    res.json(org);
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ erro: 'Organização não encontrada' });
+    res.status(500).json({ erro: 'Erro interno' });
+  }
+});
+
 // ---------- Usuarios dentro de organizacoes ----------
 
 router.post('/camaras/:id/usuarios', adminAuth, async (req, res) => {
   try {
     const { email, nome, senha, perfil } = req.body;
+    // Validacao (Etapa 5): antes a rota aceitava perfil/senha sem checar.
+    const PERFIS_VALIDOS = ['ENCARREGADO_LGPD', 'GESTOR', 'OPERADOR', 'AUDITOR', 'TREINANDO'];
+    if (perfil !== undefined && !PERFIS_VALIDOS.includes(perfil)) return res.status(400).json({ erro: 'Perfil inválido' });
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return res.status(400).json({ erro: 'E-mail inválido' });
+    if (erroNovaSenha(senha)) return res.status(400).json({ erro: erroNovaSenha(senha) });
     const org = await prisma.organizacao.findUnique({ where: { id: req.params.id } });
     if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
     const senhaHash = await bcrypt.hash(senha, 10);
     const usuario = await prisma.usuario.create({
       data: {
-        email, senhaHash,
+        email: email.trim().toLowerCase(), senhaHash,
         nome: (nome || org.nome).normalize('NFC'),
         perfil: perfil || 'OPERADOR',
-        organizacaoId: org.id
+        organizacaoId: org.id,
+        senhaTrocaObrigatoria: true
       },
       select: { id: true, email: true, nome: true, perfil: true }
     });
@@ -187,6 +270,7 @@ router.patch('/usuarios/:id/toggle', adminAuth, async (req, res) => {
     const usuario = await prisma.usuario.findUnique({ where: { id: req.params.id } });
     if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuário não encontrado' });
     const atualizado = await prisma.usuario.update({ where: { id: req.params.id }, data: { ativo: !usuario.ativo } });
+    if (!atualizado.ativo) await encerrarSessoes(prisma, [atualizado.id]);
     res.json({ id: atualizado.id, ativo: atualizado.ativo });
   } catch (err) {
     res.status(500).json({ erro: 'Erro interno' });
@@ -210,6 +294,49 @@ router.patch('/usuarios/:id/perfil', adminAuth, async (req, res) => {
   }
 });
 
+// POST /admin/usuarios/:id/mfa/zerar { motivo } — Admin zera o MFA de um
+// usuario de qualquer camara. Mesmo efeito do Gestor/DPO.
+router.post('/usuarios/:id/mfa/zerar', adminAuth, async (req, res) => {
+  try {
+    const m = lerMotivo(req.body?.motivo);
+    if (m.erro) return res.status(400).json({ erro: m.erro });
+    const alvo = await prisma.usuario.findFirst({ where: { id: req.params.id, deletedAt: null }, select: { id: true, organizacaoId: true, mfaAtivo: true, mfaSecret: true, mfaSecretPendente: true, sessaoVersao: true } });
+    if (!alvo) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    if (!alvo.mfaAtivo && !alvo.mfaSecret && !alvo.mfaSecretPendente) return res.status(400).json({ erro: 'Este usuário não tem MFA configurado' });
+    const u = await zerarMfa(prisma, { alvo, adminEmail: req.admin?.email || 'admin', motivo: m.motivo });
+    console.log('[AUDIT] admin zerou MFA do usuario', alvo.id);
+    res.json({ ...u, mensagem: 'MFA zerado. As sessões abertas desse usuário foram encerradas.' });
+  } catch (err) {
+    console.error('[POST /admin/usuarios/:id/mfa/zerar]', err);
+    res.status(500).json({ erro: 'Erro ao zerar MFA' });
+  }
+});
+
+// PATCH /admin/usuarios/:id/nome { nome } — correcao de nome pelo admin,
+// registrada no historico do usuario (sem usuario da organizacao: aparece
+// como "Administrador da plataforma").
+router.patch('/usuarios/:id/nome', adminAuth, async (req, res) => {
+  try {
+    const nome = typeof req.body?.nome === 'string' ? req.body.nome.trim().normalize('NFC') : '';
+    if (nome.length < 2 || nome.length > 200) return res.status(400).json({ erro: 'Informe o nome (2 a 200 caracteres)' });
+    const alvo = await prisma.usuario.findFirst({ where: { id: req.params.id, deletedAt: null }, select: { id: true, nome: true, organizacaoId: true } });
+    if (!alvo) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    const atualizado = await prisma.$transaction(async (tx) => {
+      const u = await tx.usuario.update({ where: { id: alvo.id }, data: { nome }, select: { id: true, nome: true, email: true, perfil: true } });
+      await registrarHistorico(tx, {
+        organizacaoId: alvo.organizacaoId, entidade: 'USUARIO', registroId: alvo.id, acao: 'EDITAR', usuarioId: null,
+        diff: { nome: { antes: alvo.nome, depois: nome }, alteradoPorAdmin: { antes: null, depois: req.admin?.email || 'admin' } }
+      });
+      return u;
+    });
+    console.log('[AUDIT] admin alterou nome do usuario', alvo.id);
+    res.json(atualizado);
+  } catch (err) {
+    console.error('[PATCH /admin/usuarios/:id/nome]', err);
+    res.status(500).json({ erro: 'Erro ao alterar nome' });
+  }
+});
+
 // Soft delete: mantem a linha no banco com deletedAt preenchido para
 // preservar rastreabilidade (logs, DSAR respondidos, etc.) — requisito
 // de compliance LGPD. Usuario soft-deletado some da listagem mas referencias
@@ -220,7 +347,7 @@ router.delete('/usuarios/:id', adminAuth, async (req, res) => {
     if (!usuario || usuario.deletedAt) return res.status(404).json({ erro: 'Usuário não encontrado' });
     await prisma.usuario.update({
       where: { id: req.params.id },
-      data: { deletedAt: new Date(), ativo: false }
+      data: { deletedAt: new Date(), ativo: false, sessaoVersao: (usuario.sessaoVersao || 0) + 1 }
     });
     res.json({ ok: true });
   } catch (err) {
@@ -247,18 +374,6 @@ router.get('/stats', adminAuth, async (req, res) => {
 
 // ---------- Treinamento — gestao de trilhas ----------
 
-// Extrai ID do video de uma URL do YouTube ou retorna o proprio ID se
-// ja for um ID (11 chars alfanumerico/underscore/hifen).
-function extrairYoutubeId(entrada) {
-  if (!entrada) return null;
-  const s = entrada.trim();
-  // Se ja e um ID valido (11 chars, [A-Za-z0-9_-])
-  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
-  // Tenta extrair de URL
-  const match = s.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-  return match ? match[1] : null;
-}
-
 router.get('/treinamento/trilhas', adminAuth, async (req, res) => {
   try {
     const trilhas = await getTrilhasComOverrides();
@@ -272,7 +387,7 @@ router.get('/treinamento/trilhas', adminAuth, async (req, res) => {
 router.put('/treinamento/trilhas/:trilhaId/modulos/:moduloId', adminAuth, async (req, res) => {
   try {
     const { trilhaId, moduloId } = req.params;
-    const { youtubeId: entradaRaw, titulo } = req.body;
+    const { titulo, linkComplementar } = req.body || {};
 
     // Valida que a trilha e modulo existem no hardcoded base
     const trilhaBase = TRILHAS_BASE.find(t => t.id === trilhaId);
@@ -280,15 +395,18 @@ router.put('/treinamento/trilhas/:trilhaId/modulos/:moduloId', adminAuth, async 
     const moduloBase = trilhaBase.modulos.find(m => m.moduloId === moduloId);
     if (!moduloBase) return res.status(404).json({ erro: 'Módulo não encontrado' });
 
-    // Extrai/valida o youtubeId (aceita URL completa)
-    const youtubeId = extrairYoutubeId(entradaRaw);
-    if (!youtubeId) return res.status(400).json({ erro: 'youtubeId inválido (informe o ID de 11 chars ou a URL do YouTube)' });
+    // Etapa 6c: os modulos sao texto + questionario. O admin configura so o
+    // titulo e um link opcional para material complementar externo.
+    const link = typeof linkComplementar === 'string' ? linkComplementar.trim() : '';
+    if (link && !/^https:\/\/[^\s]{4,}$/i.test(link)) return res.status(400).json({ erro: 'Link complementar inválido (use um endereço https://)' });
+    if (link.length > 500) return res.status(400).json({ erro: 'Link muito longo' });
+    const t = typeof titulo === 'string' ? titulo.trim().slice(0, 200) : '';
 
-    // Upsert no override
+    // youtubeId fica vazio (coluna antiga, sem uso)
     const override = await prisma.trilhaOverride.upsert({
       where: { trilhaId_moduloId: { trilhaId, moduloId } },
-      create: { trilhaId, moduloId, youtubeId, titulo: titulo || null },
-      update: { youtubeId, titulo: titulo || null }
+      create: { trilhaId, moduloId, youtubeId: '', titulo: t || null, linkComplementar: link || null },
+      update: { titulo: t || null, linkComplementar: link || null }
     });
 
     res.json(override);
@@ -307,7 +425,7 @@ router.get('/repositorio', adminAuth, async (req, res) => {
     const organizacaoId = String(req.query.organizacaoId || '').trim();
     if (!organizacaoId) return res.status(400).json({ erro: 'organizacaoId é obrigatório' });
     const docs = await prisma.documentoRepositorio.findMany({
-      where: { organizacaoId },
+      where: { organizacaoId, excluidoEm: null },
       orderBy: { criadoEm: 'desc' },
       select: REPO_SELECT_LISTA
     });
@@ -327,24 +445,41 @@ router.post('/repositorio/upload', adminAuth, uploadRepo.single('arquivo'), asyn
     if (!titulo || !categoria || !organizacaoId) {
       return res.status(400).json({ erro: 'titulo, categoria e organizacaoId são obrigatórios' });
     }
+    // = enum TipoDocRepo; valor fora disso virava erro 500 do Prisma
+    const CATEGORIAS_DOC = ['POLITICA', 'TERMO', 'ADITIVO', 'CONTRATO', 'MODELO', 'OUTRO', 'POLITICA_PRIVACIDADE', 'POLITICA_SEGURANCA', 'MODELO_DSAR', 'TERMO_USO'];
+    if (!CATEGORIAS_DOC.includes(categoria)) {
+      return res.status(400).json({ erro: 'Categoria inválida' });
+    }
     // Valida que a org existe antes de criar
     const org = await prisma.organizacao.findUnique({ where: { id: organizacaoId }, select: { id: true } });
     if (!org) return res.status(404).json({ erro: 'Organização não encontrada' });
 
-    const doc = await prisma.documentoRepositorio.create({
-      data: {
-        organizacaoId,
-        tipo: categoria,
-        titulo: String(titulo).trim(),
-        descricao: descricao ? String(descricao).trim() : null,
-        arquivo: req.file.buffer,
-        mimetype: req.file.mimetype,
-        nomeArquivo: req.file.originalname,
-        tamanhoBytes: req.file.size,
-        status: 'PUBLICADO',
-        conteudoMd: ''
-      },
-      select: REPO_SELECT_LISTA
+    const doc = await prisma.$transaction(async (tx) => {
+      const criado = await tx.documentoRepositorio.create({
+        data: {
+          organizacaoId,
+          tipo: categoria,
+          titulo: String(titulo).trim(),
+          descricao: descricao ? String(descricao).trim() : null,
+          arquivo: req.file.buffer,
+          mimetype: req.file.mimetype,
+          nomeArquivo: req.file.originalname,
+          tamanhoBytes: req.file.size,
+          status: 'PUBLICADO',
+          conteudoMd: ''
+        },
+        select: REPO_SELECT_LISTA
+      });
+      // Etapa 7b: historico do documento tambem para o envio pelo admin
+      await registrarHistorico(tx, {
+        organizacaoId, entidade: 'DOCUMENTO', registroId: criado.id, acao: 'CRIAR', usuarioId: null,
+        diff: {
+          origem: { antes: null, depois: 'Arquivo enviado ao repositório' }, titulo: { antes: null, depois: criado.titulo },
+          tipo: { antes: null, depois: categoria }, nomeArquivo: { antes: null, depois: req.file.originalname },
+          alteradoPorAdmin: { antes: null, depois: req.admin?.email || 'admin' }
+        }
+      });
+      return criado;
     });
     res.status(201).json(doc);
   } catch (err) {
@@ -361,10 +496,18 @@ router.delete('/repositorio/:id', adminAuth, async (req, res) => {
   try {
     const existente = await prisma.documentoRepositorio.findUnique({
       where: { id: req.params.id },
-      select: { id: true }
+      select: { id: true, organizacaoId: true, titulo: true, excluidoEm: true }
     });
-    if (!existente) return res.status(404).json({ erro: 'Documento não encontrado' });
-    await prisma.documentoRepositorio.delete({ where: { id: req.params.id } });
+    if (!existente || existente.excluidoEm) return res.status(404).json({ erro: 'Documento não encontrado' });
+    // Etapa 7b: exclusao logica tambem pelo admin, com historico
+    const motivo = (typeof req.body?.motivo === 'string' && req.body.motivo.trim()) || 'Excluído pelo administrador';
+    await prisma.$transaction(async (tx) => {
+      await tx.documentoRepositorio.update({ where: { id: existente.id }, data: { excluidoEm: new Date(), motivoExclusao: motivo.slice(0, 500) } });
+      await registrarHistorico(tx, {
+        organizacaoId: existente.organizacaoId, entidade: 'DOCUMENTO', registroId: existente.id, acao: 'EXCLUIR', usuarioId: null,
+        diff: { motivo: { antes: null, depois: motivo.slice(0, 500) }, titulo: { antes: existente.titulo, depois: null }, alteradoPorAdmin: { antes: null, depois: req.admin?.email || 'admin' } }
+      });
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error('[DELETE /admin/repositorio/:id]', err);
@@ -393,7 +536,16 @@ router.delete('/camaras/:id/excluir', adminAuth, async (req, res) => {
             docsRepo: true,
             incidentes: true,
             respostasChecklist: true,
-            alertas: true
+            alertas: true,
+            anexos: true,
+            historicos: true,
+            setores: true,
+            sistemas: true,
+            terceiros: true,
+            progressos: true,
+            certificados: true,
+            descartes: true,
+            itensChecklist: true
           }
         }
       }

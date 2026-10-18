@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import SeletorResponsavel from './SeletorResponsavel';
+import Anexos from './Anexos';
+import Historico from './Historico';
+import AtividadeForm from './AtividadeForm';
+import { BotoesExportar } from './download';
+import { fmtData, paraInputData } from '../datas';
 
 const STATUS_OPTIONS = [
   { value: 'CONFORME', label: 'Conforme' },
@@ -8,6 +14,10 @@ const STATUS_OPTIONS = [
   { value: 'NAO_CONFORME', label: 'Não conforme' },
   { value: 'NAO_APLICAVEL', label: 'Não aplicável' }
 ];
+const STATUS_TEXTO = Object.fromEntries(STATUS_OPTIONS.map(o => [o.value, o.label]));
+// Categorias do catalogo antigo gravadas sem acento (o catalogo existente nao e alterado)
+const CATEGORIA_TEXTO = { Seguranca: 'Segurança', Governanca: 'Governança' };
+const categoriaTexto = c => CATEGORIA_TEXTO[c] || c;
 
 const STATUS_BADGE = {
   CONFORME: 'badge badge-success',
@@ -21,6 +31,8 @@ const CRITICIDADE_BADGE = {
   MEDIA: 'badge badge-warning',
   BAIXA: 'badge badge-success'
 };
+
+const NIVEL_LABEL = { ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa' };
 
 const EVIDENCIA_LABEL = {
   DOCUMENTO: 'Documento',
@@ -41,8 +53,13 @@ function ChecklistPage({ token }) {
     status: 'CONFORME',
     observacao: '',
     evidenciaUrl: '',
-    proximaRevisao: ''
+    proximaRevisao: '',
+    responsavelId: ''
   });
+  const [versaoHistorico, setVersaoHistorico] = useState(0);
+  const [consultando, setConsultando] = useState(null);
+  // null = fechado; {} = nova atividade; item = editar atividade propria
+  const [atividadeForm, setAtividadeForm] = useState(null);
 
   const authHeader = { Authorization: `Bearer ${token}` };
 
@@ -75,14 +92,16 @@ function ChecklistPage({ token }) {
       observacao: item.resposta?.observacao || '',
       evidenciaUrl: item.resposta?.evidenciaUrl || '',
       proximaRevisao: item.resposta?.proximaRevisao
-        ? String(item.resposta.proximaRevisao).substring(0, 10)
-        : ''
+        ? paraInputData(item.resposta.proximaRevisao)
+        : '',
+      // atividade propria: responsavel da atividade vem preenchido
+      responsavelId: item.resposta?.responsavelId || item.responsavelId || ''
     });
   };
 
   const cancelarResposta = () => {
     setExpandido(null);
-    setForm({ status: 'CONFORME', observacao: '', evidenciaUrl: '', proximaRevisao: '' });
+    setForm({ status: 'CONFORME', observacao: '', evidenciaUrl: '', proximaRevisao: '', responsavelId: '' });
   };
 
   const salvarResposta = async (itemId) => {
@@ -94,14 +113,16 @@ function ChecklistPage({ token }) {
           status: form.status,
           observacao: form.observacao,
           evidenciaUrl: form.evidenciaUrl,
-          proximaRevisao: form.proximaRevisao || null
+          proximaRevisao: form.proximaRevisao || null,
+          responsavelId: form.responsavelId
         },
         { headers: authHeader }
       );
       cancelarResposta();
+      setVersaoHistorico(v => v + 1);
       await carregar();
     } catch (e) {
-      setErro(e.response?.data?.error || 'Erro ao salvar resposta.');
+      setErro(e.response?.data?.erro || e.response?.data?.error || 'Erro ao salvar resposta.');
     }
   };
 
@@ -119,9 +140,6 @@ function ChecklistPage({ token }) {
   if (loading) {
     return (
       <div>
-        <div className="page-header">
-          <h2 className="page-title">Checklist de Conformidade</h2>
-        </div>
         <p className="text-muted">Carregando...</p>
       </div>
     );
@@ -130,10 +148,22 @@ function ChecklistPage({ token }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Checklist de Conformidade</h2>
+        <div className="btn-row">
+          <BotoesExportar token={token} caminho="/conformidade/checklist/export" nome="checklist-conformidade" onErro={setErro} />
+          {!atividadeForm && <button className="btn-primary btn-sm" onClick={() => setAtividadeForm({})}>+ Atividade própria</button>}
+        </div>
       </div>
 
       {erro && <div className="alert-error mb-16">{erro}</div>}
+
+      {atividadeForm && (
+        <AtividadeForm
+          token={token}
+          atividade={atividadeForm}
+          onCancelar={() => setAtividadeForm(null)}
+          onSalvo={() => { setAtividadeForm(null); setVersaoHistorico(v => v + 1); carregar(); }}
+        />
+      )}
 
       {score && (
         <div className="card mb-20">
@@ -142,7 +172,7 @@ function ChecklistPage({ token }) {
           <div className="flex-between mb-8">
             <div style={{ fontSize: '42px', fontWeight: 800 }}>{score.score}%</div>
             <div className="text-sm text-muted">
-              Total de itens: {score.totalItens}
+              {score.respondidos ?? (score.totalItens - (score.porStatus?.SEM_RESPOSTA || 0))} de {score.totalItens} itens respondidos
             </div>
           </div>
           <div className="text-sm text-muted mb-12">
@@ -157,7 +187,7 @@ function ChecklistPage({ token }) {
               <div className="detail-label mb-8">Por categoria</div>
               {Object.entries(score.porCategoria).map(([cat, pct]) => (
                 <div key={cat} className="flex-between mb-8">
-                  <span className="text-sm">{cat}</span>
+                  <span className="text-sm">{categoriaTexto(cat)}</span>
                   <span className="badge badge-info">{pct}%</span>
                 </div>
               ))}
@@ -195,25 +225,25 @@ function ChecklistPage({ token }) {
 
       {Object.entries(grupos).map(([categoria, itensCat]) => (
         <div key={categoria}>
-          <h3 className="card-header mt-20">{categoria}</h3>
+          <h3 className="card-header mt-20">{categoriaTexto(categoria)}</h3>
           <div className="card mb-16">
             {itensCat.map((item, idx) => (
               <div key={item.id}>
                 {idx > 0 && <div className="card-divider" />}
                 <div className="flex-between mb-8">
                   <div>
-                    <strong>{item.codigo}</strong> - {item.titulo}
+                    <strong>{item.codigoExibicao || item.codigo}</strong> — {item.titulo}
                   </div>
                   <div className="badge-row">
                     <span className={CRITICIDADE_BADGE[item.criticidade] || 'badge badge-muted'}>
-                      {item.criticidade}
+                      Criticidade {(NIVEL_LABEL[item.criticidade] || item.criticidade).toLowerCase()}
                     </span>
                     {item.obrigatorio && (
                       <span className="badge badge-purple">Obrigatório</span>
                     )}
                     {item.resposta?.status ? (
                       <span className={STATUS_BADGE[item.resposta.status] || 'badge badge-muted'}>
-                        {item.resposta.status}
+                        {STATUS_TEXTO[item.resposta.status] || item.resposta.status}
                       </span>
                     ) : (
                       <span className="badge badge-muted">Sem resposta</span>
@@ -221,6 +251,14 @@ function ChecklistPage({ token }) {
                   </div>
                 </div>
                 <div className="text-sm mb-8">{item.descricao}</div>
+                {item.organizacaoId && (
+                  <div className="text-sm text-muted mb-8">
+                    <span className="badge badge-info">Atividade própria</span>
+                    {' '}Responsável: {item.responsavel?.nome || 'não designado'}
+                    {item.prazo && <> · Prazo: {fmtData(item.prazo)}</>}
+                    {' '}<button className="btn-ghost btn-sm acao-escrita" onClick={() => setAtividadeForm(item)}>Editar atividade</button>
+                  </div>
+                )}
                 <div className="badge-row mb-8">
                   {item.fundamentoLegal && (
                     <span className="badge badge-legal">{item.fundamentoLegal}</span>
@@ -243,10 +281,16 @@ function ChecklistPage({ token }) {
                     </a>
                   </div>
                 )}
+                {item.resposta && !item.organizacaoId && (
+                  <div className="text-sm text-muted mb-8">
+                    <span className="detail-label">Responsável: </span>
+                    {item.resposta.responsavel?.nome || 'Não designado'}
+                  </div>
+                )}
                 {item.resposta?.proximaRevisao && (
                   <div className="text-sm text-muted mb-8">
-                    <span className="detail-label">Próxima revisão: </span>
-                    {String(item.resposta.proximaRevisao).substring(0, 10)}
+                    <span className="detail-label">Próxima revisão / prazo: </span>
+                    {fmtData(item.resposta.proximaRevisao)}
                   </div>
                 )}
 
@@ -286,8 +330,16 @@ function ChecklistPage({ token }) {
                         style={{ fontFamily: 'monospace' }}
                       />
                     </div>
+                    {item.organizacaoId ? (
+                      <p className="text-xs text-muted mb-8">Responsável: {item.responsavel?.nome || 'não designado'} (altere em "Editar atividade").</p>
+                    ) : (
+                      <div className="mb-8">
+                        <label className="detail-label">Responsável</label>
+                        <SeletorResponsavel token={token} value={form.responsavelId} onChange={(v) => setForm({ ...form, responsavelId: v })} />
+                      </div>
+                    )}
                     <div className="mb-12">
-                      <label className="detail-label">Próxima revisão</label>
+                      <label className="detail-label">Próxima revisão / prazo</label>
                       <input
                         type="date"
                         value={form.proximaRevisao}
@@ -308,16 +360,32 @@ function ChecklistPage({ token }) {
                         Cancelar
                       </button>
                     </div>
+                    <div className="mt-16">
+                      <Anexos token={token} entidade="CHECKLIST_ITEM" registroId={item.id} titulo="Evidências anexadas" onEnviado={() => setVersaoHistorico(v => v + 1)} />
+                      <Historico token={token} entidade="CHECKLIST_ITEM" registroId={item.id} versao={versaoHistorico} />
+                    </div>
                   </div>
                 ) : (
-                  <div className="btn-row">
-                    <button
-                      className="btn-secondary btn-sm"
-                      onClick={() => abrirResposta(item)}
-                    >
-                      Responder
-                    </button>
-                  </div>
+                  <>
+                    <div className="btn-row">
+                      <button
+                        className="btn-secondary btn-sm acao-escrita"
+                        onClick={() => abrirResposta(item)}
+                      >
+                        Responder
+                      </button>
+                      {/* Etapa 7b: consulta (inclusive pelo Auditor) sem abrir a edicao */}
+                      <button className="btn-ghost btn-sm" onClick={() => setConsultando(c => (c === item.id ? null : item.id))}>
+                        {consultando === item.id ? 'Ocultar evidências e histórico' : 'Evidências e histórico'}
+                      </button>
+                    </div>
+                    {consultando === item.id && (
+                      <div className="mt-16">
+                        <Anexos token={token} entidade="CHECKLIST_ITEM" registroId={item.id} titulo="Evidências anexadas" somenteLeitura />
+                        <Historico token={token} entidade="CHECKLIST_ITEM" registroId={item.id} versao={versaoHistorico} />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ))}

@@ -195,4 +195,24 @@ function auditarRequisicaoAnonima(prisma, { req, statusCode, slug, evento, organ
     .catch(err => console.error('[auditoria-anonima] falha gravando log:', err.message));
 }
 
-module.exports = { auditoriaMiddleware, auditarLogin, auditarRequisicaoAnonima };
+// Audita uma leitura relevante feita por usuario autenticado (o middleware
+// automatico so registra POST/PUT/PATCH/DELETE). Ex.: exportacao em massa.
+function auditarEvento(prisma, { req, evento, detalhes }) {
+  const ip = (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim();
+  const registro = {
+    userId: req.usuario?.id || null,
+    userType: 'usuario',
+    camaraId: req.usuario?.organizacaoId || null,
+    metodo: req.method,
+    rota: (req.originalUrl || req.url || '').split('?')[0],
+    statusCode: 200,
+    durMs: null,
+    ip: ip || null,
+    userAgent: (req.headers['user-agent'] || '').slice(0, 300) || null,
+    body: { evento, ...(detalhes || {}) }
+  };
+  appendLog(prisma, registro)
+    .catch(err => console.error('[auditoria-evento] falha gravando log:', err.message));
+}
+
+module.exports = { auditoriaMiddleware, auditarLogin, auditarRequisicaoAnonima, auditarEvento };

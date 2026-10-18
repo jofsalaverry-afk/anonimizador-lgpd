@@ -2,58 +2,118 @@
 // Extraida das rotas para permitir reuso em cron jobs e services externos.
 
 const crypto = require('crypto');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
+const { dataPura, hojeSP, isoDiaSP } = require('./datas');
 
 // ==================== Protocolo ====================
 
-// Gera protocolo sequencial: SIGLA-ANO-SEQ (ex: CMP-2026-001)
-async function gerarProtocolo(organizacaoId) {
-  const org = await prisma.organizacao.findUnique({
-    where: { id: organizacaoId },
-    select: { nome: true }
-  });
-  const palavras = (org?.nome || 'ORG')
+// Sigla da camara para o protocolo: SIGLA-ANO-SEQ (ex: CMP-2026-001)
+function siglaDe(nome) {
+  const palavras = (nome || 'ORG')
     .replace(/^(Camara|Câmara)\s+(Municipal\s+)?(de\s+|do\s+|da\s+)?/i, '')
     .split(/\s+/)
     .filter(Boolean);
+  if (palavras.length === 0) return 'ORG';
+  if (palavras.length === 1) return palavras[0].slice(0, 3).toUpperCase();
+  return palavras.slice(0, 3).map(p => p[0]).join('').toUpperCase();
+}
 
-  let sigla;
-  if (palavras.length === 0) sigla = 'ORG';
-  else if (palavras.length === 1) sigla = palavras[0].slice(0, 3).toUpperCase();
-  else sigla = palavras.slice(0, 3).map(p => p[0]).join('').toUpperCase();
+// Etapa 7c: o protocolo e UNICO NO SISTEMA (indice unico no banco), mas a
+// sequencia era contada so na camara: duas camaras com a mesma sigla
+// geravam o mesmo protocolo e o pedido dava erro 500. Agora o proximo
+// numero e o maior ja usado com o mesmo prefixo (sigla + ano), em todas as
+// camaras. "minimo" garante avanco quando o banco acabou de recusar um numero.
+async function gerarProtocolo(organizacaoId, { db = prisma, minimo = 1 } = {}) {
+  const org = await db.organizacao.findUnique({ where: { id: organizacaoId }, select: { nome: true } });
+  const prefixo = `${siglaDe(org?.nome)}-${new Date().getFullYear()}-`;
+  const existentes = await db.solicitacaoTitular.findMany({ where: { protocolo: { startsWith: prefixo } }, select: { protocolo: true } });
+  const maior = existentes.reduce((m, s) => {
+    const n = Number(s.protocolo.slice(prefixo.length));
+    return Number.isInteger(n) && n > m ? n : m;
+  }, 0);
+  return `${prefixo}${String(Math.max(maior + 1, minimo)).padStart(3, '0')}`;
+}
 
-  const ano = new Date().getFullYear();
-  const inicioAno = new Date(`${ano}-01-01T00:00:00.000Z`);
-  const fimAno = new Date(`${ano + 1}-01-01T00:00:00.000Z`);
+class ProtocoloIndisponivelError extends Error {}
+const ehConflitoDeProtocolo = e => e?.code === 'P2002' && [].concat(e.meta?.target || []).join(',').includes('protocolo');
 
-  const count = await prisma.solicitacaoTitular.count({
-    where: {
-      organizacaoId,
-      criadoEm: { gte: inicioAno, lt: fimAno }
+// Cria o registro com um protocolo novo. Se outro pedido levou o mesmo
+// numero no mesmo instante (indice unico recusa), tenta o seguinte — no
+// maximo TENTATIVAS vezes. criar(protocolo) deve fazer todo o trabalho
+// (inclusive a transacao), para poder ser repetido do zero.
+const TENTATIVAS_PROTOCOLO = 5;
+async function comProtocoloUnico(organizacaoId, criar, { db = prisma } = {}) {
+  let minimo = 1;
+  for (let i = 0; i < TENTATIVAS_PROTOCOLO; i++) {
+    const protocolo = await gerarProtocolo(organizacaoId, { db, minimo });
+    try {
+      return await criar(protocolo);
+    } catch (e) {
+      if (!ehConflitoDeProtocolo(e)) throw e;
+      minimo = Number(protocolo.split('-').pop()) + 1;
     }
-  });
-
-  const seq = String(count + 1).padStart(3, '0');
-  return `${sigla}-${ano}-${seq}`;
+  }
+  throw new ProtocoloIndisponivelError('Não foi possível gerar um protocolo único');
 }
 
 // ==================== SLA ====================
 
-// Calcula SLA badge: verde (>5d), amarelo (2-5d), vermelho (<2d), vencido
-function calcularSLA(dataLimite) {
-  if (!dataLimite) return { cor: 'sem-prazo', dias: null, label: 'Sem prazo ativo' };
-  const agora = new Date();
-  const limite = new Date(dataLimite);
-  const diasRestantes = Math.ceil((limite - agora) / (1000 * 60 * 60 * 24));
-  if (diasRestantes < 0) return { cor: 'vencido', dias: diasRestantes, label: `Vencido ha ${Math.abs(diasRestantes)} dia(s)` };
-  if (diasRestantes < 2) return { cor: 'vermelho', dias: diasRestantes, label: `${diasRestantes} dia(s) restante(s)` };
-  if (diasRestantes <= 5) return { cor: 'amarelo', dias: diasRestantes, label: `${diasRestantes} dias restantes` };
-  return { cor: 'verde', dias: diasRestantes, label: `${diasRestantes} dias restantes` };
+// Etapa 7b: situacao do prazo calculada pelo STATUS da solicitacao.
+// Aceita a solicitacao (ou, por compatibilidade, so a dataLimite).
+// Dias contados no calendario de Sao Paulo (dia do prazo - hoje).
+// cor: verde (>5d), amarelo (2-5d), vermelho (0-1d), vencido, sem-prazo, encerrado
+function diasAte(dataLimite, agora = new Date()) {
+  const limite = dataPura(isoDiaSP(dataLimite));
+  return Math.round((limite - hojeSP(agora)) / 86400000);
+}
+const plural = (n, um, varios) => (n === 1 ? um : varios);
+function calcularSLA(s, agora = new Date()) {
+  const sol = s && typeof s === 'object' && !(s instanceof Date) ? s : { dataLimite: s, status: 'EM_ANALISE' };
+  const { status, dataLimite, dataResposta } = sol;
+  if (status === 'CANCELADA') return { cor: 'encerrado', dias: null, label: 'Cancelada' };
+  if (dataResposta && ['RESPONDIDA', 'ENCERRADA'].includes(status)) {
+    if (!dataLimite) return { cor: 'encerrado', dias: null, label: 'Respondido' };
+    const noPrazo = new Date(dataResposta) <= new Date(dataLimite);
+    return { cor: noPrazo ? 'verde' : 'vencido', dias: null, noPrazo, label: noPrazo ? 'Respondido no prazo' : 'Respondido fora do prazo' };
+  }
+  if (status === 'ENCERRADA') return { cor: 'encerrado', dias: null, label: 'Encerrada sem resposta registrada' };
+  if (!dataLimite) return { cor: 'sem-prazo', dias: null, label: 'Aguardando verificação de identidade (prazo ainda não iniciado)' };
+  const dias = diasAte(dataLimite, agora);
+  if (dias < 0) return { cor: 'vencido', dias, label: `Vencido há ${-dias} ${plural(-dias, 'dia', 'dias')}` };
+  if (dias === 0) return { cor: 'vermelho', dias, label: 'Vence hoje' };
+  if (dias < 2) return { cor: 'vermelho', dias, label: '1 dia restante' };
+  return { cor: dias <= 5 ? 'amarelo' : 'verde', dias, label: `${dias} dias restantes` };
+}
+
+// Prazo legal: 15 dias corridos a partir da verificacao da identidade
+// (mesma regra no canal publico e no cadastro interno).
+const DIAS_PRAZO = 15;
+function prazoAPartirDe(inicio) {
+  const d = new Date(inicio);
+  d.setDate(d.getDate() + DIAS_PRAZO);
+  return d;
+}
+
+// Texto da resposta que ainda e rascunho: marca MINUTA ou campo [entre colchetes]
+function erroTextoResposta(texto) {
+  if (/\bMINUTA\b/i.test(texto)) return 'A resposta ainda contém a marca "MINUTA". Revise o texto e retire a marca antes de enviar.';
+  const campo = texto.match(/\[[^\]\n]{1,200}\]/);
+  if (campo) return `A resposta ainda tem campo a preencher entre colchetes: ${campo[0]}. Complete o texto antes de enviar.`;
+  return null;
+}
+
+// identidade: { verificada, metodo, em, observacao }. Pedidos anteriores a
+// Etapa 6c sem os campos novos usam a evidencia VERIFICACAO_IDENTIDADE.
+function identidadeDe(s) {
+  if (s.identidadeVerificadaEm) {
+    return { verificada: true, metodo: s.identidadeMetodo, em: s.identidadeVerificadaEm, observacao: s.identidadeObservacao || null };
+  }
+  const ev = (s.evidencias || []).find(e => e.tipo === 'VERIFICACAO_IDENTIDADE');
+  return ev ? { verificada: true, metodo: null, em: ev.criadoEm, observacao: null } : { verificada: false };
 }
 
 function enriquecerSolicitacao(s) {
-  return { ...s, sla: calcularSLA(s.dataLimite) };
+  return { ...s, sla: calcularSLA(s), identidade: identidadeDe(s) };
 }
 
 // ==================== OTP ====================
@@ -112,10 +172,9 @@ async function consumirOtp(otpId) {
 
 // Cria a solicitacao oficial a partir de um OTP validado
 async function criarSolicitacaoApartirDeOtp(otp) {
-  const protocolo = await gerarProtocolo(otp.organizacaoId);
   const dataRecebimento = new Date();
 
-  const solicitacao = await prisma.solicitacaoTitular.create({
+  const solicitacao = await comProtocoloUnico(otp.organizacaoId, protocolo => prisma.solicitacaoTitular.create({
     data: {
       organizacaoId: otp.organizacaoId,
       protocolo,
@@ -125,9 +184,12 @@ async function criarSolicitacaoApartirDeOtp(otp) {
       tipoDireito: otp.tipoDireito,
       descricao: otp.descricao,
       dataRecebimento,
-      status: 'AGUARDANDO_VERIFICACAO'
+      status: 'AGUARDANDO_VERIFICACAO',
+      // Etapa 6c: o titular confirmou o codigo enviado ao e-mail
+      identidadeVerificadaEm: dataRecebimento,
+      identidadeMetodo: 'CODIGO_EMAIL'
     }
-  });
+  }));
 
   await consumirOtp(otp.id);
   return solicitacao;
@@ -150,13 +212,13 @@ async function getSolicitacoesPorPrazo(organizacaoId) {
       organizacaoId,
       status: { in: ['RECEBIDA', 'EM_ANALISE'] }
     },
-    select: { id: true, protocolo: true, titularNome: true, dataLimite: true }
+    select: { id: true, protocolo: true, titularNome: true, dataLimite: true, status: true, dataResposta: true }
   });
 
   const criticas = [];
   const alertas = [];
   for (const s of solicitacoes) {
-    const sla = calcularSLA(s.dataLimite);
+    const sla = calcularSLA(s);
     const enriched = { ...s, diasRestantes: sla.dias, cor: sla.cor };
     if (sla.cor === 'vermelho' || sla.cor === 'vencido') criticas.push(enriched);
     else if (sla.cor === 'amarelo') alertas.push(enriched);
@@ -166,7 +228,14 @@ async function getSolicitacoesPorPrazo(organizacaoId) {
 
 module.exports = {
   gerarProtocolo,
+  siglaDe,
+  comProtocoloUnico,
+  ProtocoloIndisponivelError,
   calcularSLA,
+  identidadeDe,
+  prazoAPartirDe,
+  erroTextoResposta,
+  DIAS_PRAZO,
   enriquecerSolicitacao,
   gerarCodigoOTP,
   criarOtpDSAR,

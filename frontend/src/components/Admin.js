@@ -19,7 +19,9 @@ const MODULOS_DISPONIVEIS = [
   { id: 'repositorio', nome: 'Repositório' },
   { id: 'treinamento', nome: 'Treinamento' },
   { id: 'checklist', nome: 'Checklist' },
-  { id: 'pesquisa', nome: 'Pesquisa de Satisfação' }
+  { id: 'pesquisa', nome: 'Pesquisa de Satisfação' },
+  { id: 'inventario', nome: 'Inventário de Sistemas' },
+  { id: 'terceiros', nome: 'Terceiros/Operadores' }
 ];
 
 const CATEGORIAS_REPO = [
@@ -28,6 +30,10 @@ const CATEGORIAS_REPO = [
   { value: 'MODELO_DSAR', label: 'Modelo DSAR' },
   { value: 'CONTRATO', label: 'Contrato' },
   { value: 'TERMO_USO', label: 'Termo de uso' },
+  { value: 'TERMO', label: 'Termo (confidencialidade, consentimento etc.)' },
+  { value: 'POLITICA', label: 'Políticas e procedimentos' },
+  { value: 'MODELO', label: 'Modelos e formulários' },
+  { value: 'ADITIVO', label: 'Aditivo contratual LGPD' },
   { value: 'OUTRO', label: 'Outro' }
 ];
 
@@ -42,7 +48,7 @@ export default function Admin() {
 
   const [orgs, setOrgs] = useState([]);
   const [stats, setStats] = useState(null);
-  const [form, setForm] = useState({ nome: '', cnpj: '', email: '', senha: '', plano: 'basico' });
+  const [form, setForm] = useState({ nome: '', cnpj: '', nomeGestor: '', email: '', senha: '', plano: 'basico' });
   const [msg, setMsg] = useState('');
   const [expandida, setExpandida] = useState(null);
   const [linkCopiadoId, setLinkCopiadoId] = useState(null);
@@ -59,6 +65,8 @@ export default function Admin() {
   const [repoLoading, setRepoLoading] = useState(false);
   const [repoMsg, setRepoMsg] = useState('');
   const [repoErro, setRepoErro] = useState('');
+  // Novo usuario por organizacao: { [orgId]: { nome, email, senha, perfil } }
+  const [novoUsuario, setNovoUsuario] = useState({});
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -85,11 +93,11 @@ export default function Admin() {
   const salvarModulo = async (trilhaId, moduloId) => {
     const key = `${trilhaId}:${moduloId}`;
     const edit = edicaoModulo[key];
-    if (!edit || !edit.youtubeId) return;
+    if (!edit || edit.linkComplementar === undefined) return;
     try {
       await axios.put(
         `${API}/admin/treinamento/trilhas/${trilhaId}/modulos/${moduloId}`,
-        { youtubeId: edit.youtubeId, titulo: edit.titulo || null },
+        { linkComplementar: edit.linkComplementar.trim() },
         { headers }
       );
       setEdicaoModulo(prev => {
@@ -155,6 +163,62 @@ export default function Admin() {
     }
   };
 
+  const criarUsuario = async (orgId) => {
+    const dados = novoUsuario[orgId] || {};
+    try {
+      await axios.post(`${API}/admin/camaras/${orgId}/usuarios`, { perfil: 'OPERADOR', ...dados }, { headers });
+      setNovoUsuario(n => ({ ...n, [orgId]: undefined }));
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao criar usuário');
+    }
+  };
+
+  const salvarSlug = async (org) => {
+    const novo = window.prompt('Endereço público (slug): só letras minúsculas, números e hífens. Atenção: trocar quebra links já divulgados.', org.slug || '');
+    if (novo === null) return;
+    try {
+      await axios.patch(`${API}/admin/camaras/${org.id}/slug`, { slug: novo }, { headers });
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao salvar slug');
+    }
+  };
+
+  const mudarPerfil = async (id, perfil) => {
+    try {
+      await axios.patch(`${API}/admin/usuarios/${id}/perfil`, { perfil }, { headers });
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao alterar perfil');
+    }
+  };
+
+  // Corrige o nome da pessoa (ex.: Gestor criado com o nome da camara)
+  const editarNome = async (u) => {
+    const nome = window.prompt('Nome da pessoa', u.nome || '');
+    if (nome === null || !nome.trim() || nome.trim() === u.nome) return;
+    try {
+      await axios.patch(`${API}/admin/usuarios/${u.id}/nome`, { nome: nome.trim() }, { headers });
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao alterar nome');
+    }
+  };
+
+  const zerarMfaAdmin = async (u) => {
+    const motivo = window.prompt(`Zerar o MFA de ${u.nome || u.email}? Informe o motivo (obrigatório):`, '');
+    if (motivo === null) return;
+    if (!motivo.trim()) { alert('Motivo obrigatório. Nada foi alterado.'); return; }
+    try {
+      const r = await axios.post(`${API}/admin/usuarios/${u.id}/mfa/zerar`, { motivo: motivo.trim() }, { headers });
+      alert(r.data?.mensagem || 'MFA zerado.');
+      carregar();
+    } catch (err) {
+      alert(err.response?.data?.erro || 'Erro ao zerar MFA');
+    }
+  };
+
   const toggleUsuario = async (id) => {
     try {
       await axios.patch(`${API}/admin/usuarios/${id}/toggle`, {}, { headers });
@@ -205,7 +269,7 @@ export default function Admin() {
     setErro('');
     try {
       await axios.post(`${API}/admin/camaras`, form, { headers });
-      setForm({ nome: '', cnpj: '', email: '', senha: '', plano: 'basico' });
+      setForm({ nome: '', cnpj: '', nomeGestor: '', email: '', senha: '', plano: 'basico' });
       setMsg('Organização criada com sucesso');
       carregar();
     } catch (err) {
@@ -245,6 +309,23 @@ export default function Admin() {
       carregar();
     } catch (err) {
       setErro('Erro ao alterar módulos');
+    }
+  };
+
+  const toggleMfaObrigatorio = async (org) => {
+    const novo = !org.mfaObrigatorio;
+    if (novo) {
+      const semMfa = (org.usuarios || []).filter(u => u.ativo && !u.mfaAtivo).length;
+      const aviso = semMfa > 0
+        ? `${semMfa} usuário(s) ativo(s) ainda não têm MFA e terão que configurar no próximo login. Continuar?`
+        : 'Exigir MFA de todos os usuários desta organização?';
+      if (!window.confirm(aviso)) return;
+    }
+    try {
+      await axios.patch(`${API}/admin/camaras/${org.id}/mfa-obrigatorio`, { mfaObrigatorio: novo }, { headers });
+      carregar();
+    } catch (err) {
+      setErro('Erro ao alterar exigência de MFA');
     }
   };
 
@@ -338,14 +419,16 @@ export default function Admin() {
         <div className="card mb-24">
           <h2 className="card-header">Criar nova organização</h2>
           <form onSubmit={criarOrg}>
-            <label>Nome</label>
+            <label>Nome da organização</label>
             <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Câmara Municipal de ..." required />
             <label>CNPJ</label>
             <input value={form.cnpj} onChange={e => setForm({ ...form, cnpj: e.target.value })} placeholder="00.000.000/0001-00" required />
+            <label>Nome da pessoa do primeiro usuário (Gestor)</label>
+            <input value={form.nomeGestor} onChange={e => setForm({ ...form, nomeGestor: e.target.value })} placeholder="Nome e sobrenome de quem vai usar a conta" required />
             <label>E-mail do primeiro usuário (Gestor)</label>
             <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="contato@camara.gov.br" required />
             <label>Senha inicial</label>
-            <input type="text" value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} placeholder="senha inicial" required />
+            <input type="text" value={form.senha} onChange={e => setForm({ ...form, senha: e.target.value })} placeholder="senha inicial (mín. 10) — o Gestor troca no 1º acesso" required />
             <label>Plano</label>
             <select value={form.plano} onChange={e => setForm({ ...form, plano: e.target.value })}>
               <option value="basico">Básico</option>
@@ -392,6 +475,14 @@ export default function Admin() {
               {expandida === o.id && (
                 <div className="org-expand">
                   <div className="mb-12">
+                    <div className="detail-label mb-8">Endereço público (slug)</div>
+                    <div className="flex-center gap-8">
+                      <code className="text-sm">{o.slug || 'não definido — páginas públicas indisponíveis'}</code>
+                      <button type="button" className="btn-ghost btn-sm" onClick={() => salvarSlug(o)}>{o.slug ? 'Alterar' : 'Definir'}</button>
+                      {o.slug && <a href={`${window.location.origin}/#transparencia/${o.slug}`} target="_blank" rel="noreferrer" className="btn-ghost btn-sm">Página de transparência</a>}
+                    </div>
+                  </div>
+                  <div className="mb-12">
                     <div className="detail-label mb-8">Link público DSAR</div>
                     {(() => {
                       const linkDsar = `${window.location.origin}/#solicitar-direitos/${o.id}`;
@@ -431,16 +522,29 @@ export default function Admin() {
                     </div>
                   </div>
 
+                  <div className="mb-12">
+                    <div className="detail-label mb-8">Segurança</div>
+                    <label className="flex-center gap-8" style={{ cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!!o.mfaObrigatorio} onChange={() => toggleMfaObrigatorio(o)} />
+                      <span className="text-sm">Exigir autenticação em 2 etapas (MFA) no login</span>
+                    </label>
+                  </div>
+
                   <div>
                     <div className="detail-label mb-8">Usuários</div>
                     {(o.usuarios || []).map(u => (
                       <div key={u.id} className="user-row">
                         <div className="flex-center gap-8">
-                          <span className="text-sm">{u.email}</span>
-                          <span className="badge badge-purple">{PERFIL_LABEL[u.perfil] || u.perfil}</span>
+                          <span className="text-sm">{u.nome ? `${u.nome} · ` : ''}{u.email}</span>
+                          <select value={u.perfil} onChange={e => mudarPerfil(u.id, e.target.value)} style={{ width: 'auto', marginBottom: 0, fontSize: 12 }} title="Perfil de acesso">
+                            {Object.entries(PERFIL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                          </select>
                           <span className={u.ativo ? 'text-success text-sm' : 'text-error text-sm'}>{u.ativo ? 'ativo' : 'inativo'}</span>
+                          <span className={u.mfaAtivo ? 'badge badge-success' : 'badge badge-muted'}>{u.mfaAtivo ? 'MFA ativo' : 'sem MFA'}</span>
                         </div>
                         <div className="flex-center gap-8">
+                          <button type="button" onClick={() => editarNome(u)} className="btn-ghost" title="Corrigir o nome da pessoa">Editar nome</button>
+                          {u.mfaAtivo && <button type="button" onClick={() => zerarMfaAdmin(u)} className="btn-ghost" title="Apaga o autenticador e encerra as sessões">Zerar MFA</button>}
                           <button
                             type="button"
                             onClick={() => toggleUsuario(u.id)}
@@ -460,6 +564,24 @@ export default function Admin() {
                         </div>
                       </div>
                     ))}
+                    {novoUsuario[o.id] ? (
+                      <div className="mt-8" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input placeholder="Nome" value={novoUsuario[o.id].nome || ''} style={{ width: 160, marginBottom: 0 }}
+                          onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], nome: e.target.value } }))} />
+                        <input placeholder="E-mail" type="email" value={novoUsuario[o.id].email || ''} style={{ width: 200, marginBottom: 0 }}
+                          onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], email: e.target.value } }))} />
+                        <input placeholder="Senha inicial (mín. 10)" type="password" autoComplete="new-password" value={novoUsuario[o.id].senha || ''} style={{ width: 170, marginBottom: 0 }}
+                          onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], senha: e.target.value } }))} />
+                        <select value={novoUsuario[o.id].perfil || 'OPERADOR'} style={{ width: 'auto', marginBottom: 0 }}
+                          onChange={e => setNovoUsuario(n => ({ ...n, [o.id]: { ...n[o.id], perfil: e.target.value } }))}>
+                          {Object.entries(PERFIL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                        </select>
+                        <button type="button" className="btn-primary btn-sm" onClick={() => criarUsuario(o.id)}>Criar</button>
+                        <button type="button" className="btn-ghost" onClick={() => setNovoUsuario(n => ({ ...n, [o.id]: undefined }))}>Cancelar</button>
+                      </div>
+                    ) : (
+                      <button type="button" className="btn-ghost mt-8" onClick={() => setNovoUsuario(n => ({ ...n, [o.id]: { perfil: 'OPERADOR' } }))}>+ Novo usuário</button>
+                    )}
                   </div>
                 </div>
               )}
@@ -469,8 +591,8 @@ export default function Admin() {
 
         {/* ========== Treinamento ========== */}
         <div className="card mt-20">
-          <h2 className="card-header">Treinamentos — curadoria de vídeos</h2>
-          <p className="text-muted mb-16">Cole o ID ou a URL completa do YouTube para cada módulo. Os vídeos são compartilhados entre todas as organizações com o módulo treinamento ativo.</p>
+          <h2 className="card-header">Treinamentos — material complementar</h2>
+          <p className="text-muted mb-16">Os módulos são textos curtos com questionário (iguais para todas as organizações). Aqui você pode indicar, por módulo, um link opcional para material complementar externo (https://), que aparece abaixo do texto. Deixe em branco para não exibir.</p>
 
           {trilhas.length === 0 && <p className="text-muted">Carregando trilhas...</p>}
 
@@ -484,35 +606,24 @@ export default function Admin() {
               {trilha.modulos.map(modulo => {
                 const key = `${trilha.id}:${modulo.moduloId}`;
                 const edit = edicaoModulo[key] || {};
-                const valorInput = edit.youtubeId !== undefined ? edit.youtubeId : modulo.youtubeId;
+                const atual = modulo.linkComplementar || '';
+                const valorInput = edit.linkComplementar !== undefined ? edit.linkComplementar : atual;
                 return (
                   <div key={modulo.moduloId} className="user-row" style={{ display: 'block', padding: '12px 0' }}>
-                    <div className="flex-center gap-8 mb-8">
-                      <img
-                        src={`https://img.youtube.com/vi/${modulo.youtubeId}/mqdefault.jpg`}
-                        alt=""
-                        style={{ width: 80, height: 45, borderRadius: 6, objectFit: 'cover' }}
-                      />
-                      <div style={{ flex: 1 }}>
-                        <div className="text-sm" style={{ fontWeight: 600 }}>{modulo.titulo}</div>
-                        <div className="text-muted text-xs">{modulo.duracaoMin} min · ID atual: {modulo.youtubeId}</div>
-                      </div>
-                    </div>
+                    <div className="text-sm" style={{ fontWeight: 600 }}>{modulo.titulo}</div>
+                    <div className="text-muted text-xs mb-8">{modulo.duracaoMin} min · {modulo.quiz?.length || 0} perguntas · {atual ? 'com material complementar' : 'sem material complementar'}</div>
                     <div className="flex gap-8">
                       <input
-                        type="text"
-                        placeholder="Cole o ID ou URL do YouTube"
+                        type="url"
+                        placeholder="https://... (opcional)"
                         value={valorInput}
-                        onChange={e => setEdicaoModulo(prev => ({
-                          ...prev,
-                          [key]: { ...prev[key], youtubeId: e.target.value }
-                        }))}
+                        onChange={e => setEdicaoModulo(prev => ({ ...prev, [key]: { ...prev[key], linkComplementar: e.target.value } }))}
                         style={{ marginBottom: 0, flex: 1 }}
                       />
                       <button
                         onClick={() => salvarModulo(trilha.id, modulo.moduloId)}
                         className="btn-primary btn-sm"
-                        disabled={!edit.youtubeId || edit.youtubeId === modulo.youtubeId}
+                        disabled={edit.linkComplementar === undefined || edit.linkComplementar.trim() === atual}
                       >
                         Salvar
                       </button>

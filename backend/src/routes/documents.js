@@ -1,8 +1,7 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const mammoth = require('mammoth');
-const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
 const Anthropic = require('@anthropic-ai/sdk');
 const {
   extrairItens,
@@ -18,7 +17,7 @@ const { body } = require('express-validator');
 const { validar, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -60,7 +59,25 @@ function checkAnthropicBilling(err) {
 // anonimizarPDF (/anonymize e /download-pdf). Retorna true se enviou
 // resposta (caller deve dar return); false se nao reconheceu o erro
 // (caller cai no tratamento generico de 500).
+// Etapa 7a: texto fiel ao que o modo basico faz (services/tarjador.js,
+// construirTarjas: CPF, e-mail nao institucional e telefone — NAO tarja RG).
+const AVISO_MODO_BASICO = 'Processado em modo básico: a inteligência artificial não está disponível. Foram tarjados apenas CPF, e-mail pessoal (não institucional) e telefone. Nome, RG, endereço, data de nascimento, dados bancários, dados de saúde e outros dados pessoais NÃO foram tarjados: revise o documento e tarje-os manualmente antes de usar.';
+const SEM_IA_TEXTO = 'A anonimização de texto colado e de arquivos Word depende da inteligência artificial, que não está disponível no momento. Envie o documento em PDF (modo básico: tarja apenas CPF, e-mail pessoal e telefone) ou faça a revisão manualmente.';
+const iaConfigurada = () => !!(process.env.ANTHROPIC_API_KEY || '').trim();
+
+// PDF corrompido/invalido (pdfjs): 400 com mensagem amigavel, sem detalhes tecnicos
+function ehPdfInvalido(err) {
+  return !!err && (['InvalidPDFException', 'FormatError', 'MissingPDFException', 'UnknownErrorException'].includes(err.name)
+    || /invalid pdf|pdf header|xref|bad xref|unexpected (eof|end)/i.test(err.message || ''));
+}
+
+const MSG_PDF_SEM_TEXTO = 'PDF digitalizado sem texto: não é possível processar; envie um PDF com texto selecionável.';
+
 function mapearErroAnonimizacao(req, res, err) {
+  if (ehPdfInvalido(err)) {
+    res.status(400).json({ erro: 'O arquivo não é um PDF válido ou está corrompido. Gere o PDF novamente (por exemplo, "Salvar como PDF") e tente de novo.' });
+    return true;
+  }
   if (err instanceof PdfSemTextoError) {
     console.log('[anonimizarPDF] PDF digitalizado bloqueado', {
       user_id: req.usuario && req.usuario.id,
@@ -71,7 +88,8 @@ function mapearErroAnonimizacao(req, res, err) {
     });
     res.status(422).json({
       error: 'pdf_sem_texto_extraivel',
-      message: 'Este PDF parece estar digitalizado e não contém texto editável extraível. O Anonimizador processa apenas documentos nativos. Para documentos digitalizados, entre em contato com o suporte.',
+      // Etapa 7c: texto pedido para a PoC (OCR desligado em producao)
+      message: MSG_PDF_SEM_TEXTO,
       suporte: 'contato@infolock.com.br'
     });
     return true;
@@ -132,17 +150,8 @@ DOCUMENTO:
 ${texto}`;
 }
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.usuario = decoded;
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 // Middleware que verifica se o modulo esta ativo para a organizacao do usuario.
 // Uso: router.post('/rota', authMiddleware, requireModulo('anonimizador'), ...)
@@ -245,7 +254,11 @@ async function anonimizarPDF(pdfBuffer) {
   const itensParaIA = buildPromptItens(itens, linhas);
   let respostaIA = { tarjas: [] };
   let iaFalhou = false;
-  try {
+  // Etapa 7a: sem a chave nao tenta a rede — vai direto ao modo basico
+  if (!iaConfigurada()) {
+    iaFalhou = true;
+    console.log('[anonimizarPDF] IA não configurada: modo básico');
+  } else try {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 8000,
@@ -379,7 +392,7 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
         tipoDocumento: resultado.tipoDocumento,
         leisAplicaveis: baseJuridica[resultado.tipoDocumento] || baseJuridica.outro,
         modoBasico: resultado.modoBasico || false,
-        avisoIA: resultado.modoBasico ? 'Processado em modo básico (IA indisponível). Apenas CPF, RG, email e telefone detectados por regex foram tarjados.' : undefined
+        avisoIA: resultado.modoBasico ? AVISO_MODO_BASICO : undefined
       });
     }
 
@@ -392,6 +405,8 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
     }
 
     if (!texto.trim()) return res.status(400).json({ erro: 'Nenhum texto fornecido' });
+    // Etapa 7a: sem a chave da IA, texto e DOCX nao tem modo basico
+    if (!iaConfigurada()) return res.status(503).json({ erro: SEM_IA_TEXTO, semIA: true });
 
     const mascara = req.body.mascara || 'asterisk';
     const prompt = buildPromptTexto(texto, mascara);
@@ -428,17 +443,10 @@ router.post('/anonymize', authMiddleware, requireModulo('anonimizador'), upload.
     res.json({ textoAnonimizado, stats, tipoDocumento, leisAplicaveis: baseJuridica[tipoDocumento] || baseJuridica.outro });
   } catch (err) {
     if (mapearErroAnonimizacao(req, res, err)) return;
-    // Log completo para debug no Railway + retorna detalhes ao frontend
-    // para ficar visivel no DevTools (temporario — remover depois de debug).
-    console.error('[POST /documents/anonymize] erro:', err);
+    // Etapa 7a: detalhes so no log do servidor; a resposta nao expoe pilha
+    console.error('[POST /documents/anonymize] erro:', err && err.name, err && err.message);
     console.error('[POST /documents/anonymize] stack:', err && err.stack);
-    res.status(500).json({
-      erro: 'Erro ao processar documento',
-      mensagem: err && err.message,
-      stack: err && err.stack,
-      nome: err && err.name,
-      codigo: err && err.code
-    });
+    res.status(500).json({ erro: 'Não foi possível processar o documento. Tente novamente; se continuar, fale com o suporte.' });
   }
 });
 

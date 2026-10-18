@@ -50,7 +50,6 @@ export default function RepositorioList({ token, onNovo, onVer, onEditar }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Repositório de Documentos</h2>
         <div className="btn-row">
           <button onClick={onNovo} className="btn-primary btn-sm">+ Novo documento</button>
         </div>

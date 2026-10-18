@@ -7,6 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Rotulos e artigos em src/data/basesLegais.json. Valores existentes nunca
+// sao renomeados nem removidos; os novos entram no fim.
 enum BaseLegal {
   CONSENTIMENTO
   OBRIGACAO_LEGAL
@@ -16,6 +18,18 @@ enum BaseLegal {
   TUTELA_SAUDE
   INTERESSE_PUBLICO
   EXERCICIO_DIREITOS
+  // Etapa 6b: art. 7, IV e X
+  ESTUDOS_PESQUISA
+  PROTECAO_CREDITO
+  // Etapa 6b: art. 11 (dados sensiveis)
+  SENSIVEL_CONSENTIMENTO
+  SENSIVEL_OBRIGACAO_LEGAL
+  SENSIVEL_POLITICAS_PUBLICAS
+  SENSIVEL_ESTUDOS_PESQUISA
+  SENSIVEL_EXERCICIO_DIREITOS
+  SENSIVEL_PROTECAO_VIDA
+  SENSIVEL_TUTELA_SAUDE
+  SENSIVEL_PREVENCAO_FRAUDE
 }
 
 enum TipoDireito {
@@ -30,6 +44,8 @@ enum TipoDireito {
   OPOSICAO
   PETICAO
   OUTRO
+  // Etapa 6c: art. 18, VIII (informacao sobre a possibilidade de nao consentir)
+  INFORMACAO_NAO_CONSENTIR
 }
 
 enum StatusDSAR {
@@ -100,6 +116,9 @@ enum TipoAlerta {
   CHECKLIST_REVISAO
   INCIDENTE_ABERTO
   ROPA_DESATUALIZADO
+  RETENCAO_VENCIDA
+  // Etapa 6c: prazo de comunicacao do incidente a ANPD e aos titulares
+  INCIDENTE_COMUNICACAO
 }
 
 enum Perfil {
@@ -123,6 +142,20 @@ model Organizacao {
   municipio    String?
   modulosAtivos  String[]   @default(["anonimizador"])
   setoresPesquisa String[]  @default(["Protocolo", "RH", "Financeiro", "Juridico", "Presidencia", "Outro"])
+  // Quando true, usuario sem MFA ativo nao recebe sessao no login: e
+  // levado direto para a configuracao do autenticador.
+  mfaObrigatorio Boolean    @default(false)
+  // Etapa 5 PoC: identificacao do encarregado (art. 41 LGPD) e endereco,
+  // usados na pagina publica de transparencia e nas minutas geradas.
+  // municipio ja existia acima.
+  encarregadoNome     String?
+  encarregadoEmail    String?
+  encarregadoTelefone String?
+  enderecoSede        String?
+  uf                  String?
+  // FAQ da pagina publica: [{ pergunta, resposta }]. null = FAQ padrao
+  // (src/services/faqPadrao.js).
+  faqPortal           Json?
   usuarios       Usuario[]
   documentos     Documento[]
   tratamentos    Tratamento[]
@@ -133,6 +166,20 @@ model Organizacao {
   respostasChecklist RespostaChecklist[]
   alertas        AlertaConformidade[]
   pesquisas      PesquisaSatisfacao[]
+  anexos             Anexo[]
+  historicos         HistoricoRegistro[]
+  setores           Setor[]
+  sistemas           SistemaInventario[]
+  terceiros          Terceiro[]
+  respostasTerceiro  RespostaQuestionarioTerceiro[]
+  acoesTerceiro      AcaoTerceiro[]
+  progressos         ProgressoTreinamento[]
+  certificados       CertificadoTreinamento[]
+  providencias       ProvidenciaIncidente[]
+  descartes          RegistroDescarte[]
+  itensChecklist     ItemChecklist[]
+  metasIndicador     MetaIndicador[]
+  snapshots          SnapshotIndicadores[]
 }
 
 model Usuario {
@@ -146,11 +193,34 @@ model Usuario {
   // mfaAtivo so vira true apos o usuario confirmar o primeiro codigo.
   mfaSecret      String?
   mfaAtivo       Boolean   @default(false)
+  // Etapa 6d: segredo novo enquanto o usuario troca de autenticador (so
+  // vira mfaSecret quando o 1o codigo do novo app e confirmado).
+  mfaSecretPendente String?
+  // Etapa 6d: sobe 1 a cada "zerar MFA"; sessoes emitidas com versao
+  // menor deixam de valer (encerra as sessoes abertas).
+  sessaoVersao   Int       @default(0)
+  // Etapa 7a: senha criada pelo Gestor/Admin vale so para entrar e trocar
+  // (troca obrigatoria no 1o acesso). Usuarios antigos ficam com false.
+  senhaTrocaObrigatoria Boolean @default(false)
+  senhaAlteradaEm       DateTime?
   criadoEm       DateTime  @default(now())
   ultimoAcesso   DateTime?
   deletedAt      DateTime?
   organizacaoId  String
   organizacao    Organizacao @relation(fields: [organizacaoId], references: [id])
+
+  anexosEnviados        Anexo[]
+  historicos            HistoricoRegistro[]
+  incidentesResponsavel Incidente[]         @relation("IncidenteResponsavel")
+  checklistResponsavel  RespostaChecklist[] @relation("ChecklistResponsavel")
+  sistemasResponsavel   SistemaInventario[]            @relation("SistemaResponsavel")
+  acoesTerceiroResp     AcaoTerceiro[]                 @relation("AcaoTerceiroResponsavel")
+  respostasTerceiro     RespostaQuestionarioTerceiro[] @relation("RespostaTerceiroAutor")
+  progressos            ProgressoTreinamento[]
+  certificados          CertificadoTreinamento[]
+  providenciasResp      ProvidenciaIncidente[]         @relation("ProvidenciaResponsavel")
+  descartesResp         RegistroDescarte[]             @relation("DescarteResponsavel")
+  itensChecklistResp    ItemChecklist[]                @relation("ItemChecklistResponsavel")
 }
 
 model Admin {
@@ -203,18 +273,27 @@ model Tratamento {
   nome                String
   finalidade          String
   baseLegal           BaseLegal
+  // Etapa 6b: base do art. 11 quando ha dado sensivel (art. 5, II).
+  baseLegalSensivel   BaseLegal?
   categoriasDados     String[]
   categoriasTitulares String[]
   retencaoDias        Int?
   formaDescarte       String?
   responsavelId       String?
   medidasSeguranca    String?
+  // Etapa 2 PoC: setor responsavel, sistemas usados (N:N via
+  // TratamentoSistema) e meios fora do inventario (papel, arquivo fisico).
+  setorId             String?
+  setor               Setor?      @relation(fields: [setorId], references: [id], onDelete: SetNull)
+  outrosMeios         String?
   ativo               Boolean     @default(true)
   criadoEm            DateTime    @default(now())
   atualizadoEm        DateTime    @updatedAt
 
   compartilhamentos   CompartilhamentoTratamento[]
   historico           TratamentoHistorico[]
+  sistemas            TratamentoSistema[]
+  descartes           RegistroDescarte[]
 
   @@index([organizacaoId, ativo])
 }
@@ -228,6 +307,8 @@ model CompartilhamentoTratamento {
   finalidadeCompartilhamento  String
   paisDestino                 String     @default("Brasil")
   baseLegalTransferencia      String?
+  terceiroId                  String?
+  terceiro                    Terceiro?  @relation(fields: [terceiroId], references: [id], onDelete: SetNull)
 
   @@index([tratamentoId])
 }
@@ -261,6 +342,16 @@ model SolicitacaoTitular {
   dataResposta     DateTime?
   respostaTexto    String?
   responsavelId    String?
+  // Etapa 6c: verificacao de identidade (codigo no e-mail ou registro manual)
+  identidadeVerificadaEm  DateTime?
+  identidadeMetodo        MetodoVerificacaoIdentidade?
+  identidadeObservacao    String?
+  // Etapa 6c: envio da resposta ao titular. Por e-mail (automatico) ou
+  // registrado manualmente por outro meio.
+  respostaEnviadaEmailEm  DateTime?
+  respostaEnvioMeio       String?
+  respostaEnvioData       DateTime?
+  respostaEnvioObservacao String?
   criadoEm         DateTime    @default(now())
   atualizadoEm     DateTime    @updatedAt
 
@@ -318,6 +409,10 @@ model DocumentoRepositorio {
   status         StatusDocRepo @default(RASCUNHO)
   autorId        String?
   tags           String[]
+  // Etapa 7b: exclusao logica (o documento e o historico ficam guardados)
+  excluidoEm     DateTime?
+  excluidoPorId  String?
+  motivoExclusao String?
   criadoEm       DateTime      @default(now())
   atualizadoEm   DateTime      @updatedAt
 
@@ -340,6 +435,19 @@ model Incidente {
   descricao       String
   planoAcao       String?
   autorId         String?
+  responsavelId   String?
+  responsavel     Usuario?        @relation("IncidenteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  // Etapa 3 PoC: severidade (reusa Criticidade) e REAL x SIMULADO
+  // (simulado de resposta a incidente, conta para o indicador).
+  severidade      Criticidade?
+  tipoRegistro    TipoRegistroIncidente @default(REAL)
+  providencias    ProvidenciaIncidente[]
+  // Etapa 6c: data em que a camara tomou ciencia, avaliacao de risco e
+  // datas de comunicacao. Datas puras (meia-noite UTC).
+  dataCiencia               DateTime?
+  riscoRelevante            RiscoRelevanteIncidente?
+  dataComunicacaoANPD       DateTime?
+  dataComunicacaoTitulares  DateTime?
   criadoEm        DateTime        @default(now())
   atualizadoEm    DateTime        @updatedAt
 
@@ -359,6 +467,16 @@ model ItemChecklist {
   criticidade         Criticidade
   evidenciaRequerida  EvidenciaRequerida
   respostas           RespostaChecklist[]
+  // Etapa 3 PoC: organizacaoId null = catalogo global; preenchido =
+  // atividade propria daquela organizacao (com responsavel e prazo).
+  organizacaoId       String?
+  organizacao         Organizacao?       @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
+  responsavelId       String?
+  responsavel         Usuario?           @relation("ItemChecklistResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  prazo               DateTime?
+  criadoEm            DateTime?          @default(now())
+
+  @@index([organizacaoId])
 }
 
 model RespostaChecklist {
@@ -372,6 +490,8 @@ model RespostaChecklist {
   evidenciaUrl    String?
   evidenciaHash   String?
   validadoPor     String?
+  responsavelId   String?
+  responsavel     Usuario?       @relation("ChecklistResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
   proximaRevisao  DateTime?
   criadoEm        DateTime       @default(now())
   atualizadoEm    DateTime       @updatedAt
@@ -444,6 +564,8 @@ model TrilhaOverride {
   moduloId   String
   youtubeId  String
   titulo     String?
+  // Etapa 6c: link opcional para material complementar externo
+  linkComplementar String?
   atualizadoEm DateTime @updatedAt
 
   @@unique([trilhaId, moduloId])
@@ -476,4 +598,383 @@ model PesquisaSatisfacao {
   @@index([organizacaoId, criadoEm])
   @@index([organizacaoId, avaliacao])
   @@index([organizacaoId, setor])
+}
+
+// ============ Anexos e historico genericos ============
+// Usados por qualquer modulo. "entidade" + "registroId" apontam para o
+// registro dono (ex.: TRATAMENTO + id do tratamento). A lista de
+// entidades validas fica em src/services/entidades.js.
+
+model Anexo {
+  id             String      @id @default(cuid())
+  organizacaoId  String
+  organizacao    Organizacao @relation(fields: [organizacaoId], references: [id])
+  entidade       String
+  registroId     String
+  nomeArquivo    String
+  mimeType       String
+  tamanho        Int
+  conteudo       Bytes
+  hashSha256     String
+  enviadoPorId   String
+  enviadoPor     Usuario     @relation(fields: [enviadoPorId], references: [id])
+  criadoEm       DateTime    @default(now())
+
+  @@index([organizacaoId, entidade, registroId])
+}
+
+enum AcaoHistorico {
+  CRIAR
+  EDITAR
+  EXCLUIR
+  STATUS
+}
+
+// diff: { campo: { antes, depois } }. Campos sensiveis ficam fora
+// (ver CAMPOS_IGNORADOS / CAMPOS_OMITIDOS em src/services/historico.js).
+// usuarioId null = acao sem usuario logado (ex.: DSAR pelo canal publico).
+model HistoricoRegistro {
+  id             String        @id @default(cuid())
+  organizacaoId  String
+  organizacao    Organizacao   @relation(fields: [organizacaoId], references: [id])
+  entidade       String
+  registroId     String
+  acao           AcaoHistorico
+  usuarioId      String?
+  usuario        Usuario?      @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  diff           Json
+  criadoEm       DateTime      @default(now())
+
+  @@index([organizacaoId, entidade, registroId, criadoEm])
+}
+
+// ============ Etapa 2 PoC: setores, inventario e terceiros ============
+
+model Setor {
+  id            String       @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao  @relation(fields: [organizacaoId], references: [id])
+  nome          String
+  ativo         Boolean      @default(true)
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+  tratamentos   Tratamento[]
+
+  @@unique([organizacaoId, nome])
+}
+
+enum TipoSistema {
+  APLICACAO
+  BANCO_DADOS
+  NUVEM
+  FISICO
+  OUTRO
+}
+
+enum TipoHospedagem {
+  ON_PREMISE
+  NUVEM
+}
+
+model SistemaInventario {
+  id                     String              @id @default(cuid())
+  organizacaoId          String
+  organizacao            Organizacao         @relation(fields: [organizacaoId], references: [id])
+  nome                   String
+  tipo                   TipoSistema
+  finalidade             String?
+  responsavelId          String?
+  responsavel            Usuario?            @relation("SistemaResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  terceiroId             String?
+  terceiro               Terceiro?           @relation(fields: [terceiroId], references: [id], onDelete: SetNull)
+  categoriasDados        String[]
+  formasCompartilhamento String?
+  tipoHospedagem         TipoHospedagem?
+  paisHospedagem         String?
+  regiaoHospedagem       String?
+  ativo                  Boolean             @default(true)
+  criadoEm               DateTime            @default(now())
+  atualizadoEm           DateTime            @updatedAt
+
+  integracoesSaida       IntegracaoSistema[] @relation("IntegracaoOrigem")
+  integracoesEntrada     IntegracaoSistema[] @relation("IntegracaoDestino")
+  tratamentos            TratamentoSistema[]
+
+  @@index([organizacaoId, ativo])
+}
+
+// Integracao entre sistemas. Gravada a partir do sistema de origem; a
+// tela mostra as duas direcoes.
+model IntegracaoSistema {
+  origemId  String
+  origem    SistemaInventario @relation("IntegracaoOrigem", fields: [origemId], references: [id], onDelete: Cascade)
+  destinoId String
+  destino   SistemaInventario @relation("IntegracaoDestino", fields: [destinoId], references: [id], onDelete: Cascade)
+
+  @@id([origemId, destinoId])
+  @@index([destinoId])
+}
+
+model TratamentoSistema {
+  tratamentoId String
+  tratamento   Tratamento        @relation(fields: [tratamentoId], references: [id], onDelete: Cascade)
+  sistemaId    String
+  sistema      SistemaInventario @relation(fields: [sistemaId], references: [id], onDelete: Cascade)
+
+  @@id([tratamentoId, sistemaId])
+  @@index([sistemaId])
+}
+
+enum PapelTerceiro {
+  OPERADOR
+  CONTROLADOR_CONJUNTO
+  SUBOPERADOR
+}
+
+enum RiscoTerceiro {
+  BAIXO
+  MEDIO
+  ALTO
+}
+
+enum RespostaQuestionario {
+  SIM
+  PARCIAL
+  NAO
+  NA
+}
+
+enum SituacaoAcao {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDA
+}
+
+// risco: calculado pelo questionario (src/services/questionarioTerceiro.js)
+// ou definido manualmente (riscoManual + riscoJustificativa). null =
+// ainda nao avaliado.
+model Terceiro {
+  id                  String                         @id @default(cuid())
+  organizacaoId       String
+  organizacao         Organizacao                    @relation(fields: [organizacaoId], references: [id])
+  razaoSocial         String
+  cnpj                String?
+  contatoNome         String?
+  contatoEmail        String?
+  papel               PapelTerceiro                  @default(OPERADOR)
+  descricaoServico    String?
+  contratoVigente     Boolean                        @default(false)
+  contratoCritico     Boolean                        @default(false)
+  aditivoLgpdAssinado Boolean                        @default(false)
+  dataAditivo         DateTime?
+  risco               RiscoTerceiro?
+  riscoManual         Boolean                        @default(false)
+  riscoJustificativa  String?
+  ativo               Boolean                        @default(true)
+  criadoEm            DateTime                       @default(now())
+  atualizadoEm        DateTime                       @updatedAt
+
+  respostas           RespostaQuestionarioTerceiro[]
+  acoes               AcaoTerceiro[]
+  sistemas            SistemaInventario[]
+  compartilhamentos   CompartilhamentoTratamento[]
+
+  @@index([organizacaoId, ativo])
+  @@index([organizacaoId, risco])
+}
+
+// Uma linha por pergunta (perguntaId do questionario fixo no codigo).
+// Reenvio atualiza a linha; o HistoricoRegistro do terceiro guarda o
+// antes/depois de cada resposta.
+model RespostaQuestionarioTerceiro {
+  id              String               @id @default(cuid())
+  organizacaoId   String
+  organizacao     Organizacao          @relation(fields: [organizacaoId], references: [id])
+  terceiroId      String
+  terceiro        Terceiro             @relation(fields: [terceiroId], references: [id], onDelete: Cascade)
+  perguntaId      String
+  resposta        RespostaQuestionario
+  observacao      String?
+  respondidoPorId String
+  respondidoPor   Usuario              @relation("RespostaTerceiroAutor", fields: [respondidoPorId], references: [id])
+  respondidoEm    DateTime             @default(now())
+
+  @@unique([terceiroId, perguntaId])
+}
+
+model AcaoTerceiro {
+  id            String       @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao  @relation(fields: [organizacaoId], references: [id])
+  terceiroId    String
+  terceiro      Terceiro     @relation(fields: [terceiroId], references: [id], onDelete: Cascade)
+  descricao     String
+  responsavelId String?
+  responsavel   Usuario?     @relation("AcaoTerceiroResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  prazo         DateTime?
+  situacao      SituacaoAcao @default(PENDENTE)
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+
+  @@index([terceiroId])
+  @@index([organizacaoId, situacao])
+}
+
+// ============ Etapa 3 PoC: treinamento, incidentes, descarte ============
+
+// Um registro por modulo concluido. Trilha concluida = todos os modulos
+// da trilha (TRILHAS_BASE em routes/treinamento.js) com registro.
+model ProgressoTreinamento {
+  id            String      @id @default(cuid())
+  usuarioId     String
+  usuario       Usuario     @relation(fields: [usuarioId], references: [id])
+  organizacaoId String
+  organizacao   Organizacao @relation(fields: [organizacaoId], references: [id])
+  trilhaId      String
+  moduloId      String
+  concluidoEm   DateTime    @default(now())
+
+  @@unique([usuarioId, trilhaId, moduloId])
+  @@index([organizacaoId, trilhaId])
+}
+
+// Emitido quando a trilha e concluida. Guarda copia de nome/trilha/carga
+// para o certificado continuar verificavel mesmo se o conteudo mudar.
+// codigo e o que vai impresso no PDF e na verificacao publica.
+model CertificadoTreinamento {
+  id               String      @id @default(cuid())
+  codigo           String      @unique
+  usuarioId        String
+  usuario          Usuario     @relation(fields: [usuarioId], references: [id])
+  organizacaoId    String
+  organizacao      Organizacao @relation(fields: [organizacaoId], references: [id])
+  trilhaId         String
+  trilhaTitulo     String
+  nomeUsuario      String
+  nomeOrganizacao  String
+  cargaHorariaMin  Int
+  concluidoEm      DateTime
+  emitidoEm        DateTime    @default(now())
+
+  @@unique([usuarioId, trilhaId])
+}
+
+enum RiscoRelevanteIncidente {
+  SIM
+  NAO
+  EM_AVALIACAO
+}
+
+enum MetodoVerificacaoIdentidade {
+  CODIGO_EMAIL
+  DOCUMENTO
+  CODIGO
+  OUTRO
+}
+
+// Etapa 6c: cada tentativa de questionario de um modulo de treinamento.
+// Sem relacoes (registro de auditoria): ids gravados como texto.
+// Etapa 7a: "esqueci minha senha". Guarda so o hash SHA-256 do token do
+// link; uso unico; vale 30 minutos. Sem relacao (registro de auditoria).
+model TokenRecuperacaoSenha {
+  id         String    @id @default(cuid())
+  usuarioId  String
+  tokenHash  String    @unique
+  expiraEm   DateTime
+  usadoEm    DateTime?
+  criadoEm   DateTime  @default(now())
+
+  @@index([usuarioId])
+}
+
+model TentativaQuizTreinamento {
+  id            String   @id @default(cuid())
+  usuarioId     String
+  organizacaoId String
+  trilhaId      String
+  moduloId      String
+  respostas     Json
+  acertos       Int
+  total         Int
+  aprovado      Boolean
+  criadoEm      DateTime @default(now())
+
+  @@index([usuarioId, trilhaId, moduloId])
+  @@index([organizacaoId])
+}
+
+enum TipoRegistroIncidente {
+  REAL
+  SIMULADO
+}
+
+model ProvidenciaIncidente {
+  id            String      @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao @relation(fields: [organizacaoId], references: [id])
+  incidenteId   String
+  incidente     Incidente   @relation(fields: [incidenteId], references: [id], onDelete: Cascade)
+  descricao     String
+  data          DateTime
+  responsavelId String?
+  responsavel   Usuario?    @relation("ProvidenciaResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  criadoPorId   String?
+  criadoEm      DateTime    @default(now())
+
+  @@index([incidenteId])
+}
+
+// Registro de descarte de dados de um tratamento do ROPA. O prazo de
+// retencao volta a contar da dataDescarte mais recente (alerta
+// RETENCAO_VENCIDA em routes/conformidade.js).
+model RegistroDescarte {
+  id            String      @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao @relation(fields: [organizacaoId], references: [id])
+  tratamentoId  String
+  tratamento    Tratamento  @relation(fields: [tratamentoId], references: [id])
+  dataDescarte  DateTime
+  descricao     String
+  quantidade    Int?
+  metodo        String
+  responsavelId String?
+  responsavel   Usuario?    @relation("DescarteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  criadoPorId   String?
+  criadoEm      DateTime    @default(now())
+
+  @@index([organizacaoId, tratamentoId])
+}
+
+// ============ Etapa 4 PoC: painel de indicadores ============
+
+// Meta (%) por indicador e organizacao. Sem linha = meta padrao do codigo
+// (METAS_PADRAO em src/services/indicadores.js). Incidentes nao tem meta
+// percentual (regra fixa: simulado nos ultimos 12 meses).
+// indicador: ROPA | CONTRATOS | TREINAMENTOS | DSAR
+model MetaIndicador {
+  id              String      @id @default(cuid())
+  organizacaoId   String
+  organizacao     Organizacao @relation(fields: [organizacaoId], references: [id])
+  indicador       String
+  percentualMeta  Int
+  atualizadoPorId String?
+  atualizadoEm    DateTime    @updatedAt
+
+  @@unique([organizacaoId, indicador])
+}
+
+// Foto mensal dos indicadores. mesReferencia = "AAAA-MM". Um por mes e
+// organizacao: o cron do dia 1 (mes anterior) sobrescreve a foto manual.
+// origem: CRON | MANUAL
+model SnapshotIndicadores {
+  id            String      @id @default(cuid())
+  organizacaoId String
+  organizacao   Organizacao @relation(fields: [organizacaoId], references: [id])
+  mesReferencia String
+  valores       Json
+  origem        String
+  geradoPorId   String?
+  geradoEm      DateTime    @default(now())
+
+  @@unique([organizacaoId, mesReferencia])
 }

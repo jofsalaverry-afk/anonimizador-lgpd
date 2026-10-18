@@ -1,24 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { BotoesExportar, BotaoPdfA } from './download';
+import { ROTULO_BASE_LEGAL as BASE_LEGAL_LABEL, ROTULO_CAMPO_BASE_LEGAL, normalizarCategorias } from '../basesLegais';
 
-const BASE_LEGAL_LABEL = {
-  CONSENTIMENTO: 'Consentimento',
-  OBRIGACAO_LEGAL: 'Obrigação Legal',
-  EXECUCAO_CONTRATO: 'Execução de Contrato',
-  INTERESSE_LEGITIMO: 'Interesse Legítimo',
-  PROTECAO_VIDA: 'Proteção à Vida',
-  TUTELA_SAUDE: 'Tutela da Saúde',
-  INTERESSE_PUBLICO: 'Interesse Público',
-  EXERCICIO_DIREITOS: 'Exercício de Direitos'
-};
-
-export default function RopaList({ token, onNovo, onVer, onEditar }) {
+export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial }) {
   const [tratamentos, setTratamentos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [filtroBase, setFiltroBase] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState('todos');
+  const doPainel = ['nao-mapeados', 'sem-setor-sistema'].includes(filtroInicial?.filtro);
+  const [filtroStatus, setFiltroStatus] = useState(doPainel ? 'ativo' : 'todos');
+  // Vindo do painel: so os nao mapeados (mesma regra do indicador) ou,
+  // Etapa 7b, so os pendentes por falta de setor ou sistema
+  const [filtroMapeamento, setFiltroMapeamento] = useState(filtroInicial?.filtro === 'nao-mapeados' ? 'nao' : filtroInicial?.filtro === 'sem-setor-sistema' ? 'sem-setor-sistema' : '');
 
   const carregar = useCallback(async () => {
     try {
@@ -68,9 +63,12 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
   };
 
   const filtrados = tratamentos.filter(t => {
-    if (filtroBase && t.baseLegal !== filtroBase) return false;
+    if (filtroBase && t.baseLegal !== filtroBase && t.baseLegalSensivel !== filtroBase) return false;
     if (filtroStatus === 'ativo' && !t.ativo) return false;
     if (filtroStatus === 'inativo' && t.ativo) return false;
+    if (filtroMapeamento === 'sim' && !t.mapeado) return false;
+    if (filtroMapeamento === 'nao' && t.mapeado) return false;
+    if (filtroMapeamento === 'sem-setor-sistema' && !(t.pendenciasMapeamento || []).some(p => p === 'setor' || p === 'sistemas ou outros meios')) return false;
     return true;
   });
 
@@ -79,10 +77,11 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Mapeamento ROPA</h2>
         <div className="btn-row">
           <button onClick={() => exportar('csv')} className="btn-secondary btn-sm">Exportar CSV</button>
           <button onClick={() => exportar('json')} className="btn-secondary btn-sm">Exportar JSON</button>
+          <BotaoPdfA token={token} tipo="ropa" onErro={setErro} />
+          <BotoesExportar token={token} caminho="/ropa/descartes/export" nome="ropa-descartes" onErro={setErro} rotulo="descartes" />
           <button onClick={onNovo} className="btn-primary btn-sm">+ Novo tratamento</button>
         </div>
       </div>
@@ -91,13 +90,19 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
 
       <div className="filters mb-16">
         <select value={filtroBase} onChange={e => setFiltroBase(e.target.value)}>
-          <option value="">Todas as bases legais</option>
+          <option value="">{ROTULO_CAMPO_BASE_LEGAL}: todas</option>
           {Object.entries(BASE_LEGAL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
           <option value="todos">Todos</option>
           <option value="ativo">Ativos</option>
           <option value="inativo">Inativos</option>
+        </select>
+        <select value={filtroMapeamento} onChange={e => setFiltroMapeamento(e.target.value)}>
+          <option value="">Mapeamento: todos</option>
+          <option value="sim">Mapeamento completo</option>
+          <option value="nao">Não mapeados</option>
+          <option value="sem-setor-sistema">Sem setor ou sem sistema</option>
         </select>
       </div>
 
@@ -113,7 +118,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
               <tr>
                 <th>Nome</th>
                 <th>Finalidade</th>
-                <th>Base Legal</th>
+                <th>Base legal (LGPD, art. 7º ou art. 11)</th>
                 <th>Titulares</th>
                 <th>Status</th>
                 <th>Ações</th>
@@ -122,12 +127,16 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
             <tbody>
               {filtrados.map(t => (
                 <tr key={t.id}>
-                  <td>{t.nome}</td>
+                  <td>
+                    {t.nome}
+                    {t.ativo && !t.mapeado && <div className="text-xs text-muted" title="Faltam campos para o mapeamento completo">Falta: {(t.pendenciasMapeamento || []).join(', ')}</div>}
+                  </td>
                   <td className="table-cell-truncate">{t.finalidade}</td>
                   <td>
-                    <span className="badge badge-purple">{BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}</span>
+                    <span className="badge badge-purple badge-citacao" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegal] || t.baseLegal}</span>
+                    {t.baseLegalSensivel && <div className="mt-4"><span className="badge badge-purple badge-citacao" style={{ whiteSpace: 'normal' }}>{BASE_LEGAL_LABEL[t.baseLegalSensivel]}</span></div>}
                   </td>
-                  <td className="text-muted">{(t.categoriasTitulares || []).join(', ') || '-'}</td>
+                  <td className="text-muted">{normalizarCategorias(t.categoriasTitulares).join(', ') || '-'}</td>
                   <td>
                     <span className={t.ativo ? 'badge badge-success' : 'badge badge-danger'}>
                       {t.ativo ? 'ativo' : 'inativo'}
@@ -136,7 +145,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar }) {
                   <td>
                     <div className="btn-row">
                       <button onClick={() => onVer(t.id)} className="btn-secondary btn-sm">Ver</button>
-                      <button onClick={() => onEditar(t.id)} className="btn-ghost btn-sm">Editar</button>
+                      <button onClick={() => onEditar(t.id)} className="btn-ghost btn-sm acao-escrita">Editar</button>
                       {t.ativo && <button onClick={() => desativar(t.id)} className="btn-danger btn-sm">Desativar</button>}
                     </div>
                   </td>

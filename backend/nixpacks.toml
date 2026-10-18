@@ -1,5 +1,8 @@
 [phases.setup]
-aptPkgs = ["build-essential", "libcairo2-dev", "libpango1.0-dev", "libjpeg-dev", "libgif-dev", "librsvg2-dev"]
+# ghostscript: conversao dos relatorios para PDF/A-2b (src/services/pdfa.js).
+# No Debian/Ubuntu os perfis ICC vem em /usr/share/color/icc/ghostscript/;
+# se nao forem achados, defina PDFA_ICC_PATH. Conferir em GET /relatorios/pdfa/status.
+aptPkgs = ["build-essential", "libcairo2-dev", "libpango1.0-dev", "libjpeg-dev", "libgif-dev", "librsvg2-dev", "ghostscript"]
 
 [phases.build]
 cmds = ["npm install", "npx prisma generate"]

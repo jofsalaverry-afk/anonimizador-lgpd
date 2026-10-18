@@ -1,11 +1,14 @@
 const express = require('express');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
 const { body } = require('express-validator');
-const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
 const {
-  gerarProtocolo,
+  comProtocoloUnico,
+  ProtocoloIndisponivelError,
   enriquecerSolicitacao,
+  identidadeDe,
+  prazoAPartirDe,
+  erroTextoResposta,
   criarOtpDSAR,
   validarOtpDSAR,
   criarSolicitacaoApartirDeOtp
@@ -13,14 +16,33 @@ const {
 const {
   enviarOTP,
   enviarConfirmacaoSolicitacao,
-  enviarRespostaTitular
+  enviarRespostaTitular,
+  emailConfigurado
 } = require('../services/emailService');
 const { validar, validarEmail, validarCpf, validarCuid, sanitizarTexto, validarEnum } = require('../middlewares/seguranca');
+const { registrarHistorico } = require('../services/historico');
+const { preencherModelo } = require('../services/modeloResposta');
+const { dataPura, fmtData, fmtDataHora, fmtDiaSP, hojeSP, isoDiaSP } = require('../services/datas');
+const R = require('../services/rotulos');
+const { erroLinkEvidencia } = require('../services/textoSeguro');
+const { cpfValido } = require('../services/documentosId');
+const { responderExport } = require('../services/exportadores');
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
-const TIPOS_DIREITO = ['CONFIRMACAO', 'ACESSO', 'CORRECAO', 'ANONIMIZACAO', 'PORTABILIDADE', 'ELIMINACAO', 'INFORMACAO', 'REVOGACAO', 'OPOSICAO', 'PETICAO', 'OUTRO'];
+// Campos da solicitacao que entram no HistoricoRegistro (titularNome/
+// Email/Cpf saem como "[omitido]" — ver services/historico.js).
+function paraHistorico(s) {
+  if (!s) return null;
+  const { evidencias, _count, ...resto } = s;
+  return resto;
+}
+const { prisma } = require('../db');
+
+const TIPOS_DIREITO = ['CONFIRMACAO', 'ACESSO', 'CORRECAO', 'ANONIMIZACAO', 'PORTABILIDADE', 'ELIMINACAO', 'INFORMACAO', 'INFORMACAO_NAO_CONSENTIR', 'REVOGACAO', 'OPOSICAO', 'PETICAO', 'OUTRO'];
+// Verificacao manual de identidade (CODIGO_EMAIL e gravado so pelo canal publico)
+const METODOS_IDENTIDADE = ['DOCUMENTO', 'CODIGO', 'OUTRO'];
+const MEIOS_ENVIO = ['PESSOALMENTE', 'CORREIOS', 'TELEFONE', 'EMAIL_INSTITUCIONAL', 'OUTRO'];
 
 const validadoresSolicitarOtp = [
   validarCuid('organizacaoId', 'body'),
@@ -40,16 +62,8 @@ const validadoresConfirmarOtp = [
 
 // ---------- Middlewares ----------
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 const requireModulo = async (req, res, next) => {
   try {
@@ -110,23 +124,34 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
     if (!titularNome || !titularEmail || !tipoDireito || !descricao) {
       return res.status(400).json({ erro: 'titularNome, titularEmail, tipoDireito e descricao são obrigatórios' });
     }
+    if (!TIPOS_DIREITO.includes(tipoDireito)) return res.status(400).json({ erro: 'Tipo de direito inválido' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(titularEmail).trim())) return res.status(400).json({ erro: 'E-mail do titular inválido' });
+    if (titularCpf && !cpfValido(titularCpf)) return res.status(400).json({ erro: 'CPF inválido: confira os números (dígito verificador não confere)' });
 
-    const protocolo = await gerarProtocolo(req.usuario.organizacaoId);
+    // Etapa 7b: mesma regra do canal publico — o prazo de 15 dias so comeca
+    // quando a identidade do titular for verificada.
     const dataRecebimento = new Date();
-    const dataLimite = new Date(dataRecebimento);
-    dataLimite.setDate(dataLimite.getDate() + 15);
 
-    const sol = await prisma.solicitacaoTitular.create({
-      data: {
-        organizacaoId: req.usuario.organizacaoId,
-        protocolo,
-        titularNome, titularEmail, titularCpf: titularCpf || null,
-        tipoDireito, descricao,
-        dataRecebimento, dataLimite,
-        responsavelId: req.usuario.id
-      },
-      include: { evidencias: true }
-    });
+    // Etapa 7c: protocolo unico no sistema; em conflito, a transacao inteira
+    // e refeita com o numero seguinte
+    const sol = await comProtocoloUnico(req.usuario.organizacaoId, protocolo => prisma.$transaction(async (tx) => {
+      const criada = await tx.solicitacaoTitular.create({
+        data: {
+          organizacaoId: req.usuario.organizacaoId,
+          protocolo,
+          titularNome, titularEmail, titularCpf: titularCpf || null,
+          tipoDireito, descricao,
+          dataRecebimento, dataLimite: null, status: 'AGUARDANDO_VERIFICACAO',
+          responsavelId: req.usuario.id
+        },
+        include: { evidencias: true }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: criada.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null, depois: paraHistorico(criada)
+      });
+      return criada;
+    }));
 
     // Envia confirmacao por email ao titular (fire-and-forget)
     const org = await prisma.organizacao.findUnique({
@@ -143,6 +168,7 @@ router.post('/solicitacoes', authMiddleware, requireModulo, async (req, res) => 
 
     res.status(201).json(enriquecerSolicitacao(sol));
   } catch (err) {
+    if (err instanceof ProtocoloIndisponivelError) return res.status(503).json({ erro: 'Muitos pedidos registrados ao mesmo tempo. Aguarde alguns segundos e tente de novo.' });
     console.error('[POST /dsar/solicitacoes]', err);
     res.status(500).json({ erro: 'Erro ao criar solicitação' });
   }
@@ -160,14 +186,30 @@ router.put('/solicitacoes/:id', authMiddleware, requireModulo, async (req, res) 
     if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
 
     const { status, responsavelId, descricao } = req.body;
-    const sol = await prisma.solicitacaoTitular.update({
-      where: { id: req.params.id },
-      data: {
-        ...(status !== undefined && { status }),
-        ...(responsavelId !== undefined && { responsavelId }),
-        ...(descricao !== undefined && { descricao })
-      },
-      include: { evidencias: true }
+    if (status !== undefined) {
+      if (!['RECEBIDA', 'EM_ANALISE', 'ENCERRADA', 'CANCELADA'].includes(status)) {
+        return res.status(400).json({ erro: 'Situação inválida (a resposta é registrada em "Responder" e a verificação em "Registrar verificação de identidade")' });
+      }
+      if (['RECEBIDA', 'EM_ANALISE'].includes(status) && existente.status === 'AGUARDANDO_VERIFICACAO') {
+        return res.status(400).json({ erro: 'Registre a verificação de identidade antes de iniciar a análise' });
+      }
+    }
+    const sol = await prisma.$transaction(async (tx) => {
+      const atualizada = await tx.solicitacaoTitular.update({
+        where: { id: req.params.id },
+        data: {
+          ...(status !== undefined && { status }),
+          ...(responsavelId !== undefined && { responsavelId }),
+          ...(descricao !== undefined && { descricao })
+        },
+        include: { evidencias: true }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: req.params.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id,
+        antes: paraHistorico(existente), depois: paraHistorico(atualizada)
+      });
+      return atualizada;
     });
 
     res.json(enriquecerSolicitacao(sol));
@@ -189,19 +231,29 @@ router.post('/solicitacoes/:id/evidencias', authMiddleware, requireModulo, async
     if (!tipo || !descricao) {
       return res.status(400).json({ erro: 'tipo e descricao são obrigatórios' });
     }
+    const erroLink = erroLinkEvidencia(arquivoUrl);
+    if (erroLink) return res.status(400).json({ erro: erroLink });
 
     // Hash SHA-256 do conteudo para integridade
     const conteudoHash = descricao + (arquivoUrl || '') + new Date().toISOString();
     const hashSha256 = crypto.createHash('sha256').update(conteudoHash).digest('hex');
 
-    const evidencia = await prisma.evidenciaDSAR.create({
-      data: {
-        solicitacaoId: req.params.id,
-        tipo, descricao,
-        arquivoUrl: arquivoUrl || null,
-        hashSha256,
-        autorId: req.usuario.id
-      }
+    const evidencia = await prisma.$transaction(async (tx) => {
+      const criada = await tx.evidenciaDSAR.create({
+        data: {
+          solicitacaoId: req.params.id,
+          tipo, descricao,
+          arquivoUrl: arquivoUrl || null,
+          hashSha256,
+          autorId: req.usuario.id
+        }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: req.params.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id,
+        diff: { evidencia: { antes: null, depois: `${tipo}: ${descricao}` } }
+      });
+      return criada;
     });
 
     res.status(201).json(evidencia);
@@ -224,36 +276,107 @@ router.post('/solicitacoes/:id/responder', authMiddleware, requireModulo, async 
     if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
 
     const { respostaTexto } = req.body;
-    if (!respostaTexto) return res.status(400).json({ erro: 'respostaTexto é obrigatório' });
+    if (!respostaTexto || !String(respostaTexto).trim()) return res.status(400).json({ erro: 'respostaTexto é obrigatório' });
+    if (['ENCERRADA', 'CANCELADA'].includes(existente.status)) return res.status(400).json({ erro: 'Solicitação encerrada ou cancelada' });
+    // Etapa 7b: nada de resposta sem identidade verificada nem com rascunho
+    if (existente.status === 'AGUARDANDO_VERIFICACAO' || !identidadeDe(existente).verificada) {
+      return res.status(400).json({ erro: 'Registre a verificação de identidade do titular antes de responder (se não houver documento, use "Outro" e descreva na observação como confirmou).' });
+    }
+    const erroTexto = erroTextoResposta(String(respostaTexto));
+    if (erroTexto) return res.status(400).json({ erro: erroTexto });
 
-    const sol = await prisma.solicitacaoTitular.update({
-      where: { id: req.params.id },
-      data: {
-        status: 'RESPONDIDA',
-        respostaTexto,
-        dataResposta: new Date(),
-        responsavelId: req.usuario.id
-      },
-      include: { evidencias: true }
+    const sol = await prisma.$transaction(async (tx) => {
+      const respondida = await tx.solicitacaoTitular.update({
+        where: { id: req.params.id },
+        data: {
+          status: 'RESPONDIDA',
+          respostaTexto,
+          dataResposta: new Date(),
+          responsavelId: req.usuario.id
+        },
+        include: { evidencias: true }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: req.params.id,
+        acao: 'STATUS', usuarioId: req.usuario.id,
+        antes: paraHistorico(existente), depois: paraHistorico(respondida)
+      });
+      return respondida;
     });
 
-    // Envia resposta por email ao titular (fire-and-forget)
+    // Envia a resposta por e-mail e registra se saiu (Etapa 6c). Sem SMTP
+    // configurado (devMode) ou com falha: fica "não enviada por e-mail" e a
+    // tela pede o registro do envio por outro meio.
     const org = await prisma.organizacao.findUnique({
       where: { id: req.usuario.organizacaoId },
       select: { nome: true }
     });
-    enviarRespostaTitular({
-      to: sol.titularEmail,
-      titularNome: sol.titularNome,
-      protocolo: sol.protocolo,
-      respostaTexto,
-      orgNome: org?.nome || 'Organização'
-    }).catch(e => console.error('[dsar] falha email resposta:', e.message));
+    let enviadoEm = null;
+    try {
+      const r = await Promise.race([
+        enviarRespostaTitular({
+          to: sol.titularEmail, titularNome: sol.titularNome, protocolo: sol.protocolo,
+          respostaTexto, orgNome: org?.nome || 'Organização'
+        }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('tempo esgotado')), 15000))
+      ]);
+      if (r && !r.devMode) enviadoEm = new Date();
+    } catch (e) {
+      console.error('[dsar] falha email resposta:', e.message);
+    }
+    let final = sol;
+    if (enviadoEm) {
+      final = await prisma.$transaction(async (tx) => {
+        const u = await tx.solicitacaoTitular.update({ where: { id: sol.id }, data: { respostaEnviadaEmailEm: enviadoEm }, include: { evidencias: true } });
+        await registrarHistorico(tx, {
+          organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: sol.id, acao: 'EDITAR', usuarioId: req.usuario.id,
+          diff: { envioResposta: { antes: null, depois: `Enviada por e-mail em ${fmtDataHora(enviadoEm)}` } }
+        });
+        return u;
+      });
+    }
 
-    res.json(enriquecerSolicitacao(sol));
+    res.json(enriquecerSolicitacao(final));
   } catch (err) {
     console.error('[POST /dsar/solicitacoes/:id/responder]', err);
     res.status(500).json({ erro: 'Erro ao responder solicitação' });
+  }
+});
+
+// POST /dsar/solicitacoes/:id/envio { meio, data, observacao } — registra
+// o envio da resposta por outro meio (quando nao saiu por e-mail).
+router.post('/solicitacoes/:id/envio', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!['GESTOR', 'ENCARREGADO_LGPD'].includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Apenas Gestor ou DPO registram o envio' });
+    }
+    const existente = await prisma.solicitacaoTitular.findFirst({ where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId } });
+    if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
+    if (!existente.dataResposta) return res.status(400).json({ erro: 'Registre a resposta antes do envio' });
+    const { meio, data, observacao } = req.body || {};
+    if (!MEIOS_ENVIO.includes(meio)) return res.status(400).json({ erro: 'Meio de envio inválido' });
+    const quando = data ? dataPura(data) : hojeSP();
+    if (!quando) return res.status(400).json({ erro: 'Data inválida (use AAAA-MM-DD)' });
+    if (quando > hojeSP()) return res.status(400).json({ erro: 'A data do envio não pode ser futura' });
+    if (quando < dataPura(isoDiaSP(existente.dataResposta))) return res.status(400).json({ erro: 'A data do envio não pode ser anterior à resposta' });
+    const obs = typeof observacao === 'string' ? observacao.trim().slice(0, 1000) : '';
+    if (meio === 'OUTRO' && !obs) return res.status(400).json({ erro: 'Descreva o meio de envio na observação' });
+    const sol = await prisma.$transaction(async (tx) => {
+      const u = await tx.solicitacaoTitular.update({
+        where: { id: existente.id },
+        data: { respostaEnvioMeio: meio, respostaEnvioData: quando, respostaEnvioObservacao: obs || null },
+        include: { evidencias: true }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: existente.id, acao: 'EDITAR', usuarioId: req.usuario.id,
+        diff: { envioResposta: { antes: null, depois: `${R.MEIO_ENVIO[meio]} em ${fmtData(quando)}${obs ? ' — ' + obs : ''}` } }
+      });
+      return u;
+    });
+    res.json(enriquecerSolicitacao(sol));
+  } catch (err) {
+    console.error('[POST /dsar/solicitacoes/:id/envio]', err);
+    res.status(500).json({ erro: 'Erro ao registrar envio' });
   }
 });
 
@@ -270,24 +393,26 @@ router.patch('/solicitacoes/:id/verificar-identidade', authMiddleware, requireMo
     });
     if (!existente) return res.status(404).json({ erro: 'Solicitação não encontrada' });
 
-    if (existente.status !== 'AGUARDANDO_VERIFICACAO') {
-      return res.status(400).json({
-        erro: `Verificação permitida apenas para status "AGUARDANDO_VERIFICACAO" (atual: "${existente.status}").`
-      });
+    if (['ENCERRADA', 'CANCELADA'].includes(existente.status)) {
+      return res.status(400).json({ erro: 'Solicitação encerrada ou cancelada: não é possível registrar verificação' });
     }
 
-    const { observacao } = req.body;
+    const { observacao } = req.body || {};
+    const metodo = req.body?.metodo || 'DOCUMENTO';
+    if (!METODOS_IDENTIDADE.includes(metodo)) return res.status(400).json({ erro: 'Método inválido (DOCUMENTO, CODIGO ou OUTRO)' });
+    const obs = typeof observacao === 'string' ? observacao.trim().slice(0, 1000) : '';
+    if (metodo === 'OUTRO' && !obs) return res.status(400).json({ erro: 'Descreva na observação como a identidade foi verificada' });
+    const aguardando = existente.status === 'AGUARDANDO_VERIFICACAO';
     const agora = new Date();
-    const dataLimite = new Date(agora);
-    dataLimite.setDate(dataLimite.getDate() + 15);
+    const dataLimite = prazoAPartirDe(agora);
 
-    const descricaoEvidencia = `Identidade do titular verificada${observacao ? ': ' + observacao : ''}`;
+    const descricaoEvidencia = `Identidade do titular verificada por ${R.METODO_IDENTIDADE[metodo]}${obs ? ': ' + obs : ''}`;
     const hashSha256 = crypto.createHash('sha256')
       .update(descricaoEvidencia + agora.toISOString())
       .digest('hex');
 
-    const [, sol] = await prisma.$transaction([
-      prisma.evidenciaDSAR.create({
+    const sol = await prisma.$transaction(async (tx) => {
+      await tx.evidenciaDSAR.create({
         data: {
           solicitacaoId: req.params.id,
           tipo: 'VERIFICACAO_IDENTIDADE',
@@ -295,22 +420,183 @@ router.patch('/solicitacoes/:id/verificar-identidade', authMiddleware, requireMo
           hashSha256,
           autorId: req.usuario.id
         }
-      }),
-      prisma.solicitacaoTitular.update({
+      });
+      const verificada = await tx.solicitacaoTitular.update({
         where: { id: req.params.id },
         data: {
-          status: 'EM_ANALISE',
-          dataLimite,
-          responsavelId: req.usuario.id
+          identidadeVerificadaEm: agora, identidadeMetodo: metodo, identidadeObservacao: obs || null,
+          ...(aguardando && { status: 'EM_ANALISE', dataLimite, responsavelId: req.usuario.id })
         },
         include: { evidencias: true }
-      })
-    ]);
+      });
+      const diff = {
+        verificacaoIdentidade: { antes: null, depois: descricaoEvidencia },
+        ...(aguardando && {
+          status: { antes: existente.status, depois: 'EM_ANALISE' },
+          dataLimite: { antes: existente.dataLimite ? existente.dataLimite.toISOString() : null, depois: dataLimite.toISOString() }
+        })
+      };
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: req.params.id,
+        acao: 'STATUS', usuarioId: req.usuario.id, diff
+      });
+      return verificada;
+    });
 
     res.json(enriquecerSolicitacao(sol));
   } catch (err) {
     console.error('[PATCH /dsar/solicitacoes/:id/verificar-identidade]', err);
     res.status(500).json({ erro: 'Erro ao verificar identidade' });
+  }
+});
+
+// GET /dsar/export?formato=csv|json — contem dados pessoais dos titulares:
+// so Gestor, DPO ou Auditor.
+router.get('/export', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!['GESTOR', 'ENCARREGADO_LGPD', 'AUDITOR'].includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Apenas Gestor, DPO ou Auditor exportam solicitações de titulares' });
+    }
+    await responderExport(res, prisma, 'dsar', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /dsar/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar solicitações' });
+  }
+});
+
+// ---------- Modelos de resposta (Etapa 3 PoC) ----------
+// Leitura para todos com o modulo; escrita so Gestor/DPO.
+
+function lerModelo(b, { parcial }) {
+  const data = {};
+  if (!parcial || b.tipoDireito !== undefined) {
+    if (!TIPOS_DIREITO.includes(b.tipoDireito)) return { erro: 'Tipo de direito inválido' };
+    data.tipoDireito = b.tipoDireito;
+  }
+  for (const [campo, max] of [['titulo', 200], ['conteudo', 20000]]) {
+    if (!parcial || b[campo] !== undefined) {
+      const v = typeof b[campo] === 'string' ? b[campo].trim() : '';
+      if (!v) return { erro: `${campo === 'titulo' ? 'Título' : 'Conteúdo'} é obrigatório` };
+      data[campo] = v.slice(0, max);
+    }
+  }
+  if (b.padrao !== undefined) data.padrao = !!b.padrao;
+  return { data };
+}
+
+const ehGestorOuDpo = req => ['GESTOR', 'ENCARREGADO_LGPD'].includes(req.usuario.perfil);
+
+// "conteudo" e ignorado pelo diff generico (pensado para arquivo/documento).
+// O texto do modelo nao tem dado pessoal e precisa aparecer no historico.
+function modeloParaHistorico(m) {
+  if (!m) return null;
+  const { conteudo, ...resto } = m;
+  return { ...resto, texto: conteudo };
+}
+
+router.get('/modelos', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    const where = { organizacaoId: req.usuario.organizacaoId };
+    if (TIPOS_DIREITO.includes(req.query.tipoDireito)) where.tipoDireito = req.query.tipoDireito;
+    const modelos = await prisma.modeloRespostaDSAR.findMany({ where, orderBy: [{ tipoDireito: 'asc' }, { titulo: 'asc' }] });
+    res.json(modelos);
+  } catch (err) {
+    console.error('[GET /dsar/modelos]', err);
+    res.status(500).json({ erro: 'Erro ao listar modelos' });
+  }
+});
+
+router.post('/modelos', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!ehGestorOuDpo(req)) return res.status(403).json({ erro: 'Apenas Gestor ou DPO podem cadastrar modelos' });
+    const lido = lerModelo(req.body || {}, { parcial: false });
+    if (lido.erro) return res.status(400).json({ erro: lido.erro });
+    const modelo = await prisma.$transaction(async (tx) => {
+      const criado = await tx.modeloRespostaDSAR.create({ data: { ...lido.data, organizacaoId: req.usuario.organizacaoId } });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'MODELO_DSAR', registroId: criado.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null, depois: modeloParaHistorico(criado)
+      });
+      return criado;
+    });
+    res.status(201).json(modelo);
+  } catch (err) {
+    console.error('[POST /dsar/modelos]', err);
+    res.status(500).json({ erro: 'Erro ao criar modelo' });
+  }
+});
+
+router.put('/modelos/:id', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!ehGestorOuDpo(req)) return res.status(403).json({ erro: 'Apenas Gestor ou DPO podem editar modelos' });
+    const existente = await prisma.modeloRespostaDSAR.findFirst({ where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId } });
+    if (!existente) return res.status(404).json({ erro: 'Modelo não encontrado' });
+    const lido = lerModelo(req.body || {}, { parcial: true });
+    if (lido.erro) return res.status(400).json({ erro: lido.erro });
+    const modelo = await prisma.$transaction(async (tx) => {
+      const atualizado = await tx.modeloRespostaDSAR.update({ where: { id: existente.id }, data: lido.data });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'MODELO_DSAR', registroId: existente.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id, antes: modeloParaHistorico(existente), depois: modeloParaHistorico(atualizado)
+      });
+      return atualizado;
+    });
+    res.json(modelo);
+  } catch (err) {
+    console.error('[PUT /dsar/modelos/:id]', err);
+    res.status(500).json({ erro: 'Erro ao atualizar modelo' });
+  }
+});
+
+// Modelo e texto de apoio (nao e registro do titular): exclusao fisica,
+// com o conteudo final preservado no historico.
+router.delete('/modelos/:id', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    if (!ehGestorOuDpo(req)) return res.status(403).json({ erro: 'Apenas Gestor ou DPO podem excluir modelos' });
+    const existente = await prisma.modeloRespostaDSAR.findFirst({ where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId } });
+    if (!existente) return res.status(404).json({ erro: 'Modelo não encontrado' });
+    await prisma.$transaction(async (tx) => {
+      await tx.modeloRespostaDSAR.delete({ where: { id: existente.id } });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'MODELO_DSAR', registroId: existente.id,
+        acao: 'EXCLUIR', usuarioId: req.usuario.id, antes: modeloParaHistorico(existente), depois: null
+      });
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[DELETE /dsar/modelos/:id]', err);
+    res.status(500).json({ erro: 'Erro ao excluir modelo' });
+  }
+});
+
+// GET /dsar/solicitacoes/:id/modelos/:modeloId/preenchido — texto do
+// modelo com {nome_titular}, {protocolo} e {nome_organizacao} trocados.
+router.get('/solicitacoes/:id/modelos/:modeloId/preenchido', authMiddleware, requireModulo, async (req, res) => {
+  try {
+    const orgId = req.usuario.organizacaoId;
+    const [sol, modelo, org] = await Promise.all([
+      prisma.solicitacaoTitular.findFirst({
+        where: { id: req.params.id, organizacaoId: orgId },
+        select: { titularNome: true, protocolo: true, dataRecebimento: true, evidencias: { select: { tipo: true, descricao: true, criadoEm: true }, orderBy: { criadoEm: 'asc' } } }
+      }),
+      prisma.modeloRespostaDSAR.findFirst({ where: { id: req.params.modeloId, organizacaoId: orgId } }),
+      prisma.organizacao.findUnique({ where: { id: orgId }, select: { nome: true, encarregadoNome: true, encarregadoEmail: true, encarregadoTelefone: true } })
+    ]);
+    if (!sol || !modelo) return res.status(404).json({ erro: 'Solicitação ou modelo não encontrado' });
+    const provs = (sol.evidencias || []).map(e => `- ${fmtDiaSP(e.criadoEm)}: ${e.descricao}`);
+    res.json({
+      texto: preencherModelo(modelo.conteudo, {
+        nome_titular: sol.titularNome, protocolo: sol.protocolo, nome_organizacao: org?.nome,
+        data_pedido: fmtDiaSP(sol.dataRecebimento), data_resposta: fmtDiaSP(new Date()),
+        providencias: provs.length ? provs.join('\n') : '[nenhuma providência registrada — descreva o que foi feito]',
+        encarregado_nome: org?.encarregadoNome || '[nome do encarregado]',
+        encarregado_email: org?.encarregadoEmail || '[e-mail do encarregado]',
+        encarregado_telefone: org?.encarregadoTelefone || '[telefone]'
+      })
+    });
+  } catch (err) {
+    console.error('[GET /dsar/solicitacoes/:id/modelos/:modeloId/preenchido]', err);
+    res.status(500).json({ erro: 'Erro ao preencher modelo' });
   }
 });
 
@@ -355,10 +641,26 @@ router.post('/publico/solicitar-otp', validadoresSolicitarOtp, async (req, res) 
 
     const org = await prisma.organizacao.findUnique({
       where: { id: organizacaoId },
-      select: { id: true, nome: true, ativo: true, modulosAtivos: true }
+      select: { id: true, nome: true, ativo: true, modulosAtivos: true, encarregadoNome: true, encarregadoEmail: true, encarregadoTelefone: true }
     });
     if (!org || !org.ativo) return res.status(404).json({ erro: 'Organização não encontrada' });
     if (!org.modulosAtivos.includes('dsar')) return res.status(403).json({ erro: 'Este serviço não está disponível para esta organização' });
+
+    // Etapa 7a: sem e-mail o titular nao recebe o codigo. Responde erro claro
+    // (nunca "enviado") com o contato do encarregado, para nao ficar preso.
+    const contatoEncarregado = () => {
+      const partes = [org.encarregadoNome, org.encarregadoEmail, org.encarregadoTelefone].filter(Boolean);
+      return partes.length
+        ? ` Você também pode fazer o pedido diretamente ao encarregado: ${partes.join(' — ')}.`
+        : ' Você pode fazer o pedido diretamente à Câmara, pelo protocolo ou pela ouvidoria.';
+    };
+    if (!emailConfigurado()) {
+      return res.status(503).json({
+        erro: `No momento não é possível enviar o código de verificação por e-mail, então o pedido não pode ser concluído por este formulário.${contatoEncarregado()}`,
+        envioIndisponivel: true,
+        encarregado: { nome: org.encarregadoNome || null, email: org.encarregadoEmail || null, telefone: org.encarregadoTelefone || null }
+      });
+    }
 
     const otp = await criarOtpDSAR({
       organizacaoId, email: titularEmail, titularNome, titularCpf, tipoDireito, descricao
@@ -375,7 +677,9 @@ router.post('/publico/solicitar-otp', validadoresSolicitarOtp, async (req, res) 
     } catch (e) {
       console.error('[dsar] falha ao enviar OTP:', e.message);
       return res.status(502).json({
-        erro: 'Não foi possível enviar o código por email. Tente novamente em instantes ou contate o suporte.'
+        erro: `Não foi possível enviar o código por e-mail. Tente novamente em alguns minutos.${contatoEncarregado()}`,
+        envioIndisponivel: true,
+        encarregado: { nome: org.encarregadoNome || null, email: org.encarregadoEmail || null, telefone: org.encarregadoTelefone || null }
       });
     }
 
@@ -401,7 +705,21 @@ router.post('/publico/confirmar-otp', validadoresConfirmarOtp, async (req, res) 
     const otp = await validarOtpDSAR({ email: titularEmail, codigo: String(codigo).trim() });
     if (!otp) return res.status(400).json({ erro: 'Código inválido ou expirado' });
 
-    const sol = await criarSolicitacaoApartirDeOtp(otp);
+    let sol;
+    try {
+      sol = await criarSolicitacaoApartirDeOtp(otp);
+    } catch (e) {
+      // o codigo nao foi consumido: o titular pode confirmar de novo
+      if (e instanceof ProtocoloIndisponivelError) return res.status(503).json({ erro: 'Não foi possível registrar o seu pedido agora. Aguarde alguns segundos e confirme o código de novo.' });
+      throw e;
+    }
+
+    // Historico sem usuario (canal publico). Falha aqui nao pode
+    // derrubar a resposta ao titular — a solicitacao ja foi criada.
+    registrarHistorico(prisma, {
+      organizacaoId: sol.organizacaoId, entidade: 'SOLICITACAO_DSAR', registroId: sol.id,
+      acao: 'CRIAR', usuarioId: null, antes: null, depois: paraHistorico(sol)
+    }).catch(e => console.error('[dsar] falha historico canal publico:', e.message));
 
     // Envia confirmacao da solicitacao oficial
     const org = await prisma.organizacao.findUnique({

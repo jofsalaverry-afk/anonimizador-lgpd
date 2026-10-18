@@ -1,0 +1,117 @@
+{
+  "_comentario": "Fonte unica dos rotulos de base legal (LGPD arts. 7 e 11) e das categorias de dados sensiveis (art. 5, II). Copia identica em frontend/src/basesLegais.json — o teste backend/test/bases-legais.test.js falha se divergirem. Os codigos sao valores do enum BaseLegal no banco: nunca renomear nem remover, so acrescentar. Etapa 6c: categorias de dados/titulares com acento; rotulosLegado converte valores antigos gravados sem acento (exibicao e ao reabrir o formulario).",
+  "art7": [
+    {
+      "codigo": "CONSENTIMENTO",
+      "rotulo": "Art. 7º, I — Consentimento do titular"
+    },
+    {
+      "codigo": "OBRIGACAO_LEGAL",
+      "rotulo": "Art. 7º, II — Cumprimento de obrigação legal ou regulatória pelo controlador"
+    },
+    {
+      "codigo": "INTERESSE_PUBLICO",
+      "rotulo": "Art. 7º, III c/c art. 23 — Execução de políticas públicas pela administração pública"
+    },
+    {
+      "codigo": "ESTUDOS_PESQUISA",
+      "rotulo": "Art. 7º, IV — Realização de estudos por órgão de pesquisa"
+    },
+    {
+      "codigo": "EXECUCAO_CONTRATO",
+      "rotulo": "Art. 7º, V — Execução de contrato ou de procedimentos preliminares relacionados a contrato, a pedido do titular"
+    },
+    {
+      "codigo": "EXERCICIO_DIREITOS",
+      "rotulo": "Art. 7º, VI — Exercício regular de direitos em processo judicial, administrativo ou arbitral"
+    },
+    {
+      "codigo": "PROTECAO_VIDA",
+      "rotulo": "Art. 7º, VII — Proteção da vida ou da incolumidade física do titular ou de terceiro"
+    },
+    {
+      "codigo": "TUTELA_SAUDE",
+      "rotulo": "Art. 7º, VIII — Tutela da saúde, por profissionais de saúde, serviços de saúde ou autoridade sanitária"
+    },
+    {
+      "codigo": "INTERESSE_LEGITIMO",
+      "rotulo": "Art. 7º, IX — Legítimo interesse do controlador ou de terceiro"
+    },
+    {
+      "codigo": "PROTECAO_CREDITO",
+      "rotulo": "Art. 7º, X — Proteção do crédito"
+    }
+  ],
+  "art11": [
+    {
+      "codigo": "SENSIVEL_CONSENTIMENTO",
+      "rotulo": "Art. 11, I — Consentimento específico e destacado do titular, para finalidades específicas"
+    },
+    {
+      "codigo": "SENSIVEL_OBRIGACAO_LEGAL",
+      "rotulo": "Art. 11, II, a — Cumprimento de obrigação legal ou regulatória pelo controlador"
+    },
+    {
+      "codigo": "SENSIVEL_POLITICAS_PUBLICAS",
+      "rotulo": "Art. 11, II, b — Execução de políticas públicas pela administração pública"
+    },
+    {
+      "codigo": "SENSIVEL_ESTUDOS_PESQUISA",
+      "rotulo": "Art. 11, II, c — Realização de estudos por órgão de pesquisa"
+    },
+    {
+      "codigo": "SENSIVEL_EXERCICIO_DIREITOS",
+      "rotulo": "Art. 11, II, d — Exercício regular de direitos, inclusive em contrato e em processo judicial, administrativo e arbitral"
+    },
+    {
+      "codigo": "SENSIVEL_PROTECAO_VIDA",
+      "rotulo": "Art. 11, II, e — Proteção da vida ou da incolumidade física do titular ou de terceiro"
+    },
+    {
+      "codigo": "SENSIVEL_TUTELA_SAUDE",
+      "rotulo": "Art. 11, II, f — Tutela da saúde, por profissionais de saúde, serviços de saúde ou autoridade sanitária"
+    },
+    {
+      "codigo": "SENSIVEL_PREVENCAO_FRAUDE",
+      "rotulo": "Art. 11, II, g — Prevenção à fraude e segurança do titular, nos processos de identificação e autenticação de cadastro em sistemas eletrônicos"
+    }
+  ],
+  "categoriasSensiveis": [
+    "Origem racial ou étnica",
+    "Convicção religiosa",
+    "Opinião política",
+    "Filiação a sindicato ou a organização de caráter religioso, filosófico ou político",
+    "Saúde",
+    "Vida sexual",
+    "Dado genético",
+    "Dado biométrico"
+  ],
+  "categoriasSensiveisLegado": [
+    "Dados de Saude"
+  ],
+  "categoriasDados": [
+    "Nome",
+    "CPF",
+    "RG",
+    "E-mail",
+    "Telefone",
+    "Endereço",
+    "Dados bancários",
+    "Outros"
+  ],
+  "categoriasTitulares": [
+    "Servidores",
+    "Vereadores",
+    "Fornecedores",
+    "Cidadãos",
+    "Menores",
+    "Outros"
+  ],
+  "rotulosLegado": {
+    "Endereco": "Endereço",
+    "Dados Bancarios": "Dados bancários",
+    "Dados de Saude": "Saúde",
+    "Saude": "Saúde",
+    "Cidadaos": "Cidadãos"
+  }
+}

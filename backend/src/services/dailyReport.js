@@ -2,9 +2,8 @@
 // formata payload pronto para envio por email. Idempotente: so le
 // do banco, nao escreve.
 
-const { PrismaClient } = require('@prisma/client');
 
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 function faixaOntem() {
   const ontemInicio = new Date();

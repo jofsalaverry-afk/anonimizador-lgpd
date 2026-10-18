@@ -1,10 +1,77 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const { PrismaClient } = require('@prisma/client');
+const { authUsuario } = require('../middlewares/authUsuario');
+const { registrarHistorico } = require('../services/historico');
+const { responsavelValido } = require('../services/entidades');
+const { responderExport } = require('../services/exportadores');
+const { dataPura, hojeSP, fmtData } = require('../services/datas');
+const { comPrazo, RISCOS } = require('../services/incidentes');
+const { normalizarCategorias } = require('../services/basesLegais');
+const { limparNomeArquivo } = require('../services/textoSeguro');
+
+// Datas puras do incidente: AAAA-MM-DD, gravadas a meia-noite UTC.
+const DATAS_INCIDENTE = ['dataOcorrencia', 'dataCiencia', 'dataComunicacaoANPD', 'dataComunicacaoTitulares'];
+// Le os campos de data/risco presentes no corpo. Retorna { data } ou { erro }.
+function lerDatasIncidente(b) {
+  const data = {};
+  for (const c of DATAS_INCIDENTE) {
+    if (b[c] === undefined) continue;
+    const d = dataPura(b[c]);
+    if (d === undefined) return { erro: `Data inválida em ${c} (use AAAA-MM-DD)` };
+    data[c] = d;
+  }
+  if (b.riscoRelevante !== undefined) {
+    if (b.riscoRelevante && !RISCOS.includes(b.riscoRelevante)) return { erro: 'Risco relevante inválido (SIM, NAO ou EM_AVALIACAO)' };
+    data.riscoRelevante = b.riscoRelevante || null;
+  }
+  // Compatibilidade: "notificadoANPD" passa a refletir a data de comunicacao
+  if (data.dataComunicacaoANPD !== undefined) data.notificadoANPD = !!data.dataComunicacaoANPD;
+  // Etapa 7b: nenhuma data no futuro
+  const hoje = hojeSP();
+  const NOMES = { dataOcorrencia: 'ocorrência', dataCiencia: 'ciência', dataComunicacaoANPD: 'comunicação à ANPD', dataComunicacaoTitulares: 'comunicação aos titulares' };
+  for (const c of DATAS_INCIDENTE) if (data[c] && data[c] > hoje) return { erro: `A data de ${NOMES[c]} não pode ser futura` };
+  if (b.qtdTitulares !== undefined && b.qtdTitulares !== null && b.qtdTitulares !== '') {
+    const n = Number(b.qtdTitulares);
+    if (!Number.isInteger(n) || n < 0) return { erro: 'Titulares afetados: informe um número inteiro, zero ou maior' };
+  }
+  return { data };
+}
+
+// Etapa 7b: a ciencia nao pode ser anterior a ocorrencia (vale para o
+// registro ja salvo + o que chega na edicao).
+function erroOrdemDatas(existente, novos) {
+  const oc = novos.dataOcorrencia !== undefined ? novos.dataOcorrencia : existente?.dataOcorrencia;
+  const ci = novos.dataCiencia !== undefined ? novos.dataCiencia : existente?.dataCiencia;
+  if (oc && ci && new Date(ci) < new Date(oc)) return 'A data de ciência não pode ser anterior à data da ocorrência';
+  for (const c of ['dataComunicacaoANPD', 'dataComunicacaoTitulares']) {
+    const v = novos[c] !== undefined ? novos[c] : existente?.[c];
+    if (oc && v && new Date(v) < new Date(oc)) return 'A data de comunicação não pode ser anterior à data da ocorrência';
+  }
+  return null;
+}
+
+const INCIDENTE_INCLUDE = { responsavel: { select: { id: true, nome: true } } };
+
+// Categorias aceitas no upload (= enum TipoDocRepo). Sem isso, valor
+// invalido virava erro 500 do Prisma.
+const CATEGORIAS_DOC = ['POLITICA', 'TERMO', 'ADITIVO', 'CONTRATO', 'MODELO', 'OUTRO', 'POLITICA_PRIVACIDADE', 'POLITICA_SEGURANCA', 'MODELO_DSAR', 'TERMO_USO'];
+const SEVERIDADES = ['ALTA', 'MEDIA', 'BAIXA'];
+const TIPOS_REGISTRO = ['REAL', 'SIMULADO'];
+
+// Valida severidade/tipoRegistro. Retorna mensagem de erro ou null.
+function erroClassificacao({ severidade, tipoRegistro }) {
+  if (severidade !== undefined && severidade !== null && severidade !== '' && !SEVERIDADES.includes(severidade)) return 'Severidade inválida';
+  if (tipoRegistro !== undefined && !TIPOS_REGISTRO.includes(tipoRegistro)) return 'Tipo de registro inválido (REAL ou SIMULADO)';
+  return null;
+}
+
+function resumoProvidencia(p) {
+  const data = fmtData(p.data);
+  return `${data} — ${p.descricao}${p.responsavel?.nome ? ` (${p.responsavel.nome})` : ''}`;
+}
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 // Upload de arquivos do repositorio: PDF/DOCX, max 20MB. Multer mantem
 // o buffer em memoria porque o arquivo sera salvo em bytea no banco.
@@ -28,19 +95,13 @@ const DOC_SELECT_LISTA = {
   id: true, organizacaoId: true, tipo: true, titulo: true, descricao: true,
   conteudoMd: true, versao: true, status: true, autorId: true, tags: true,
   mimetype: true, nomeArquivo: true, tamanhoBytes: true,
+  excluidoEm: true, excluidoPorId: true, motivoExclusao: true,
   criadoEm: true, atualizadoEm: true
 };
+const ehGestorOuDpo = req => ['GESTOR', 'ENCARREGADO_LGPD'].includes(req.usuario.perfil);
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch (err) {
-    res.status(401).json({ erro: 'Token inválido' });
-  }
-};
+// Auth compartilhado: rejeita tokens intermediarios de MFA (mfaPending/mfaSetup).
+const authMiddleware = authUsuario;
 
 const requireModulo = async (req, res, next) => {
   try {
@@ -63,7 +124,7 @@ router.use(authMiddleware, requireModulo);
 
 router.get('/documentos', async (req, res) => {
   try {
-    const where = { organizacaoId: req.usuario.organizacaoId };
+    const where = { organizacaoId: req.usuario.organizacaoId, excluidoEm: req.query.excluidos === '1' ? { not: null } : null };
     if (req.query.categoria) where.tipo = String(req.query.categoria);
     const docs = await prisma.documentoRepositorio.findMany({
       where,
@@ -113,33 +174,47 @@ router.post('/documentos', async (req, res) => {
   }
 });
 
-// Upload de arquivo (PDF/DOCX ate 20MB). So ENCARREGADO_LGPD pode subir
-// arquivos no fluxo do modulo. O admin sobe pela rota /admin/repositorio.
+// Upload de arquivo (PDF/DOCX ate 20MB). Etapa 7b: Gestor ou DPO; fica no
+// historico do documento. O admin sobe pela rota /admin/repositorio.
 router.post('/upload', uploadArquivo.single('arquivo'), async (req, res) => {
   try {
-    if (req.usuario.perfil !== 'ENCARREGADO_LGPD') {
-      return res.status(403).json({ erro: 'Apenas o DPO (Encarregado LGPD) pode subir arquivos' });
+    if (!ehGestorOuDpo(req)) {
+      return res.status(403).json({ erro: 'Apenas Gestor ou DPO enviam arquivos ao repositório' });
     }
     if (!req.file) return res.status(400).json({ erro: 'Envie um arquivo no campo "arquivo"' });
     const { titulo, descricao, categoria } = req.body;
     if (!titulo || !categoria) {
       return res.status(400).json({ erro: 'titulo e categoria são obrigatórios' });
     }
-    const doc = await prisma.documentoRepositorio.create({
-      data: {
-        organizacaoId: req.usuario.organizacaoId,
-        tipo: categoria,
-        titulo: String(titulo).trim(),
-        descricao: descricao ? String(descricao).trim() : null,
-        arquivo: req.file.buffer,
-        mimetype: req.file.mimetype,
-        nomeArquivo: req.file.originalname,
-        tamanhoBytes: req.file.size,
-        status: 'PUBLICADO',
-        autorId: req.usuario.id,
-        conteudoMd: ''
-      },
-      select: DOC_SELECT_LISTA
+    if (!CATEGORIAS_DOC.includes(categoria)) {
+      return res.status(400).json({ erro: 'Categoria inválida' });
+    }
+    const nomeArquivo = limparNomeArquivo(req.file.originalname);
+    const doc = await prisma.$transaction(async (tx) => {
+      const criado = await tx.documentoRepositorio.create({
+        data: {
+          organizacaoId: req.usuario.organizacaoId,
+          tipo: categoria,
+          titulo: String(titulo).trim().slice(0, 200),
+          descricao: descricao ? String(descricao).trim().slice(0, 1000) : null,
+          arquivo: req.file.buffer,
+          mimetype: req.file.mimetype,
+          nomeArquivo,
+          tamanhoBytes: req.file.size,
+          status: 'PUBLICADO',
+          autorId: req.usuario.id,
+          conteudoMd: ''
+        },
+        select: DOC_SELECT_LISTA
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'DOCUMENTO', registroId: criado.id, acao: 'CRIAR', usuarioId: req.usuario.id,
+        diff: {
+          origem: { antes: null, depois: 'Arquivo enviado ao repositório' }, titulo: { antes: null, depois: criado.titulo },
+          tipo: { antes: null, depois: categoria }, nomeArquivo: { antes: null, depois: nomeArquivo }
+        }
+      });
+      return criado;
     });
     res.status(201).json(doc);
   } catch (err) {
@@ -178,7 +253,7 @@ router.put('/documentos/:id', async (req, res) => {
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
     if (!existente) return res.status(404).json({ erro: 'Documento não encontrado' });
-
+    if (existente.excluidoEm) return res.status(400).json({ erro: 'Documento excluído não pode ser alterado' });
     const { titulo, tipo, conteudoMd, status, tags } = req.body;
     // Incrementa versao se conteudo mudou
     const novaVersao = conteudoMd !== undefined && conteudoMd !== existente.conteudoMd
@@ -211,9 +286,24 @@ router.delete('/documentos/:id', async (req, res) => {
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
     if (!existente) return res.status(404).json({ erro: 'Documento não encontrado' });
-    await prisma.documentoRepositorio.delete({ where: { id: req.params.id } });
+    if (existente.excluidoEm) return res.status(400).json({ erro: 'Documento já excluído' });
+    // Etapa 7b: exclusao LOGICA, com motivo; o arquivo e o historico ficam guardados
+    const motivo = typeof req.body?.motivo === 'string' ? req.body.motivo.trim() : '';
+    if (motivo.length < 3) return res.status(400).json({ erro: 'Informe o motivo da exclusão' });
+    const agora = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.documentoRepositorio.update({
+        where: { id: existente.id },
+        data: { excluidoEm: agora, excluidoPorId: req.usuario.id, motivoExclusao: motivo.slice(0, 500) }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'DOCUMENTO', registroId: existente.id, acao: 'EXCLUIR', usuarioId: req.usuario.id,
+        diff: { motivo: { antes: null, depois: motivo.slice(0, 500) }, titulo: { antes: existente.titulo, depois: null } }
+      });
+    });
     res.json({ ok: true });
   } catch (err) {
+    console.error('[DELETE /repositorio/documentos/:id]', err);
     res.status(500).json({ erro: 'Erro ao excluir documento' });
   }
 });
@@ -222,24 +312,42 @@ router.delete('/documentos/:id', async (req, res) => {
 
 router.get('/incidentes', async (req, res) => {
   try {
+    const where = { organizacaoId: req.usuario.organizacaoId };
+    if (SEVERIDADES.includes(req.query.severidade)) where.severidade = req.query.severidade;
+    if (TIPOS_REGISTRO.includes(req.query.tipoRegistro)) where.tipoRegistro = req.query.tipoRegistro;
     const incidentes = await prisma.incidente.findMany({
-      where: { organizacaoId: req.usuario.organizacaoId },
+      where,
+      include: INCIDENTE_INCLUDE,
       orderBy: { criadoEm: 'desc' }
     });
-    res.json(incidentes);
+    res.json(incidentes.map(i => comPrazo(i)));
   } catch (err) {
     console.error('[GET /repositorio/incidentes]', err);
     res.status(500).json({ erro: 'Erro ao listar incidentes' });
   }
 });
 
+// GET /repositorio/incidentes/export?formato=csv|json (com providencias)
+router.get('/incidentes/export', async (req, res) => {
+  try {
+    await responderExport(res, prisma, 'incidentes', req.usuario.organizacaoId, req.query.formato);
+  } catch (err) {
+    console.error('[GET /repositorio/incidentes/export]', err);
+    res.status(500).json({ erro: 'Erro ao exportar incidentes' });
+  }
+});
+
 router.get('/incidentes/:id', async (req, res) => {
   try {
     const inc = await prisma.incidente.findFirst({
-      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
+      where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId },
+      include: {
+        ...INCIDENTE_INCLUDE,
+        providencias: { include: { responsavel: { select: { id: true, nome: true } } }, orderBy: { data: 'asc' } }
+      }
     });
     if (!inc) return res.status(404).json({ erro: 'Incidente não encontrado' });
-    res.json(inc);
+    res.json(comPrazo(inc));
   } catch (err) {
     res.status(500).json({ erro: 'Erro ao buscar incidente' });
   }
@@ -250,22 +358,43 @@ router.post('/incidentes', async (req, res) => {
     if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
       return res.status(403).json({ erro: 'Sem permissão' });
     }
-    const { titulo, dataOcorrencia, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao } = req.body;
+    const { titulo, dataOcorrencia, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, responsavelId, severidade, tipoRegistro } = req.body;
     if (!titulo || !dataOcorrencia || !tipoIncidente || !descricao) {
       return res.status(400).json({ erro: 'titulo, dataOcorrencia, tipoIncidente e descricao são obrigatórios' });
     }
-    const inc = await prisma.incidente.create({
-      data: {
-        organizacaoId: req.usuario.organizacaoId,
-        titulo, tipoIncidente, descricao,
-        dataOcorrencia: new Date(dataOcorrencia),
-        dadosAfetados: dadosAfetados || [],
-        qtdTitulares: qtdTitulares || 0,
-        planoAcao: planoAcao || null,
-        autorId: req.usuario.id
-      }
+    const erroCls = erroClassificacao({ severidade, tipoRegistro });
+    if (erroCls) return res.status(400).json({ erro: erroCls });
+    const datas = lerDatasIncidente(req.body);
+    if (datas.erro) return res.status(400).json({ erro: datas.erro });
+    if (!datas.data.dataOcorrencia) return res.status(400).json({ erro: 'Data de ocorrência inválida (use AAAA-MM-DD)' });
+    const erroOrdem = erroOrdemDatas(null, datas.data);
+    if (erroOrdem) return res.status(400).json({ erro: erroOrdem });
+    if (!(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
+    const inc = await prisma.$transaction(async (tx) => {
+      const criado = await tx.incidente.create({
+        data: {
+          organizacaoId: req.usuario.organizacaoId,
+          titulo, tipoIncidente, descricao,
+          ...datas.data,
+          dadosAfetados: normalizarCategorias(dadosAfetados),
+          qtdTitulares: Number(qtdTitulares) || 0,
+          planoAcao: planoAcao || null,
+          responsavelId: responsavelId || null,
+          severidade: severidade || null,
+          tipoRegistro: tipoRegistro || 'REAL',
+          autorId: req.usuario.id
+        },
+        include: INCIDENTE_INCLUDE
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'INCIDENTE', registroId: criado.id,
+        acao: 'CRIAR', usuarioId: req.usuario.id, antes: null, depois: criado
+      });
+      return criado;
     });
-    res.status(201).json(inc);
+    res.status(201).json(comPrazo(inc));
   } catch (err) {
     console.error('[POST /repositorio/incidentes]', err);
     res.status(500).json({ erro: 'Erro ao registrar incidente' });
@@ -282,24 +411,85 @@ router.put('/incidentes/:id', async (req, res) => {
     });
     if (!existente) return res.status(404).json({ erro: 'Incidente não encontrado' });
 
-    const { titulo, status, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, notificadoANPD } = req.body;
-    const inc = await prisma.incidente.update({
-      where: { id: req.params.id },
-      data: {
-        ...(titulo !== undefined && { titulo }),
-        ...(status !== undefined && { status }),
-        ...(tipoIncidente !== undefined && { tipoIncidente }),
-        ...(dadosAfetados !== undefined && { dadosAfetados }),
-        ...(qtdTitulares !== undefined && { qtdTitulares }),
-        ...(descricao !== undefined && { descricao }),
-        ...(planoAcao !== undefined && { planoAcao }),
-        ...(notificadoANPD !== undefined && { notificadoANPD })
-      }
+    const { titulo, status, tipoIncidente, dadosAfetados, qtdTitulares, descricao, planoAcao, notificadoANPD, responsavelId, severidade, tipoRegistro } = req.body;
+    const erroCls = erroClassificacao({ severidade, tipoRegistro });
+    if (erroCls) return res.status(400).json({ erro: erroCls });
+    const datas = lerDatasIncidente(req.body);
+    if (datas.erro) return res.status(400).json({ erro: datas.erro });
+    if (datas.data.dataOcorrencia === null) return res.status(400).json({ erro: 'A data de ocorrência é obrigatória' });
+    const erroOrdem = erroOrdemDatas(existente, datas.data);
+    if (erroOrdem) return res.status(400).json({ erro: erroOrdem });
+    if (responsavelId !== undefined && !(await responsavelValido(prisma, responsavelId, req.usuario.organizacaoId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
+    const inc = await prisma.$transaction(async (tx) => {
+      const atualizado = await tx.incidente.update({
+        where: { id: req.params.id },
+        data: {
+          ...(titulo !== undefined && { titulo }),
+          ...(status !== undefined && { status }),
+          ...(tipoIncidente !== undefined && { tipoIncidente }),
+          ...(dadosAfetados !== undefined && { dadosAfetados: normalizarCategorias(dadosAfetados) }),
+          ...(qtdTitulares !== undefined && { qtdTitulares: Number(qtdTitulares) || 0 }),
+          ...(descricao !== undefined && { descricao }),
+          ...(planoAcao !== undefined && { planoAcao }),
+          ...(notificadoANPD !== undefined && datas.data.dataComunicacaoANPD === undefined && { notificadoANPD }),
+          ...datas.data,
+          ...(responsavelId !== undefined && { responsavelId: responsavelId || null }),
+          ...(severidade !== undefined && { severidade: severidade || null }),
+          ...(tipoRegistro !== undefined && { tipoRegistro })
+        },
+        include: INCIDENTE_INCLUDE
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: req.usuario.organizacaoId, entidade: 'INCIDENTE', registroId: req.params.id,
+        acao: 'EDITAR', usuarioId: req.usuario.id, antes: existente, depois: atualizado
+      });
+      return atualizado;
     });
-    res.json(inc);
+    res.json(comPrazo(inc));
   } catch (err) {
     console.error('[PUT /repositorio/incidentes/:id]', err);
     res.status(500).json({ erro: 'Erro ao atualizar incidente' });
+  }
+});
+
+// POST /repositorio/incidentes/:id/providencias { descricao, data, responsavelId }
+router.post('/incidentes/:id/providencias', async (req, res) => {
+  try {
+    if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Sem permissão' });
+    }
+    const orgId = req.usuario.organizacaoId;
+    const inc = await prisma.incidente.findFirst({ where: { id: req.params.id, organizacaoId: orgId } });
+    if (!inc) return res.status(404).json({ erro: 'Incidente não encontrado' });
+    const { descricao, data, responsavelId } = req.body || {};
+    const desc = typeof descricao === 'string' ? descricao.trim() : '';
+    if (!desc) return res.status(400).json({ erro: 'Descreva a providência' });
+    const quando = data ? dataPura(data) : hojeSP();
+    if (!quando) return res.status(400).json({ erro: 'Data inválida (use AAAA-MM-DD)' });
+    if (quando > hojeSP()) return res.status(400).json({ erro: 'A data da providência não pode ser futura' });
+    if (!(await responsavelValido(prisma, responsavelId, orgId))) {
+      return res.status(400).json({ erro: 'Responsável inválido' });
+    }
+    const prov = await prisma.$transaction(async (tx) => {
+      const criada = await tx.providenciaIncidente.create({
+        data: {
+          organizacaoId: orgId, incidenteId: inc.id, descricao: desc.slice(0, 2000), data: quando,
+          responsavelId: responsavelId || null, criadoPorId: req.usuario.id
+        },
+        include: { responsavel: { select: { id: true, nome: true } } }
+      });
+      await registrarHistorico(tx, {
+        organizacaoId: orgId, entidade: 'INCIDENTE', registroId: inc.id, acao: 'EDITAR', usuarioId: req.usuario.id,
+        diff: { providencia: { antes: null, depois: resumoProvidencia(criada) } }
+      });
+      return criada;
+    });
+    res.status(201).json(prov);
+  } catch (err) {
+    console.error('[POST /repositorio/incidentes/:id/providencias]', err);
+    res.status(500).json({ erro: 'Erro ao registrar providência' });
   }
 });
 

@@ -1,17 +1,11 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { TIPO_DIREITO_LABEL } from './rotulos';
+import { cpfValido, MSG_CPF } from '../documentosId';
 
-const TIPO_OPTIONS = [
-  { value: 'ACESSO', label: 'Acesso aos dados' },
-  { value: 'CORRECAO', label: 'Correção de dados' },
-  { value: 'ELIMINACAO', label: 'Eliminação de dados' },
-  { value: 'PORTABILIDADE', label: 'Portabilidade' },
-  { value: 'OPOSICAO', label: 'Oposição ao tratamento' },
-  { value: 'REVOGACAO', label: 'Revogação do consentimento' },
-  { value: 'INFORMACAO', label: 'Informação sobre compartilhamento' },
-  { value: 'PETICAO', label: 'Petição à ANPD' }
-];
+// Todos os direitos (rotulos unicos em rotulos.js), menos "Outro"
+const TIPO_OPTIONS = Object.entries(TIPO_DIREITO_LABEL).filter(([k]) => k !== 'OUTRO').map(([value, label]) => ({ value, label }));
 
 export default function DsarForm({ token, onVoltar }) {
   const [form, setForm] = useState({ titularNome: '', titularEmail: '', titularCpf: '', tipoDireito: '', descricao: '' });
@@ -20,9 +14,11 @@ export default function DsarForm({ token, onVoltar }) {
   const [sucesso, setSucesso] = useState('');
 
   const salvar = async () => {
+    setErro('');
     if (!form.titularNome || !form.titularEmail || !form.tipoDireito || !form.descricao) {
       return setErro('Preencha nome, e-mail, tipo de direito e descrição');
     }
+    if (form.titularCpf && !cpfValido(form.titularCpf)) return setErro(MSG_CPF);
     setLoading(true);
     setErro('');
     try {
@@ -73,6 +69,7 @@ export default function DsarForm({ token, onVoltar }) {
           </div>
         </div>
 
+        <p className="text-xs text-muted mb-8">Como no canal público, o prazo de 15 dias começa quando a identidade do titular for verificada (registre a verificação na tela da solicitação).</p>
         <div className="form-group">
           <label>Descrição da solicitação</label>
           <textarea value={form.descricao} onChange={e => setForm({ ...form, descricao: e.target.value })} rows={4} placeholder="Descreva o pedido do titular..." />

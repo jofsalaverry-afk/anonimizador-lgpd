@@ -1,9 +1,8 @@
 // Handlers de observabilidade — uptime, DB, memoria e metricas de negocio.
 // Montados em server.js com adminAuth. Nao expor sem autenticacao.
 
-const { PrismaClient } = require('@prisma/client');
 
-const prisma = new PrismaClient();
+const { prisma } = require('../db');
 
 function formatUptime(seconds) {
   const days = Math.floor(seconds / 86400);

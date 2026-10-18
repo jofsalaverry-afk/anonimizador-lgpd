@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import { TIPO_DIREITO_LABEL, SLA_BADGE } from './rotulos';
+import { BotoesExportar, BotaoPdfA } from './download';
 
-const TIPO_LABEL = {
-  ACESSO: 'Acesso', CORRECAO: 'Correção', ELIMINACAO: 'Eliminação',
-  PORTABILIDADE: 'Portabilidade', OPOSICAO: 'Oposição', REVOGACAO: 'Revogação',
-  INFORMACAO: 'Informação', PETICAO: 'Petição'
+// Mes AAAA-MM em horario de Brasilia (mesma regra do painel).
+const mesBrt = d => {
+  const x = new Date(new Date(d).getTime() - 3 * 60 * 60 * 1000);
+  return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, '0')}`;
 };
+
+const TIPO_LABEL = TIPO_DIREITO_LABEL;
 
 const STATUS_LABEL = {
   RECEBIDA: 'Recebida', AGUARDANDO_VERIFICACAO: 'Aguardando verificação',
@@ -21,17 +25,13 @@ const STATUS_BADGE = {
   CANCELADA: 'badge badge-danger'
 };
 
-const SLA_BADGE = {
-  verde: 'badge badge-success', amarelo: 'badge badge-warning',
-  vermelho: 'badge badge-danger', vencido: 'badge badge-danger'
-};
-
-export default function DsarList({ token, onNova, onVer }) {
+export default function DsarList({ token, onNova, onVer, filtroInicial, onModelos }) {
   const [solicitacoes, setSolicitacoes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroMes, setFiltroMes] = useState(filtroInicial?.filtro === 'mes' ? filtroInicial.mes : '');
 
   const carregar = useCallback(async () => {
     try {
@@ -50,6 +50,7 @@ export default function DsarList({ token, onNova, onVer }) {
   const filtradas = solicitacoes.filter(s => {
     if (filtroStatus && s.status !== filtroStatus) return false;
     if (filtroTipo && s.tipoDireito !== filtroTipo) return false;
+    if (filtroMes && mesBrt(s.dataRecebimento) !== filtroMes) return false;
     return true;
   });
 
@@ -58,8 +59,10 @@ export default function DsarList({ token, onNova, onVer }) {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">Direitos do Titular (DSAR)</h2>
         <div className="btn-row">
+          <BotoesExportar token={token} caminho="/dsar/export" nome="dsar-solicitacoes" onErro={setErro} />
+          <BotaoPdfA token={token} tipo="dsar" onErro={setErro} />
+          <button onClick={onModelos} className="btn-secondary btn-sm">Modelos de resposta</button>
           <button onClick={onNova} className="btn-primary btn-sm">+ Nova solicitação</button>
         </div>
       </div>
@@ -75,6 +78,8 @@ export default function DsarList({ token, onNova, onVer }) {
           <option value="">Todos os tipos</option>
           {Object.entries(TIPO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
+        <input type="month" value={filtroMes} onChange={e => setFiltroMes(e.target.value)} title="Mês de recebimento" style={{ width: 'auto', marginBottom: 0 }} />
+        {filtroMes && <button className="btn-ghost btn-sm" onClick={() => setFiltroMes('')}>Todos os meses</button>}
       </div>
 
       {filtradas.length === 0 ? (
@@ -91,7 +96,7 @@ export default function DsarList({ token, onNova, onVer }) {
                 <th>Titular</th>
                 <th>Tipo de Direito</th>
                 <th>Status</th>
-                <th>SLA</th>
+                <th>Prazo</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -106,11 +111,8 @@ export default function DsarList({ token, onNova, onVer }) {
                   <td><span className="badge badge-purple">{TIPO_LABEL[s.tipoDireito] || s.tipoDireito}</span></td>
                   <td><span className={STATUS_BADGE[s.status] || 'badge badge-muted'}>{STATUS_LABEL[s.status] || s.status}</span></td>
                   <td>
-                    {['ENCERRADA', 'CANCELADA'].includes(s.status) ? (
-                      <span className="badge badge-muted">Encerrado</span>
-                    ) : (
-                      <span className={SLA_BADGE[s.sla?.cor] || 'badge badge-muted'}>{s.sla?.label || '-'}</span>
-                    )}
+                    {/* Etapa 7b: situacao do prazo calculada pelo status */}
+                    <span className={SLA_BADGE[s.sla?.cor] || 'badge badge-muted'}>{s.sla?.label || '-'}</span>
                   </td>
                   <td>
                     <button onClick={() => onVer(s.id)} className="btn-ghost btn-sm">Ver</button>

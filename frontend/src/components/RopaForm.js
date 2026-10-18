@@ -1,22 +1,24 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API } from '../config';
+import SeletorResponsavel from './SeletorResponsavel';
+import { TIPO_SISTEMA_LABEL } from './rotulos';
+import { OPCOES_ART7, OPCOES_ART11, CATEGORIAS_SENSIVEIS, CATEGORIAS_DADOS, CATEGORIAS_TITULARES, ROTULO_CAMPO_BASE_LEGAL, temDadoSensivel, textoRetencao, normalizarCategorias } from '../basesLegais';
+import { cnpjValido, MSG_CNPJ } from '../documentosId';
+import ROTULOS_HIST from '../rotulosHistorico.json';
 
-const BASE_LEGAL_OPTIONS = [
-  { value: 'CONSENTIMENTO', label: 'Consentimento' },
-  { value: 'OBRIGACAO_LEGAL', label: 'Obrigação Legal' },
-  { value: 'EXECUCAO_CONTRATO', label: 'Execução de Contrato' },
-  { value: 'INTERESSE_LEGITIMO', label: 'Interesse Legítimo' },
-  { value: 'PROTECAO_VIDA', label: 'Proteção à Vida' },
-  { value: 'TUTELA_SAUDE', label: 'Tutela da Saúde' },
-  { value: 'INTERESSE_PUBLICO', label: 'Interesse Público' },
-  { value: 'EXERCICIO_DIREITOS', label: 'Exercício de Direitos' }
-];
+const HIPOTESES_ART33 = ROTULOS_HIST.valores.baseLegalTransferencia;
+const ehExterior = pais => {
+  const p = String(pais || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  return !!p && !['brasil', 'brazil', 'br'].includes(p);
+};
 
-const CATEGORIAS_DADOS = ['Nome', 'CPF', 'RG', 'E-mail', 'Telefone', 'Endereco', 'Dados Bancarios', 'Dados de Saude', 'Outros'];
-const CATEGORIAS_TITULARES = ['Servidores', 'Vereadores', 'Fornecedores', 'Cidadaos', 'Menores', 'Outros'];
+// Dados sensiveis (art. 5, II) ficam num grupo proprio; "Dados de Saude"
+// (categoria antiga) continua aparecendo nos registros que ja a usam.
+// Listas com acento (basesLegais.json); valores antigos sem acento sao
+// convertidos ao abrir o registro.
 
-const COMPARTILHAMENTO_VAZIO = { terceiroNome: '', terceiroCNPJ: '', finalidadeCompartilhamento: '', paisDestino: 'Brasil', baseLegalTransferencia: '' };
+const COMPARTILHAMENTO_VAZIO = { terceiroId: '', terceiroNome: '', terceiroCNPJ: '', finalidadeCompartilhamento: '', paisDestino: 'Brasil', baseLegalTransferencia: '' };
 
 export default function RopaForm({ token, tratamentoId, onVoltar }) {
   const [passo, setPasso] = useState(1);
@@ -26,11 +28,23 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
   const [sucesso, setSucesso] = useState('');
 
   const [form, setForm] = useState({
-    nome: '', finalidade: '', baseLegal: '',
+    nome: '', finalidade: '', baseLegal: '', baseLegalSensivel: '',
     categoriasDados: [], categoriasTitulares: [],
     compartilhamentos: [],
-    retencaoDias: '', formaDescarte: '', medidasSeguranca: ''
+    retencaoDias: '', formaDescarte: '', medidasSeguranca: '',
+    responsavelId: '', setorId: '', outrosMeios: '', sistemaIds: []
   });
+  // Opcoes dos vinculos. null = modulo desligado (o campo some e nao e enviado).
+  const [setores, setSetores] = useState([]);
+  const [sistemas, setSistemas] = useState(null);
+  const [terceiros, setTerceiros] = useState(null);
+
+  useEffect(() => {
+    const headers = { Authorization: `Bearer ${token}` };
+    axios.get(`${API}/setores`, { headers }).then(res => setSetores(res.data)).catch(() => setSetores([]));
+    axios.get(`${API}/inventario/sistemas`, { headers }).then(res => setSistemas(res.data)).catch(() => setSistemas(null));
+    axios.get(`${API}/terceiros`, { headers }).then(res => setTerceiros(res.data)).catch(() => setTerceiros(null));
+  }, [token]);
 
   useEffect(() => {
     if (!tratamentoId) return;
@@ -42,15 +56,19 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
         const t = res.data.find(x => x.id === tratamentoId);
         if (t) {
           setForm({
-            nome: t.nome || '', finalidade: t.finalidade || '', baseLegal: t.baseLegal || '',
-            categoriasDados: t.categoriasDados || [], categoriasTitulares: t.categoriasTitulares || [],
+            nome: t.nome || '', finalidade: t.finalidade || '', baseLegal: t.baseLegal || '', baseLegalSensivel: t.baseLegalSensivel || '',
+            categoriasDados: normalizarCategorias(t.categoriasDados), categoriasTitulares: normalizarCategorias(t.categoriasTitulares),
             compartilhamentos: (t.compartilhamentos || []).map(c => ({
+              terceiroId: c.terceiroId || '',
               terceiroNome: c.terceiroNome, terceiroCNPJ: c.terceiroCNPJ || '',
               finalidadeCompartilhamento: c.finalidadeCompartilhamento,
               paisDestino: c.paisDestino || 'Brasil', baseLegalTransferencia: c.baseLegalTransferencia || ''
             })),
             retencaoDias: t.retencaoDias != null ? String(t.retencaoDias) : '',
-            formaDescarte: t.formaDescarte || '', medidasSeguranca: t.medidasSeguranca || ''
+            formaDescarte: t.formaDescarte || '', medidasSeguranca: t.medidasSeguranca || '',
+            responsavelId: t.responsavelId || '',
+            setorId: t.setorId || '', outrosMeios: t.outrosMeios || '',
+            sistemaIds: (t.sistemas || []).map(v => v.sistemaId)
           });
         }
       } catch (err) {
@@ -74,6 +92,19 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
     setForm({ ...form, compartilhamentos: [...form.compartilhamentos, { ...COMPARTILHAMENTO_VAZIO }] });
   };
 
+  // Escolher um terceiro cadastrado preenche nome e CNPJ (o backend
+  // tambem copia, para manter o formato antigo dos compartilhamentos).
+  const escolherTerceiro = (idx, terceiroId) => {
+    const t = (terceiros || []).find(x => x.id === terceiroId);
+    const novos = [...form.compartilhamentos];
+    novos[idx] = {
+      ...novos[idx],
+      terceiroId,
+      ...(t && { terceiroNome: t.razaoSocial, terceiroCNPJ: t.cnpj || '' })
+    };
+    setForm({ ...form, compartilhamentos: novos });
+  };
+
   const removeCompartilhamento = (idx) => {
     setForm({ ...form, compartilhamentos: form.compartilhamentos.filter((_, i) => i !== idx) });
   };
@@ -84,13 +115,30 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
       setPasso(1);
       return;
     }
+    // Etapa 7b: mesmas regras do servidor
+    if (form.retencaoDias !== '' && (!/^\d+$/.test(String(form.retencaoDias)))) {
+      setErro('Retenção inválida: informe um número inteiro de dias, zero ou maior');
+      return;
+    }
+    for (const c of form.compartilhamentos.filter(x => x.terceiroNome.trim())) {
+      if (c.terceiroCNPJ && !cnpjValido(c.terceiroCNPJ)) { setErro(`${MSG_CNPJ} (${c.terceiroNome})`); return; }
+      if (ehExterior(c.paisDestino) && !c.baseLegalTransferencia) { setErro(`Compartilhamento com ${c.terceiroNome} vai para o exterior: escolha a hipótese do art. 33`); return; }
+    }
     setLoading(true);
     setErro('');
     try {
+      const { sistemaIds, ...resto } = form;
       const payload = {
-        ...form,
+        ...resto,
         retencaoDias: form.retencaoDias ? parseInt(form.retencaoDias, 10) : null,
-        compartilhamentos: form.compartilhamentos.filter(c => c.terceiroNome.trim())
+        // Base do art. 11 so vale com dado sensivel
+        baseLegalSensivel: temDadoSensivel(form.categoriasDados) ? (form.baseLegalSensivel || null) : null,
+        compartilhamentos: form.compartilhamentos
+          .filter(c => c.terceiroNome.trim())
+          .map(c => ({ ...c, terceiroId: c.terceiroId || null })),
+        // So envia sistemas se o modulo inventario esta ativo; senao
+        // os vinculos existentes ficam como estao.
+        ...(sistemas && { sistemaIds })
       };
       if (tratamentoId) {
         await axios.put(`${API}/ropa/tratamentos/${tratamentoId}`, payload, {
@@ -115,7 +163,7 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
     <div className="steps mb-20">
       {[1, 2, 3, 4].map(n => (
         <button key={n} onClick={() => setPasso(n)} className={`step ${passo === n ? 'step-active' : ''}`}>
-          {n}. {['Dados básicos', 'Categorias', 'Compartilhamentos', 'Retenção'][n - 1]}
+          {n}. {['Dados básicos', 'Dados e meios', 'Compartilhamentos', 'Retenção'][n - 1]}
         </button>
       ))}
     </div>
@@ -145,11 +193,24 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
               <textarea value={form.finalidade} onChange={e => setForm({ ...form, finalidade: e.target.value })} rows={3} placeholder="Descreva a finalidade do tratamento de dados" className="mb-12" />
             </div>
             <div className="form-group">
-              <label>Base legal (LGPD Art. 7)</label>
+              <label>{ROTULO_CAMPO_BASE_LEGAL}</label>
               <select value={form.baseLegal} onChange={e => setForm({ ...form, baseLegal: e.target.value })} className="mb-12">
-                <option value="">Selecione...</option>
-                {BASE_LEGAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                <option value="">Selecione a hipótese do art. 7º...</option>
+                {OPCOES_ART7.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
+              <p className="text-xs text-muted mb-12">Havendo dado sensível (Passo 2), escolha também a hipótese do art. 11.</p>
+            </div>
+            <div className="form-group">
+              <label>Responsável pelo tratamento</label>
+              <SeletorResponsavel token={token} value={form.responsavelId} onChange={v => setForm({ ...form, responsavelId: v })} className="mb-12" />
+            </div>
+            <div className="form-group">
+              <label>Setor responsável</label>
+              <select value={form.setorId} onChange={e => setForm({ ...form, setorId: e.target.value })} className="mb-12">
+                <option value="">Não informado</option>
+                {setores.filter(x => x.ativo || x.id === form.setorId).map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
+              </select>
+              {setores.length === 0 && <p className="text-muted text-xs">Cadastre os setores em Configurações.</p>}
             </div>
           </div>
         )}
@@ -158,16 +219,47 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
           <div>
             <label className="mb-8">Categorias de dados pessoais</label>
             <div className="chip-row mb-20">
-              {CATEGORIAS_DADOS.map(c => (
+              {[...CATEGORIAS_DADOS, ...form.categoriasDados.filter(c => !CATEGORIAS_DADOS.includes(c) && !CATEGORIAS_SENSIVEIS.includes(c))].map(c => (
                 <button key={c} type="button" onClick={() => setForm({ ...form, categoriasDados: toggleChip(form.categoriasDados, c) })} className={`chip ${form.categoriasDados.includes(c) ? 'chip-active' : ''}`}>{c}</button>
               ))}
             </div>
+            <label className="mb-8">Dados pessoais sensíveis (LGPD, art. 5º, II)</label>
+            <div className="chip-row mb-12">
+              {CATEGORIAS_SENSIVEIS.map(c => (
+                <button key={c} type="button" onClick={() => setForm({ ...form, categoriasDados: toggleChip(form.categoriasDados, c) })} className={`chip ${form.categoriasDados.includes(c) ? 'chip-active' : ''}`}>{c}</button>
+              ))}
+            </div>
+            {temDadoSensivel(form.categoriasDados) && (
+              <div className="form-group mb-20">
+                <label>Base legal para dados sensíveis (LGPD, art. 11)</label>
+                <select value={form.baseLegalSensivel} onChange={e => setForm({ ...form, baseLegalSensivel: e.target.value })}>
+                  <option value="">Selecione a hipótese do art. 11...</option>
+                  {OPCOES_ART11.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                {!form.baseLegalSensivel && <p className="text-xs text-muted mt-4">Sem hipótese do art. 11, o tratamento não conta como mapeado.</p>}
+              </div>
+            )}
             <label className="mb-8">Categorias de titulares</label>
-            <div className="chip-row">
+            <div className="chip-row mb-20">
               {CATEGORIAS_TITULARES.map(c => (
                 <button key={c} type="button" onClick={() => setForm({ ...form, categoriasTitulares: toggleChip(form.categoriasTitulares, c) })} className={`chip ${form.categoriasTitulares.includes(c) ? 'chip-active' : ''}`}>{c}</button>
               ))}
             </div>
+            {sistemas && (
+              <>
+                <label className="mb-8">Sistemas utilizados (inventário)</label>
+                <div className="chip-row mb-20">
+                  {sistemas.filter(x => x.ativo || form.sistemaIds.includes(x.id)).map(x => (
+                    <button key={x.id} type="button" title={TIPO_SISTEMA_LABEL[x.tipo]}
+                      onClick={() => setForm({ ...form, sistemaIds: toggleChip(form.sistemaIds, x.id) })}
+                      className={`chip ${form.sistemaIds.includes(x.id) ? 'chip-active' : ''}`}>{x.nome}</button>
+                  ))}
+                  {sistemas.length === 0 && <span className="text-muted text-sm">Nenhum sistema no inventário ainda.</span>}
+                </div>
+              </>
+            )}
+            <label>Outros meios (físico, papel, etc.)</label>
+            <textarea rows={2} value={form.outrosMeios} onChange={e => setForm({ ...form, outrosMeios: e.target.value })} placeholder="Ex: fichas em papel arquivadas no setor de protocolo" />
           </div>
         )}
 
@@ -186,6 +278,15 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
                   <span className="terceiro-num">Terceiro {i + 1}</span>
                   <button type="button" onClick={() => removeCompartilhamento(i)} className="terceiro-remove">Remover</button>
                 </div>
+                {terceiros && (
+                  <div className="form-group mb-8">
+                    <label>Terceiro cadastrado</label>
+                    <select value={c.terceiroId || ''} onChange={e => escolherTerceiro(i, e.target.value)}>
+                      <option value="">Não vinculado (informar nome abaixo)</option>
+                      {terceiros.filter(t => t.ativo || t.id === c.terceiroId).map(t => <option key={t.id} value={t.id}>{t.razaoSocial}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div className="grid-2 gap-8">
                   <div className="form-group">
                     <label>Nome</label>
@@ -204,6 +305,15 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
                     <input value={c.paisDestino} onChange={e => setCompartilhamento(i, 'paisDestino', e.target.value)} />
                   </div>
                 </div>
+                {ehExterior(c.paisDestino) && (
+                  <div className="form-group">
+                    <label>Hipótese de transferência internacional (LGPD, art. 33) *</label>
+                    <select value={c.baseLegalTransferencia || ''} onChange={e => setCompartilhamento(i, 'baseLegalTransferencia', e.target.value)}>
+                      <option value="">Selecione o inciso...</option>
+                      {Object.entries(HIPOTESES_ART33).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -213,7 +323,8 @@ export default function RopaForm({ token, tratamentoId, onVoltar }) {
           <div className="form-grid">
             <div className="form-group">
               <label>Retenção (dias)</label>
-              <input type="number" value={form.retencaoDias} onChange={e => setForm({ ...form, retencaoDias: e.target.value })} placeholder="Ex: 1825 (5 anos)" className="mb-12" />
+              <input type="number" min="0" step="1" value={form.retencaoDias} onChange={e => setForm({ ...form, retencaoDias: e.target.value })} placeholder="Ex: 1825 (5 anos)" className="mb-4" />
+              <p className="text-xs text-muted mb-12">{form.retencaoDias ? textoRetencao(form.retencaoDias) : ' '}</p>
             </div>
             <div className="form-group">
               <label>Forma de descarte</label>
