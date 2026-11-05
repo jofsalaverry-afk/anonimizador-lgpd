@@ -398,7 +398,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-default);
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .card + .card { margin-top: 16px; }
@@ -672,6 +672,9 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 }
 
 .table td:last-child { text-align: right; }
+/* Botões de ação dentro da tabela quebram linha em vez de sumir à direita */
+.table td .btn-row { flex-wrap: wrap; justify-content: flex-end; }
+.table td .btn-row button { white-space: nowrap; }
 
 .table tbody tr { transition: background 0.1s; }
 .table tbody tr:hover { background: var(--bg-hover); }
