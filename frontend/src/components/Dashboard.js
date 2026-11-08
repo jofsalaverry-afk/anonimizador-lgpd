@@ -136,7 +136,7 @@ export default function Dashboard({ usuario, token, onLogout, onTokenInvalido })
           {leitura && <div className="aviso-leitura">Perfil Auditor: modo somente leitura.</div>}
           {pagina === 'painel' && pode('painel') && <PainelIndicadores token={token} usuario={usuario} onNavegar={navegar} />}
           {pagina === 'anonimizador' && pode('anonimizador') && <Anonimizador token={token} usuario={usuario} onTokenInvalido={onTokenInvalido} />}
-          {pagina === 'ropa' && pode('ropa') && <Ropa key={chaveFiltro} token={token} filtroInicial={filtro} />}
+          {pagina === 'ropa' && pode('ropa') && <Ropa key={chaveFiltro} token={token} usuario={usuario} filtroInicial={filtro} />}
           {pagina === 'dsar' && pode('dsar') && <Dsar key={chaveFiltro} token={token} usuario={usuario} filtroInicial={filtro} />}
           {pagina === 'pesquisa' && pode('pesquisa') && <Pesquisa token={token} usuario={usuario} />}
           {pagina === 'documentos' && pode('documentos') && <Repositorio token={token} usuario={usuario} subpagina="documentos" />}

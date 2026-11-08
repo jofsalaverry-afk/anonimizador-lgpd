@@ -4,7 +4,9 @@ import { API } from '../config';
 import { BotoesExportar, BotaoPdfA } from './download';
 import { ROTULO_BASE_LEGAL as BASE_LEGAL_LABEL, ROTULO_CAMPO_BASE_LEGAL, normalizarCategorias, rotuloCurtoBaseLegal } from '../basesLegais';
 
-export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial }) {
+export default function RopaList({ token, usuario, onNovo, onVer, onEditar, filtroInicial }) {
+  // Desativar e so Gestor/DPO (o backend tambem barra os demais)
+  const podeDesativar = ['GESTOR', 'ENCARREGADO_LGPD'].includes(usuario?.perfil);
   const [tratamentos, setTratamentos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
@@ -146,7 +148,7 @@ export default function RopaList({ token, onNovo, onVer, onEditar, filtroInicial
                     <div className="btn-row" style={{ flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
                       <button onClick={() => onVer(t.id)} className="btn-secondary btn-sm">Ver</button>
                       <button onClick={() => onEditar(t.id)} className="btn-ghost btn-sm acao-escrita">Editar</button>
-                      {t.ativo && <button onClick={() => desativar(t.id)} className="btn-danger btn-sm">Desativar</button>}
+                      {t.ativo && podeDesativar && <button onClick={() => desativar(t.id)} className="btn-danger btn-sm">Desativar</button>}
                     </div>
                   </td>
                 </tr>
