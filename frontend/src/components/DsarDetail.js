@@ -25,7 +25,9 @@ const STATUS_BADGE = {
   CANCELADA: 'badge badge-danger'
 };
 
-export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
+export default function DsarDetail({ token, usuario, solicitacaoId, onVoltar }) {
+  // Verificar identidade, responder e registrar envio: so Gestor/DPO (regra do backend)
+  const gestao = ['GESTOR', 'ENCARREGADO_LGPD'].includes(usuario?.perfil);
   const [sol, setSol] = useState(null);
   const [loading, setLoading] = useState(true);
   const [resposta, setResposta] = useState('');
@@ -222,7 +224,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
             </span>
           ) : <span className="badge badge-warning">Não verificada</span>}
           {ident.observacao && <span className="text-xs text-muted">{ident.observacao}</span>}
-          {!['ENCERRADA', 'CANCELADA'].includes(sol.status) && !showVerifForm && (
+          {gestao && !['ENCERRADA', 'CANCELADA'].includes(sol.status) && !showVerifForm && (
             <button onClick={() => setShowVerifForm(true)} className="btn-ghost btn-sm acao-escrita">
               Registrar verificação de identidade
             </button>
@@ -245,7 +247,7 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
               ) : (
                 <>
                   <span className="badge badge-warning">Não enviada por e-mail — registre o envio por outro meio</span>
-                  {!envioForm && <button className="btn-secondary btn-sm acao-escrita" onClick={() => setEnvioForm({ meio: 'PESSOALMENTE', data: hojeInput(), observacao: '' })}>Registrar envio</button>}
+                  {gestao && !envioForm && <button className="btn-secondary btn-sm acao-escrita" onClick={() => setEnvioForm({ meio: 'PESSOALMENTE', data: hojeInput(), observacao: '' })}>Registrar envio</button>}
                 </>
               )}
             </div>
@@ -277,7 +279,9 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
         {!encerrada && (
           <div className="btn-row mt-20">
             {sol.status === 'AGUARDANDO_VERIFICACAO' ? (
-              !showVerifForm && (
+              !gestao ? (
+                <span className="text-sm text-muted">Aguardando o Encarregado confirmar a identidade do titular.</span>
+              ) : !showVerifForm && (
                 <button onClick={() => setShowVerifForm(true)} className="btn-primary btn-sm">
                   Registrar verificação de identidade
                 </button>
@@ -290,9 +294,11 @@ export default function DsarDetail({ token, solicitacaoId, onVoltar }) {
                 <button onClick={() => setShowEvidForm(!showEvidForm)} className="btn-secondary btn-sm acao-escrita">
                   {showEvidForm ? 'Cancelar' : '+ Registrar providência'}
                 </button>
-                <button onClick={abrirResposta} className="btn-primary btn-sm">
-                  {showRespForm ? 'Cancelar' : 'Responder'}
-                </button>
+                {gestao && (
+                  <button onClick={abrirResposta} className="btn-primary btn-sm">
+                    {showRespForm ? 'Cancelar' : 'Responder'}
+                  </button>
+                )}
               </>
             )}
           </div>

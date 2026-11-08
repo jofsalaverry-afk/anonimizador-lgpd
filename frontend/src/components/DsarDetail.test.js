@@ -15,7 +15,7 @@ function montar(sol, modelos = []) {
       : url.endsWith('/dsar/modelos') ? modelos
       : url.includes('/historico') ? { itens: [], usuarios: {}, perfis: {}, rotulosCampos: {} } : []
   }));
-  render(<DsarDetail token="tk" solicitacaoId="d1" onVoltar={() => {}} />);
+  render(<DsarDetail token="tk" usuario={{ perfil: 'ENCARREGADO_LGPD' }} solicitacaoId="d1" onVoltar={() => {}} />);
 }
 
 test('verificacao de identidade: Confirmar visivel e Cancelar cinza ao lado, sem trocar o rotulo do botao do topo', async () => {

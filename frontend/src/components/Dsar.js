@@ -15,6 +15,7 @@ export default function Dsar({ token, usuario, filtroInicial }) {
     return (
       <DsarDetail
         token={token}
+        usuario={usuario}
         solicitacaoId={solicitacaoId}
         onVoltar={() => setTela('list')}
       />
@@ -33,6 +34,7 @@ export default function Dsar({ token, usuario, filtroInicial }) {
     <div>
       <DsarList
         token={token}
+        usuario={usuario}
         filtroInicial={filtroInicial}
         onModelos={() => setTela('modelos')}
         onNova={() => setTela('nova')}
