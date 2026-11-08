@@ -222,6 +222,10 @@ router.put('/solicitacoes/:id', authMiddleware, requireModulo, async (req, res) 
 // Adiciona evidencia (imutavel — sem update/delete)
 router.post('/solicitacoes/:id/evidencias', authMiddleware, requireModulo, async (req, res) => {
   try {
+    // Auditor e Treinando sao somente leitura (mesma regra das demais escritas)
+    if (['AUDITOR', 'TREINANDO'].includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Sem permissão para registrar evidências' });
+    }
     const existente = await prisma.solicitacaoTitular.findFirst({
       where: { id: req.params.id, organizacaoId: req.usuario.organizacaoId }
     });
