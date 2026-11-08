@@ -25,7 +25,9 @@ const STATUS_BADGE = {
   CANCELADA: 'badge badge-danger'
 };
 
-export default function DsarList({ token, onNova, onVer, filtroInicial, onModelos }) {
+export default function DsarList({ token, usuario, onNova, onVer, filtroInicial, onModelos }) {
+  // Export contem dados pessoais dos titulares: so Gestor, DPO ou Auditor (regra do backend)
+  const podeExportar = ['GESTOR', 'ENCARREGADO_LGPD', 'AUDITOR'].includes(usuario?.perfil);
   const [solicitacoes, setSolicitacoes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
@@ -60,7 +62,7 @@ export default function DsarList({ token, onNova, onVer, filtroInicial, onModelo
     <div>
       <div className="page-header">
         <div className="btn-row">
-          <BotoesExportar token={token} caminho="/dsar/export" nome="dsar-solicitacoes" onErro={setErro} />
+          {podeExportar && <BotoesExportar token={token} caminho="/dsar/export" nome="dsar-solicitacoes" onErro={setErro} />}
           <BotaoPdfA token={token} tipo="dsar" onErro={setErro} />
           <button onClick={onModelos} className="btn-secondary btn-sm">Modelos de resposta</button>
           <button onClick={onNova} className="btn-primary btn-sm">+ Nova solicitação</button>
